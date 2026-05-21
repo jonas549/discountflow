@@ -102,7 +102,37 @@ React Router v7 uses the same build output format as Remix (`build/client` for s
 
 ---
 
-## 6. App Distribution
+## 6. Internacionalización (i18n)
+
+**Decision: Objeto TypeScript plano con funciones helper — sin librería externa**
+
+Toda la UI está en español de LATAM. No se planea soporte multiidioma en el corto plazo. Un objeto `es` en `app/i18n.ts` con funciones helper (`estadoLabel`, `tipoLabel`, `formatDate`) es suficiente y sin overhead.
+
+**Por qué no react-i18next:** La librería agrega ~15 kB comprimidos, un context provider, y complejidad de interpolación innecesaria cuando hay un solo idioma de destino. Si en el futuro se requiere multiidioma, la migración a i18next es directa.
+
+---
+
+## 7. Diseño de UI (Fase 2.1)
+
+**Decision: Polaris App Home web components (`s-*`) para estructura de página + HTML con inline styles para componentes custom**
+
+Las tarjetas de tipo de campaña, la tabla de campañas y los KPI cards del dashboard requieren control de layout que los componentes `s-*` no proveen directamente. Se usa HTML/CSS en línea dentro de `s-section` para esos componentes, manteniendo `s-page` y `s-section` como contenedores estándar.
+
+**Íconos:** `lucide-react` para íconos de acción y KPIs (tag, trending-up, dollar-sign, etc.).
+
+**ResourcePicker:** `useAppBridge()` de `@shopify/app-bridge-react` → `shopify.resourcePicker()` para selección de productos. El resultado se serializa a JSON en un hidden input para envío con el formulario.
+
+---
+
+## 8. Import paths
+
+**Decision: Imports relativos — sin alias `~`**
+
+El tsconfig no define el alias `~` en `paths`, por lo que `~/db.server` y similares no son resolvibles en el build SSR de Rollup. Todos los imports entre módulos internos usan paths relativos (`../../db.server`, `../shopify/admin-api`, etc.).
+
+---
+
+## 9. App Distribution
 
 **Decision: `AppDistribution.AppStore` from day 1, deployed as UNLISTED during development**
 
