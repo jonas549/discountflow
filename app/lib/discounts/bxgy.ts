@@ -23,12 +23,13 @@ function buildDiscountItems(
   productIds: string[],
   collectionIds: string[]
 ): Record<string, unknown> {
-  if (mode === "all") return { all: true };
+  // NOTE: { all: true } is NOT supported for BXGY discounts (Shopify API limitation).
+  // "all" mode must be resolved to explicit product IDs before calling this function.
   if (mode === "collections" && collectionIds.length > 0)
-    return { collections: { collectionsToAdd: collectionIds } };
+    return { collections: { add: collectionIds } };
   if (productIds.length > 0)
     return { products: { productsToAdd: productIds } };
-  return { all: true };
+  return { products: { productsToAdd: [] } };
 }
 
 async function resolveToProductIds(
@@ -57,10 +58,11 @@ async function resolveToProductIds(
 
 // Resolve X and Y items to the format needed by the Shopify API.
 async function resolveItems(admin: AdminClient, config: BxgyCampaignConfig) {
-  // Resolve X product IDs (tags/vendors/types need resolution; products/collections are already IDs)
+  // Resolve X product IDs. "all", tags, vendors, productTypes must be resolved to explicit IDs
+  // because { all: true } is not supported by the BXGY Shopify API.
   let xProductIds = config.xProductIds;
   if (
-    (config.xMode === "tags" || config.xMode === "vendors" || config.xMode === "productTypes") &&
+    (config.xMode === "all" || config.xMode === "tags" || config.xMode === "vendors" || config.xMode === "productTypes") &&
     xProductIds.length === 0
   ) {
     xProductIds = await resolveToProductIds(admin, config.xMode, config.xRawItems);
@@ -73,7 +75,7 @@ async function resolveItems(admin: AdminClient, config: BxgyCampaignConfig) {
 
   if (
     config.yMode !== "same-as-x" &&
-    (yMode === "tags" || yMode === "vendors" || yMode === "productTypes") &&
+    (yMode === "all" || yMode === "tags" || yMode === "vendors" || yMode === "productTypes") &&
     yProductIds.length === 0
   ) {
     yProductIds = await resolveToProductIds(admin, yMode, config.yRawItems);
