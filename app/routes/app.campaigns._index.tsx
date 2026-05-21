@@ -15,6 +15,15 @@ import {
   revertPercentageDiscount,
   reactivatePercentageDiscount,
 } from "../lib/discounts/percentage";
+import {
+  deactivateBxgyDiscount,
+  activateBxgyDiscount,
+  deleteBxgyDiscount,
+} from "../lib/discounts/bxgy";
+import {
+  bxgyDiscountLabel,
+  type BxgyCampaignConfig,
+} from "../lib/discounts/bxgy-client";
 import { es, estadoLabel, tipoLabel, formatDate } from "../i18n";
 import { Btn, LinkBtn } from "../components/Btn";
 
@@ -37,15 +46,31 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   });
   if (!campaign) return Response.json({ error: "Campaña no encontrada" }, { status: 404 });
 
+  const bxgyId = (campaign.config as BxgyCampaignConfig).shopifyDiscountId;
+
   try {
     if (actionType === "pause" && campaign.status === "ACTIVE") {
-      await revertPercentageDiscount(admin, campaignId);
+      if (campaign.type === "PERCENTAGE") {
+        await revertPercentageDiscount(admin, campaignId);
+      } else if (campaign.type === "BXGY" && bxgyId) {
+        await deactivateBxgyDiscount(admin, bxgyId);
+      }
       await prisma.campaign.update({ where: { id: campaignId }, data: { status: "PAUSED" } });
     } else if (actionType === "activate" && campaign.status === "PAUSED") {
-      await reactivatePercentageDiscount(admin, campaignId);
+      if (campaign.type === "PERCENTAGE") {
+        await reactivatePercentageDiscount(admin, campaignId);
+      } else if (campaign.type === "BXGY" && bxgyId) {
+        await activateBxgyDiscount(admin, bxgyId);
+      }
       await prisma.campaign.update({ where: { id: campaignId }, data: { status: "ACTIVE" } });
     } else if (actionType === "delete") {
-      if (campaign.status === "ACTIVE") await revertPercentageDiscount(admin, campaignId);
+      if (campaign.status === "ACTIVE" || campaign.status === "PAUSED") {
+        if (campaign.type === "PERCENTAGE") {
+          await revertPercentageDiscount(admin, campaignId);
+        } else if (campaign.type === "BXGY" && bxgyId) {
+          try { await deleteBxgyDiscount(admin, bxgyId); } catch { /* discount may already be gone */ }
+        }
+      }
       await prisma.campaign.delete({ where: { id: campaignId } });
     }
   } catch (err) {
@@ -482,7 +507,7 @@ export default function Campaigns() {
             title={es.campanas.bxgy.titulo}
             description={es.campanas.bxgy.descripcion}
             ejemplo={es.campanas.bxgy.ejemplo}
-            disabled
+            href="/app/campaigns/new/bxgy"
           />
         </div>
       </s-section>
@@ -541,13 +566,40 @@ export default function Campaigns() {
                   const discount =
                     c.type === "PERCENTAGE"
                       ? `${(c.config as { discountPercent?: number }).discountPercent ?? "—"}%`
+                      : c.type === "BXGY"
+                      ? bxgyDiscountLabel(c.config as BxgyCampaignConfig)
                       : "—";
+                  const editHref =
+                    c.type === "BXGY"
+                      ? `/app/campaigns/${c.id}/edit/bxgy`
+                      : `/app/campaigns/${c.id}/edit`;
                   return (
                     <tr key={c.id} style={{ borderBottom: "1px solid #f1f2f3" }}>
-                      <td
-                        style={{ padding: "12px", fontWeight: "500", color: "#202223" }}
-                      >
-                        {c.name}
+                      <td style={{ padding: "12px", fontWeight: "500", color: "#202223" }}>
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                          {c.name}
+                          {c.type === "BXGY" && (
+                            <span
+                              title={es.nuevaBxgy.tooltipGestionado}
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                width: "16px",
+                                height: "16px",
+                                borderRadius: "50%",
+                                background: "#e1e3e5",
+                                color: "#6d7175",
+                                fontSize: "10px",
+                                fontWeight: "700",
+                                cursor: "help",
+                                flexShrink: 0,
+                              }}
+                            >
+                              i
+                            </span>
+                          )}
+                        </span>
                       </td>
                       <td style={{ padding: "12px", color: "#6d7175" }}>
                         {tipoLabel(c.type)}
@@ -595,9 +647,9 @@ export default function Campaigns() {
                         <div
                           style={{ display: "flex", gap: "8px", alignItems: "center" }}
                         >
-                          {/* Editar — siempre visible, acción positiva */}
+                          {/* Editar — ruta difiere por tipo */}
                           <LinkBtn
-                            to={`/app/campaigns/${c.id}/edit`}
+                            to={editHref}
                             variant="primary"
                             size="sm"
                           >
