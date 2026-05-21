@@ -2,7 +2,7 @@
 # Run `shopify app config link` to link this file to your Partner Dashboard app.
 
 client_id = "cca497b9abcf56c14d019ee24d0260d5"
-application_url = "https://example.com"
+application_url = "https://discountflow-app.vercel.app"
 embedded = true
 name = "DiscountFlow"
 
@@ -10,7 +10,9 @@ name = "DiscountFlow"
 # read_products + write_products: modify compareAtPrice & price for PERCENTAGE / RANGE campaigns
 # read_orders: attribute orders to campaigns (analytics)
 # read_discounts + write_discounts: create and manage Shopify Functions automatic discounts (BXGY)
-scopes = "read_products,write_products,read_orders,read_discounts,write_discounts"
+scopes = "read_products,write_products,read_discounts,write_discounts"
+# read_orders removido temporalmente — requiere Protected Customer Data approval.
+# Re-habilitar junto con el webhook orders/create en Fase 4-5.
 
 [webhooks]
 api_version = "2026-07"
@@ -23,17 +25,21 @@ api_version = "2026-07"
   uri = "/webhooks/app/scopes_update"
   topics = ["app/scopes_update"]
 
-  [[webhooks.subscriptions]]
-  uri = "/webhooks/orders/create"
-  topics = ["orders/create"]
+  # orders/create webhook removido temporalmente.
+  # Requiere aprobación de Protected Customer Data en Partner Dashboard.
+  # Se re-habilitará en la fase de analytics (Fase 4-5) cuando tengamos la aprobación.
+  # [[webhooks.subscriptions]]
+  # uri = "/webhooks/orders/create"
+  # topics = ["orders/create"]
 
 [auth]
 redirect_urls = [
-  "https://example.com/api/auth",
+  "https://discountflow-app.vercel.app/auth/callback",
+  "https://discountflow-app.vercel.app/auth/shopify/callback",
+  "https://discountflow-app.vercel.app/api/auth/callback",
   "http://localhost:3000/auth/callback",
   "http://localhost:3000/auth/shopify/callback"
 ]
 
 [build]
-include_config_on_deploy = true
 automatically_update_urls_on_dev = true
