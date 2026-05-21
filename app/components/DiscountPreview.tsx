@@ -5,7 +5,7 @@ import { es, estadoLabel } from "../i18n";
 type DiscountPreviewProps = {
   discountPercent: number;
   name: string;
-  productsCount: number | "∞";
+  productsDescription: string; // e.g. "3 productos", "2 colecciones", "Toda la tienda", "—"
   startsAt: string;
   endsAt: string;
   currentStatus?: string; // Solo en ruta de edición
@@ -14,7 +14,7 @@ type DiscountPreviewProps = {
 export function DiscountPreview({
   discountPercent,
   name,
-  productsCount,
+  productsDescription,
   startsAt,
   endsAt,
   currentStatus,
@@ -30,15 +30,7 @@ export function DiscountPreview({
       label: es.nuevaPorcentaje.resumenDescuento,
       value: discountPercent > 0 ? `${discountPercent}%` : es.nuevaPorcentaje.sinDefinir,
     },
-    {
-      label: es.nuevaPorcentaje.resumenProductos,
-      value:
-        productsCount === "∞"
-          ? "Toda la tienda"
-          : productsCount === 0
-          ? es.nuevaPorcentaje.sinDefinir
-          : String(productsCount),
-    },
+    { label: es.nuevaPorcentaje.resumenProductos, value: productsDescription },
     {
       label: es.nuevaPorcentaje.resumenInicio,
       value: startsAt

@@ -11,22 +11,32 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { ChevronDown, ChevronUp, Tag } from "lucide-react";
 import { Btn } from "../components/Btn";
 import { DiscountPreview } from "../components/DiscountPreview";
+import { ItemPicker, type PickerItem } from "../components/ItemPicker";
 import { authenticate } from "../shopify.server";
 import { prisma } from "../lib/db";
 import { getOrCreateShop } from "../lib/shopify/shop.server";
 import {
   applyPercentageDiscount,
   type SelectedProductInput,
+  type SelectionMode,
 } from "../lib/discounts/percentage";
-import { getCollections } from "../lib/shopify/admin-api";
+import { getCollections, getProductMetadata } from "../lib/shopify/admin-api";
 import { es } from "../i18n";
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin } = await authenticate.admin(request);
-  const collections = await getCollections(admin);
-  return { collections };
+  const [collections, productMeta] = await Promise.all([
+    getCollections(admin),
+    getProductMetadata(admin),
+  ]);
+  return {
+    collections,
+    availableTags: productMeta.tags,
+    availableVendors: productMeta.vendors,
+    availableProductTypes: productMeta.productTypes,
+  };
 };
 
 // ─── Action ───────────────────────────────────────────────────────────────────
@@ -48,13 +58,14 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const useCompareAtPriceAsBase = formData.get("useCompareAtPriceAsBase") === "on";
   const selectionMode = (formData.get("selectionMode") as string) || "products";
   const selectedProductsJson = (formData.get("selectedProductsJson") as string) || "[]";
-  const collectionId = (formData.get("collectionId") as string) || "";
+  const collectionIdsJson = (formData.get("collectionIdsJson") as string) || "[]";
+  const selectedTagsJson = (formData.get("selectedTagsJson") as string) || "[]";
+  const selectedVendorsJson = (formData.get("selectedVendorsJson") as string) || "[]";
+  const selectedProductTypesJson = (formData.get("selectedProductTypesJson") as string) || "[]";
   const enableExclusions = formData.get("enableExclusions") === "on";
   const excludedProductsJson = (formData.get("excludedProductsJson") as string) || "[]";
-  // Issue #6: no scheduleEnabled toggle — dates are always optional
   const startsAt = (formData.get("startsAt") as string) || "";
   const endsAt = (formData.get("endsAt") as string) || "";
-  // Issue #3: intent comes directly from the submit button value
   const intent = (formData.get("intent") as "draft" | "activate") || "draft";
 
   const errors: ActionErrors = {};
@@ -63,18 +74,27 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     errors.discountPercent = es.nuevaPorcentaje.errDescuento;
 
   let selectedProducts: SelectedProductInput[] = [];
-  try {
-    selectedProducts = JSON.parse(selectedProductsJson);
-  } catch {
-    selectedProducts = [];
-  }
+  let collectionIds: string[] = [];
+  let selectedTags: string[] = [];
+  let selectedVendors: string[] = [];
+  let selectedProductTypes: string[] = [];
+  try { selectedProducts = JSON.parse(selectedProductsJson); } catch { /* noop */ }
+  try { collectionIds = JSON.parse(collectionIdsJson); } catch { /* noop */ }
+  try { selectedTags = JSON.parse(selectedTagsJson); } catch { /* noop */ }
+  try { selectedVendors = JSON.parse(selectedVendorsJson); } catch { /* noop */ }
+  try { selectedProductTypes = JSON.parse(selectedProductTypesJson); } catch { /* noop */ }
 
   if (selectionMode === "products" && selectedProducts.length === 0)
     errors.products = es.nuevaPorcentaje.errProductos;
-  if (selectionMode === "collections" && !collectionId)
-    errors.products = "Debes seleccionar una colección";
+  if (selectionMode === "collections" && collectionIds.length === 0)
+    errors.products = "Debes seleccionar al menos una colección";
+  if (selectionMode === "tags" && selectedTags.length === 0)
+    errors.products = "Debes seleccionar al menos un tag";
+  if (selectionMode === "vendors" && selectedVendors.length === 0)
+    errors.products = "Debes seleccionar al menos un vendedor";
+  if (selectionMode === "productTypes" && selectedProductTypes.length === 0)
+    errors.products = "Debes seleccionar al menos un tipo de producto";
 
-  // Issue #6: validate dates without a toggle
   if (startsAt && endsAt && new Date(endsAt) <= new Date(startsAt))
     errors.dates = es.nuevaPorcentaje.errFechas;
 
@@ -92,7 +112,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const isScheduled = campaignStartsAt !== null && campaignStartsAt > new Date();
   const shouldActivate = intent === "activate" && !isScheduled;
 
-  // Store selectionMode and collectionId in config for edit re-use
   const campaign = await prisma.campaign.create({
     data: {
       shopId: shop.id,
@@ -103,7 +122,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         discountPercent,
         showCompareAtPrice: useCompareAtPriceAsBase,
         selectionMode,
-        collectionId: collectionId || null,
+        collectionIds,
+        selectedTags,
+        selectedVendors,
+        selectedProductTypes,
       },
       startsAt: campaignStartsAt,
       endsAt: campaignEndsAt,
@@ -127,9 +149,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       await applyPercentageDiscount(admin, campaign.id, {
         discountPercent,
         useCompareAtPriceAsBase,
-        selectionMode: selectionMode as "products" | "collections" | "all",
+        selectionMode: selectionMode as SelectionMode,
         selectedProducts: selectionMode === "products" ? selectedProducts : undefined,
-        collectionId: selectionMode === "collections" ? collectionId : undefined,
+        collectionIds: selectionMode === "collections" ? collectionIds : undefined,
+        selectedTags: selectionMode === "tags" ? selectedTags : undefined,
+        selectedVendors: selectionMode === "vendors" ? selectedVendors : undefined,
+        selectedProductTypes: selectionMode === "productTypes" ? selectedProductTypes : undefined,
         excludedVariantIds,
       });
     } catch (err) {
@@ -248,6 +273,39 @@ const inputStyle: React.CSSProperties = {
 
 const inputErrorStyle: React.CSSProperties = { ...inputStyle, borderColor: "#d82c0d" };
 
+const pickerBtnStyle: React.CSSProperties = {
+  background: "#fff",
+  border: "1px solid #c9cccf",
+  borderRadius: "6px",
+  padding: "8px 14px",
+  fontSize: "13px",
+  fontWeight: "500",
+  cursor: "pointer",
+  color: "#202223",
+};
+
+const chipStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "4px",
+  background: "#f1f2f3",
+  border: "1px solid #e1e3e5",
+  borderRadius: "16px",
+  padding: "3px 10px",
+  fontSize: "12px",
+  color: "#202223",
+};
+
+const chipRemoveStyle: React.CSSProperties = {
+  background: "none",
+  border: "none",
+  cursor: "pointer",
+  color: "#8c9196",
+  padding: "0 0 0 2px",
+  fontSize: "14px",
+  lineHeight: 1,
+};
+
 type ProductChip = { id: string; title: string; variantCount: number };
 
 function ProductChips({
@@ -302,7 +360,8 @@ function ProductChips({
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function NewPercentageCampaign() {
-  const { collections } = useLoaderData<typeof loader>();
+  const { collections, availableTags, availableVendors, availableProductTypes } =
+    useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>() as
     | { errors?: ActionErrors }
     | undefined;
@@ -316,13 +375,17 @@ export default function NewPercentageCampaign() {
   const [discountPercent, setDiscountPercent] = useState(20);
   const [useCompareAtPriceAsBase, setUseCompareAtPriceAsBase] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [selectionMode, setSelectionMode] = useState<"products" | "collections" | "all">(
-    "products"
-  );
-  const [collectionId, setCollectionId] = useState("");
+  const [selectionMode, setSelectionMode] = useState<SelectionMode>("products");
   const [selectedProducts, setSelectedProducts] = useState<
     Array<{ id: string; title: string; variants: Array<{ id: string }> }>
   >([]);
+  const [selectedCollections, setSelectedCollections] = useState<
+    Array<{ id: string; title: string }>
+  >([]);
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [selectedVendors, setSelectedVendors] = useState<string[]>([]);
+  const [selectedProductTypes, setSelectedProductTypes] = useState<string[]>([]);
+  const [pickerMode, setPickerMode] = useState<"tags" | "vendors" | "productTypes" | null>(null);
   const [enableExclusions, setEnableExclusions] = useState(false);
   const [excludedProducts, setExcludedProducts] = useState<
     Array<{ id: string; title: string; variants: Array<{ id: string }> }>
@@ -340,7 +403,21 @@ export default function NewPercentageCampaign() {
     title: p.title,
     variantCount: p.variants.length,
   }));
-  const productsCount = selectionMode === "all" ? ("∞" as const) : selectedProducts.length;
+
+  const productsDescription =
+    selectionMode === "all"
+      ? "Toda la tienda"
+      : selectionMode === "products" && selectedProducts.length > 0
+      ? `${selectedProducts.length} producto${selectedProducts.length !== 1 ? "s" : ""}`
+      : selectionMode === "collections" && selectedCollections.length > 0
+      ? `${selectedCollections.length} colección${selectedCollections.length !== 1 ? "es" : ""}`
+      : selectionMode === "tags" && selectedTags.length > 0
+      ? `${selectedTags.length} tag${selectedTags.length !== 1 ? "s" : ""}`
+      : selectionMode === "vendors" && selectedVendors.length > 0
+      ? `${selectedVendors.length} vendedor${selectedVendors.length !== 1 ? "es" : ""}`
+      : selectionMode === "productTypes" && selectedProductTypes.length > 0
+      ? `${selectedProductTypes.length} tipo${selectedProductTypes.length !== 1 ? "s" : ""}`
+      : "—";
 
   const handleSelectProducts = async () => {
     const selected = await shopify.resourcePicker({
@@ -357,6 +434,22 @@ export default function NewPercentageCampaign() {
             variants: p.variants ?? [],
           })
         )
+      );
+    }
+  };
+
+  const handleSelectCollections = async () => {
+    const selected = await shopify.resourcePicker({
+      type: "collection",
+      multiple: true,
+      selectionIds: selectedCollections.map((c) => ({ id: c.id })),
+    });
+    if (selected) {
+      setSelectedCollections(
+        (selected as Array<{ id: string; title: string }>).map((c) => ({
+          id: c.id,
+          title: c.title,
+        }))
       );
     }
   };
@@ -412,6 +505,26 @@ export default function NewPercentageCampaign() {
           type="hidden"
           name="selectedProductsJson"
           value={JSON.stringify(selectedProducts.map((p) => ({ id: p.id, variants: p.variants })))}
+        />
+        <input
+          type="hidden"
+          name="collectionIdsJson"
+          value={JSON.stringify(selectedCollections.map((c) => c.id))}
+        />
+        <input
+          type="hidden"
+          name="selectedTagsJson"
+          value={JSON.stringify(selectedTags)}
+        />
+        <input
+          type="hidden"
+          name="selectedVendorsJson"
+          value={JSON.stringify(selectedVendors)}
+        />
+        <input
+          type="hidden"
+          name="selectedProductTypesJson"
+          value={JSON.stringify(selectedProductTypes)}
         />
         <input
           type="hidden"
@@ -554,9 +667,9 @@ export default function NewPercentageCampaign() {
           </div>
         </Section>
 
-        {/* ─── 3. Productos — Issue #5: select dropdown + ResourcePicker ─── */}
+        {/* ─── 3. Productos ─── */}
         <Section title={es.nuevaPorcentaje.secProductos} defaultOpen>
-          {/* Mode selector + action button in one row */}
+          {/* Selector de modo */}
           <div style={{ marginTop: "16px" }}>
             <label
               style={{
@@ -569,49 +682,37 @@ export default function NewPercentageCampaign() {
             >
               {es.nuevaPorcentaje.modoLabel}
             </label>
-            <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-              <select
-                name="selectionMode"
-                value={selectionMode}
-                onChange={(e) =>
-                  setSelectionMode(e.target.value as "products" | "collections" | "all")
-                }
-                style={{ ...inputStyle, flex: 1 }}
-              >
-                <option value="products">{es.nuevaPorcentaje.modoProductos}</option>
-                <option value="collections">{es.nuevaPorcentaje.modoColecciones}</option>
-                <option value="all">{es.nuevaPorcentaje.modoTienda}</option>
-              </select>
-              {selectionMode === "products" && (
-                <button
-                  type="button"
-                  onClick={handleSelectProducts}
-                  style={{
-                    background: "#fff",
-                    border: "1px solid #c9cccf",
-                    borderRadius: "6px",
-                    padding: "8px 14px",
-                    fontSize: "13px",
-                    fontWeight: "500",
-                    cursor: "pointer",
-                    color: "#202223",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {es.nuevaPorcentaje.btnSeleccionarProductos}
-                </button>
-              )}
-            </div>
+            <select
+              name="selectionMode"
+              value={selectionMode}
+              onChange={(e) => setSelectionMode(e.target.value as SelectionMode)}
+              style={inputStyle}
+            >
+              <option value="products">{es.nuevaPorcentaje.modoProductos}</option>
+              <option value="collections">{es.nuevaPorcentaje.modoColecciones}</option>
+              <option value="tags">{es.nuevaPorcentaje.modoTags}</option>
+              <option value="vendors">{es.nuevaPorcentaje.modoVendedor}</option>
+              <option value="productTypes">{es.nuevaPorcentaje.modoTipo}</option>
+              <option value="all">{es.nuevaPorcentaje.modoTienda}</option>
+            </select>
           </div>
 
-          {/* Products mode content */}
+          {errors.products && (
+            <p style={{ fontSize: "12px", color: "#d82c0d", marginTop: "8px" }}>
+              {errors.products}
+            </p>
+          )}
+
+          {/* Productos */}
           {selectionMode === "products" && (
-            <div style={{ marginTop: "8px" }}>
-              {errors.products && (
-                <p style={{ fontSize: "12px", color: "#d82c0d", marginTop: "4px" }}>
-                  {errors.products}
-                </p>
-              )}
+            <div style={{ marginTop: "10px" }}>
+              <button
+                type="button"
+                onClick={handleSelectProducts}
+                style={pickerBtnStyle}
+              >
+                {es.nuevaPorcentaje.btnSeleccionarProductos}
+              </button>
               <ProductChips
                 products={productChips}
                 onRemove={(id) =>
@@ -626,26 +727,129 @@ export default function NewPercentageCampaign() {
             </div>
           )}
 
-          {/* Collections mode */}
+          {/* Colecciones */}
           {selectionMode === "collections" && (
-            <FieldGroup label={es.nuevaPorcentaje.coleccionLabel} error={errors.products}>
-              <select
-                name="collectionId"
-                value={collectionId}
-                onChange={(e) => setCollectionId(e.target.value)}
-                style={inputStyle}
+            <div style={{ marginTop: "10px" }}>
+              <button
+                type="button"
+                onClick={handleSelectCollections}
+                style={pickerBtnStyle}
               >
-                <option value="">{es.nuevaPorcentaje.coleccionPlaceholder}</option>
-                {collections.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.title} ({c.productsCount} productos)
-                  </option>
-                ))}
-              </select>
-            </FieldGroup>
+                {es.nuevaPorcentaje.btnSeleccionarColecciones}
+              </button>
+              {selectedCollections.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "10px" }}>
+                  {selectedCollections.map((c) => (
+                    <div key={c.id} style={chipStyle}>
+                      {c.title}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSelectedCollections((prev) => prev.filter((x) => x.id !== c.id))
+                        }
+                        style={chipRemoveStyle}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
 
-          {/* All store mode */}
+          {/* Tags */}
+          {selectionMode === "tags" && (
+            <div style={{ marginTop: "10px" }}>
+              <button
+                type="button"
+                onClick={() => setPickerMode("tags")}
+                style={pickerBtnStyle}
+              >
+                {es.nuevaPorcentaje.btnSeleccionarTags}
+              </button>
+              {selectedTags.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "10px" }}>
+                  {selectedTags.map((t) => (
+                    <div key={t} style={chipStyle}>
+                      {t}
+                      <button
+                        type="button"
+                        onClick={() => setSelectedTags((prev) => prev.filter((x) => x !== t))}
+                        style={chipRemoveStyle}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Vendedores */}
+          {selectionMode === "vendors" && (
+            <div style={{ marginTop: "10px" }}>
+              <button
+                type="button"
+                onClick={() => setPickerMode("vendors")}
+                style={pickerBtnStyle}
+              >
+                {es.nuevaPorcentaje.btnSeleccionarVendedores}
+              </button>
+              {selectedVendors.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "10px" }}>
+                  {selectedVendors.map((v) => (
+                    <div key={v} style={chipStyle}>
+                      {v}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSelectedVendors((prev) => prev.filter((x) => x !== v))
+                        }
+                        style={chipRemoveStyle}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Tipos de producto */}
+          {selectionMode === "productTypes" && (
+            <div style={{ marginTop: "10px" }}>
+              <button
+                type="button"
+                onClick={() => setPickerMode("productTypes")}
+                style={pickerBtnStyle}
+              >
+                {es.nuevaPorcentaje.btnSeleccionarTipos}
+              </button>
+              {selectedProductTypes.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "10px" }}>
+                  {selectedProductTypes.map((t) => (
+                    <div key={t} style={chipStyle}>
+                      {t}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSelectedProductTypes((prev) => prev.filter((x) => x !== t))
+                        }
+                        style={chipRemoveStyle}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Toda la tienda */}
           {selectionMode === "all" && (
             <div
               style={{
@@ -771,7 +975,7 @@ export default function NewPercentageCampaign() {
             <DiscountPreview
               discountPercent={discountPercent}
               name={name}
-              productsCount={productsCount}
+              productsDescription={productsDescription}
               startsAt={startsAt}
               endsAt={endsAt}
             />
@@ -831,6 +1035,31 @@ export default function NewPercentageCampaign() {
         </div>
       </Form>
 
+      {/* Pickers para tags / vendedores / tipos de producto */}
+      <ItemPicker
+        open={pickerMode === "tags"}
+        title={es.nuevaPorcentaje.btnSeleccionarTags}
+        items={availableTags.map((t): PickerItem => ({ id: t, label: t }))}
+        selectedIds={selectedTags}
+        onConfirm={(ids) => { setSelectedTags(ids); setPickerMode(null); }}
+        onCancel={() => setPickerMode(null)}
+      />
+      <ItemPicker
+        open={pickerMode === "vendors"}
+        title={es.nuevaPorcentaje.btnSeleccionarVendedores}
+        items={availableVendors.map((v): PickerItem => ({ id: v, label: v }))}
+        selectedIds={selectedVendors}
+        onConfirm={(ids) => { setSelectedVendors(ids); setPickerMode(null); }}
+        onCancel={() => setPickerMode(null)}
+      />
+      <ItemPicker
+        open={pickerMode === "productTypes"}
+        title={es.nuevaPorcentaje.btnSeleccionarTipos}
+        items={availableProductTypes.map((t): PickerItem => ({ id: t, label: t }))}
+        selectedIds={selectedProductTypes}
+        onConfirm={(ids) => { setSelectedProductTypes(ids); setPickerMode(null); }}
+        onCancel={() => setPickerMode(null)}
+      />
     </s-page>
   );
 }

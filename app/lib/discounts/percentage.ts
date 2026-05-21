@@ -4,6 +4,7 @@ import {
   getProductVariants,
   getCollectionProductVariants,
   getAllProductVariants,
+  getProductsByFilter,
   bulkUpdateVariantPrices,
   type ProductVariants,
 } from "../shopify/admin-api";
@@ -17,12 +18,24 @@ export type SelectedProductInput = {
   variants?: Array<{ id: string }>; // if empty = all variants
 };
 
+export type SelectionMode =
+  | "products"
+  | "collections"
+  | "tags"
+  | "vendors"
+  | "productTypes"
+  | "all";
+
 export type PercentageCampaignOptions = {
   discountPercent: number;
   useCompareAtPriceAsBase: boolean;
-  selectionMode: "products" | "collections" | "all";
+  selectionMode: SelectionMode;
   selectedProducts?: SelectedProductInput[];
-  collectionId?: string;
+  collectionIds?: string[];  // multi-collection (new)
+  collectionId?: string;     // legacy single collection
+  selectedTags?: string[];
+  selectedVendors?: string[];
+  selectedProductTypes?: string[];
   excludedVariantIds?: Set<string>;
 };
 
@@ -31,34 +44,50 @@ async function resolveVariants(
   admin: AdminClient,
   opts: PercentageCampaignOptions
 ): Promise<ProductVariants[]> {
-  if (opts.selectionMode === "all") {
-    return getAllProductVariants(admin);
+  if (opts.selectionMode === "all") return getAllProductVariants(admin);
+
+  if (opts.selectionMode === "collections") {
+    const ids = opts.collectionIds?.length
+      ? opts.collectionIds
+      : opts.collectionId ? [opts.collectionId] : [];
+    if (ids.length === 0) return [];
+    const seen = new Set<string>();
+    const results: ProductVariants[] = [];
+    for (const id of ids) {
+      for (const pv of await getCollectionProductVariants(admin, id)) {
+        if (!seen.has(pv.productId)) { seen.add(pv.productId); results.push(pv); }
+      }
+    }
+    return results;
   }
 
-  if (opts.selectionMode === "collections" && opts.collectionId) {
-    return getCollectionProductVariants(admin, opts.collectionId);
+  if (opts.selectionMode === "tags" && opts.selectedTags?.length) {
+    const q = opts.selectedTags.map((t) => `tag:"${t}"`).join(" OR ");
+    return getProductsByFilter(admin, q);
   }
 
-  // products mode
+  if (opts.selectionMode === "vendors" && opts.selectedVendors?.length) {
+    const q = opts.selectedVendors.map((v) => `vendor:"${v}"`).join(" OR ");
+    return getProductsByFilter(admin, q);
+  }
+
+  if (opts.selectionMode === "productTypes" && opts.selectedProductTypes?.length) {
+    const q = opts.selectedProductTypes.map((t) => `product_type:"${t}"`).join(" OR ");
+    return getProductsByFilter(admin, q);
+  }
+
+  // products mode (default)
   const products = opts.selectedProducts ?? [];
   const result: ProductVariants[] = [];
-
   for (const p of products) {
-    if (p.variants && p.variants.length > 0) {
-      // User selected specific variants
-      const allVariants = await getProductVariants(admin, p.id);
-      const selectedIds = new Set(p.variants.map((v) => v.id));
-      result.push({
-        productId: p.id,
-        variants: allVariants.filter((v) => selectedIds.has(v.id)),
-      });
+    if (p.variants?.length) {
+      const all = await getProductVariants(admin, p.id);
+      const ids = new Set(p.variants.map((v) => v.id));
+      result.push({ productId: p.id, variants: all.filter((v) => ids.has(v.id)) });
     } else {
-      // All variants of the product
-      const variants = await getProductVariants(admin, p.id);
-      result.push({ productId: p.id, variants });
+      result.push({ productId: p.id, variants: await getProductVariants(admin, p.id) });
     }
   }
-
   return result;
 }
 

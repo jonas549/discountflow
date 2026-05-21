@@ -142,6 +142,69 @@ export async function bulkUpdateVariantPrices(
   return json.data?.productVariantsBulkUpdate ?? [];
 }
 
+// Get unique tags, vendors, and product types from the store (up to 250 products).
+export async function getProductMetadata(
+  admin: { graphql: (q: string, o?: { variables: unknown }) => Promise<Response> }
+): Promise<{ tags: string[]; vendors: string[]; productTypes: string[] }> {
+  const res = await admin.graphql(`#graphql
+    query GetProductMetadata {
+      products(first: 250, sortKey: ID) {
+        nodes { vendor productType tags }
+      }
+    }
+  `);
+  const json = await res.json();
+  const nodes: Array<{ vendor: string; productType: string; tags: string[] }> =
+    json.data?.products?.nodes ?? [];
+  const tagsSet = new Set<string>();
+  const vendorsSet = new Set<string>();
+  const typesSet = new Set<string>();
+  for (const p of nodes) {
+    if (p.vendor) vendorsSet.add(p.vendor);
+    if (p.productType) typesSet.add(p.productType);
+    for (const t of p.tags ?? []) tagsSet.add(t);
+  }
+  return {
+    tags: [...tagsSet].sort(),
+    vendors: [...vendorsSet].sort(),
+    productTypes: [...typesSet].filter(Boolean).sort(),
+  };
+}
+
+// Fetch all products matching a Shopify filter query (paginates automatically).
+// Examples: "tag:\"summer\" OR tag:\"sale\"", "vendor:\"Nike\"", "product_type:\"Shirts\""
+export async function getProductsByFilter(
+  admin: { graphql: (q: string, o?: { variables: unknown }) => Promise<Response> },
+  filterQuery: string
+): Promise<ProductVariants[]> {
+  const results: ProductVariants[] = [];
+  let cursor: string | null = null;
+  do {
+    const res = await admin.graphql(
+      `#graphql
+      query GetFilteredProducts($q: String!, $cursor: String) {
+        products(first: 50, query: $q, after: $cursor) {
+          nodes {
+            id
+            variants(first: 100) {
+              nodes { id price compareAtPrice }
+            }
+          }
+          pageInfo { hasNextPage endCursor }
+        }
+      }`,
+      { variables: { q: filterQuery, cursor } }
+    );
+    const json = await res.json();
+    const products = json.data?.products;
+    for (const p of products?.nodes ?? []) {
+      results.push({ productId: p.id, variants: p.variants.nodes });
+    }
+    cursor = products?.pageInfo?.hasNextPage ? products.pageInfo.endCursor : null;
+  } while (cursor);
+  return results;
+}
+
 // Get all collections (for the form dropdown).
 export async function getCollections(
   admin: { graphql: (q: string, o?: { variables: unknown }) => Promise<Response> }
