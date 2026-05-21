@@ -10,6 +10,7 @@ import { useAppBridge } from "@shopify/app-bridge-react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { ChevronDown, ChevronUp, Tag } from "lucide-react";
 import { Btn } from "../components/Btn";
+import { DiscountPreview } from "../components/DiscountPreview";
 import { authenticate } from "../shopify.server";
 import { prisma } from "../lib/db";
 import { getOrCreateShop } from "../lib/shopify/shop.server";
@@ -298,180 +299,6 @@ function ProductChips({
   );
 }
 
-function DiscountPreview({
-  discountPercent,
-  name,
-  productsCount,
-  startsAt,
-  endsAt,
-}: {
-  discountPercent: number;
-  name: string;
-  productsCount: number | "∞";
-  startsAt: string;
-  endsAt: string;
-}) {
-  const base = 100;
-  const discounted = discountPercent > 0 ? base * (1 - discountPercent / 100) : base;
-  const savings = base - discounted;
-
-  return (
-    <>
-      <div
-        style={{
-          border: "1px solid #e1e3e5",
-          borderRadius: "10px",
-          padding: "16px",
-          marginBottom: "14px",
-          background: "#fff",
-        }}
-      >
-        <p
-          style={{
-            fontSize: "12px",
-            fontWeight: "600",
-            color: "#6d7175",
-            textTransform: "uppercase",
-            letterSpacing: "0.05em",
-            marginBottom: "14px",
-          }}
-        >
-          {es.nuevaPorcentaje.previewTitulo}
-        </p>
-        <div
-          style={{
-            background: "#f8fafb",
-            border: "1px solid #e1e3e5",
-            borderRadius: "8px",
-            padding: "14px",
-            position: "relative",
-          }}
-        >
-          {discountPercent > 0 && (
-            <div
-              style={{
-                position: "absolute",
-                top: "10px",
-                right: "10px",
-                background: "#008060",
-                color: "#fff",
-                fontSize: "11px",
-                fontWeight: "700",
-                padding: "3px 8px",
-                borderRadius: "12px",
-              }}
-            >
-              -{discountPercent}%
-            </div>
-          )}
-          <p style={{ fontSize: "11px", color: "#8c9196", marginBottom: "6px" }}>
-            {es.nuevaPorcentaje.previewEjemplo}
-          </p>
-          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            <div
-              style={{
-                width: "40px",
-                height: "40px",
-                background: "#e1e3e5",
-                borderRadius: "6px",
-                flexShrink: 0,
-              }}
-            />
-            <div>
-              <div style={{ fontSize: "12px", color: "#8c9196", textDecoration: "line-through" }}>
-                ${base.toFixed(2)}
-              </div>
-              <div style={{ fontSize: "18px", fontWeight: "700", color: "#008060" }}>
-                ${discounted.toFixed(2)}
-              </div>
-              {discountPercent > 0 && (
-                <div style={{ fontSize: "11px", color: "#6d7175" }}>
-                  Ahorro: ${savings.toFixed(2)}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div
-        style={{
-          border: "1px solid #e1e3e5",
-          borderRadius: "10px",
-          padding: "16px",
-          background: "#fff",
-        }}
-      >
-        <p
-          style={{
-            fontSize: "12px",
-            fontWeight: "600",
-            color: "#6d7175",
-            textTransform: "uppercase",
-            letterSpacing: "0.05em",
-            marginBottom: "14px",
-          }}
-        >
-          {es.nuevaPorcentaje.resumenTitulo}
-        </p>
-        {[
-          { label: es.nuevaPorcentaje.resumenNombre, value: name || es.nuevaPorcentaje.sinDefinir },
-          { label: es.nuevaPorcentaje.resumenTipo, value: es.nuevaPorcentaje.resumenTipoPorcentaje },
-          {
-            label: es.nuevaPorcentaje.resumenDescuento,
-            value: discountPercent > 0 ? `${discountPercent}%` : es.nuevaPorcentaje.sinDefinir,
-          },
-          {
-            label: es.nuevaPorcentaje.resumenProductos,
-            value:
-              productsCount === "∞"
-                ? "Toda la tienda"
-                : productsCount === 0
-                ? es.nuevaPorcentaje.sinDefinir
-                : String(productsCount),
-          },
-          {
-            label: es.nuevaPorcentaje.resumenInicio,
-            value: startsAt
-              ? new Date(startsAt).toLocaleDateString("es-MX")
-              : es.nuevaPorcentaje.resumenInmediato,
-          },
-          {
-            label: es.nuevaPorcentaje.resumenFin,
-            value: endsAt
-              ? new Date(endsAt).toLocaleDateString("es-MX")
-              : es.nuevaPorcentaje.resumenSinFin,
-          },
-        ].map(({ label, value }) => (
-          <div
-            key={label}
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              padding: "6px 0",
-              borderBottom: "1px solid #f1f2f3",
-              fontSize: "13px",
-            }}
-          >
-            <span style={{ color: "#6d7175" }}>{label}</span>
-            <span
-              style={{
-                color: "#202223",
-                fontWeight: "500",
-                textAlign: "right",
-                maxWidth: "60%",
-                wordBreak: "break-word",
-              }}
-            >
-              {value}
-            </span>
-          </div>
-        ))}
-      </div>
-    </>
-  );
-}
-
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function NewPercentageCampaign() {
@@ -591,6 +418,10 @@ export default function NewPercentageCampaign() {
           name="excludedProductsJson"
           value={JSON.stringify(excludedProducts.map((p) => ({ id: p.id, variants: p.variants })))}
         />
+
+        {/* Layout 2 columnas: secciones izquierda + preview derecha */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: "24px", alignItems: "start" }}>
+          <div>
 
         {/* ─── 1. Información general ─── */}
         <Section title={es.nuevaPorcentaje.secInfoGeneral} defaultOpen>
@@ -933,6 +764,20 @@ export default function NewPercentageCampaign() {
           </div>
         </Section>
 
+          </div>{/* fin columna izquierda */}
+
+          {/* Columna derecha: preview en vivo */}
+          <div style={{ position: "sticky", top: "24px" }}>
+            <DiscountPreview
+              discountPercent={discountPercent}
+              name={name}
+              productsCount={productsCount}
+              startsAt={startsAt}
+              endsAt={endsAt}
+            />
+          </div>
+        </div>{/* fin grid */}
+
         {/* ─── Action bar — Issue #7: better padding ─── */}
         <div
           style={{
@@ -986,16 +831,6 @@ export default function NewPercentageCampaign() {
         </div>
       </Form>
 
-      {/* Aside */}
-      <s-section slot="aside">
-        <DiscountPreview
-          discountPercent={discountPercent}
-          name={name}
-          productsCount={productsCount}
-          startsAt={startsAt}
-          endsAt={endsAt}
-        />
-      </s-section>
     </s-page>
   );
 }

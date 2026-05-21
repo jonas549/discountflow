@@ -10,6 +10,7 @@ import { useAppBridge } from "@shopify/app-bridge-react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { ChevronDown, ChevronUp, Tag } from "lucide-react";
 import { Btn } from "../components/Btn";
+import { DiscountPreview } from "../components/DiscountPreview";
 import { authenticate } from "../shopify.server";
 import { prisma } from "../lib/db";
 import { getOrCreateShop } from "../lib/shopify/shop.server";
@@ -424,6 +425,14 @@ export default function EditPercentageCampaign() {
     variantCount: p.variants.length,
   }));
 
+  // Cantidad de productos para el panel de preview
+  const productsCount =
+    selectionMode === "all"
+      ? ("∞" as const)
+      : selectedProducts.length > 0
+      ? selectedProducts.length
+      : campaign.existingProductsCount;
+
   const handleSelectProducts = async () => {
     const selected = await shopify.resourcePicker({
       type: "product",
@@ -500,6 +509,10 @@ export default function EditPercentageCampaign() {
           name="excludedProductsJson"
           value={JSON.stringify(excludedProducts.map((p) => ({ id: p.id, variants: p.variants })))}
         />
+
+        {/* Layout 2 columnas: secciones izquierda + preview derecha */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: "24px", alignItems: "start" }}>
+          <div>
 
         {/* 1. Información general */}
         <Section title={es.nuevaPorcentaje.secInfoGeneral} defaultOpen>
@@ -839,6 +852,21 @@ export default function EditPercentageCampaign() {
           </div>
         </Section>
 
+          </div>{/* fin columna izquierda */}
+
+          {/* Columna derecha: preview en vivo */}
+          <div style={{ position: "sticky", top: "24px" }}>
+            <DiscountPreview
+              discountPercent={discountPercent}
+              name={name}
+              productsCount={productsCount}
+              startsAt={startsAt}
+              endsAt={endsAt}
+              currentStatus={campaign.status}
+            />
+          </div>
+        </div>{/* fin grid */}
+
         {/* Action bar */}
         <div
           style={{
@@ -893,6 +921,7 @@ export default function EditPercentageCampaign() {
           </div>
         </div>
       </Form>
+
     </s-page>
   );
 }
