@@ -199,7 +199,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     try {
       await createBxgyDiscount(admin, campaign.id, name, config, campaignStartsAt, campaignEndsAt);
     } catch (err) {
-      await prisma.campaign.update({ where: { id: campaign.id }, data: { status: "DRAFT" } });
+      await prisma.campaign.delete({ where: { id: campaign.id } });
       return Response.json(
         { errors: { general: `Error al crear el descuento en Shopify: ${String(err)}` } },
         { status: 500 }

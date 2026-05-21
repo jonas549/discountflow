@@ -4,7 +4,7 @@ import type {
   LoaderFunctionArgs,
 } from "react-router";
 import { useLoaderData, useFetcher } from "react-router";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { Plus } from "lucide-react";
 import { Link } from "react-router";
@@ -458,7 +458,18 @@ export default function Campaigns() {
     name: string;
   } | null>(null);
 
+  // Track which specific action is in-flight to show per-button loading state
+  const [pendingAction, setPendingAction] = useState<{
+    id: string;
+    type: "pause" | "activate" | "delete";
+  } | null>(null);
+
+  useEffect(() => {
+    if (fetcher.state === "idle") setPendingAction(null);
+  }, [fetcher.state]);
+
   const submitAction = (campaignId: string, actionType: "pause" | "activate" | "delete") => {
+    setPendingAction({ id: campaignId, type: actionType });
     const fd = new FormData();
     fd.append("campaignId", campaignId);
     fd.append("actionType", actionType);
@@ -470,6 +481,8 @@ export default function Campaigns() {
     submitAction(deleteCandidate.id, "delete");
     setDeleteCandidate(null);
   };
+
+  const isBusy = fetcher.state !== "idle";
 
   return (
     <s-page heading={es.campanas.titulo}>
@@ -661,20 +674,26 @@ export default function Campaigns() {
                             <Btn
                               variant="muted"
                               size="sm"
+                              disabled={isBusy}
                               onClick={() => submitAction(c.id, "pause")}
                             >
-                              {es.campanas.acciones.pausar}
+                              {pendingAction?.id === c.id && pendingAction.type === "pause"
+                                ? "Pausando…"
+                                : es.campanas.acciones.pausar}
                             </Btn>
                           )}
 
-                          {/* Reactivar — solo cuando PAUSED, misma jerarquía que Editar */}
+                          {/* Reactivar — solo cuando PAUSED */}
                           {c.status === "PAUSED" && (
                             <Btn
                               variant="primary"
                               size="sm"
+                              disabled={isBusy}
                               onClick={() => submitAction(c.id, "activate")}
                             >
-                              {es.campanas.acciones.reactivar}
+                              {pendingAction?.id === c.id && pendingAction.type === "activate"
+                                ? "Activando…"
+                                : es.campanas.acciones.reactivar}
                             </Btn>
                           )}
 
@@ -682,11 +701,14 @@ export default function Campaigns() {
                           <Btn
                             variant="destructive"
                             size="sm"
+                            disabled={isBusy}
                             onClick={() =>
                               setDeleteCandidate({ id: c.id, name: c.name })
                             }
                           >
-                            {es.campanas.acciones.eliminar}
+                            {pendingAction?.id === c.id && pendingAction.type === "delete"
+                              ? "Eliminando…"
+                              : es.campanas.acciones.eliminar}
                           </Btn>
                         </div>
                       </td>
