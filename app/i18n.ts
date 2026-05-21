@@ -68,10 +68,12 @@ export const es = {
       pausar: "Pausar",
       reactivar: "Reactivar",
       eliminar: "Eliminar",
-      confirmarEliminar:
-        "¿Eliminar esta campaña? Si está activa, los precios originales serán restaurados.",
       siEliminar: "Sí, eliminar",
       cancelar: "Cancelar",
+      modalTitulo: "¿Eliminar campaña?",
+      modalTexto: "Estás a punto de eliminar la campaña",
+      modalAdvertencia:
+        "Esta acción revertirá los descuentos aplicados y eliminará la campaña permanentemente. No se puede deshacer.",
     },
   },
   nuevaPorcentaje: {

@@ -9,6 +9,7 @@ import { useState } from "react";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { ChevronDown, ChevronUp, Tag } from "lucide-react";
+import { Btn } from "../components/Btn";
 import { authenticate } from "../shopify.server";
 import { prisma } from "../lib/db";
 import { getOrCreateShop } from "../lib/shopify/shop.server";
@@ -866,45 +867,29 @@ export default function EditPercentageCampaign() {
             {es.nuevaPorcentaje.btnCancelar}
           </Link>
           <div style={{ marginLeft: "auto", display: "flex", gap: "10px" }}>
-            <button
+            <Btn
               type="submit"
               name="intent"
               value="draft"
+              variant="secondary"
+              size="md"
               disabled={isSubmitting}
-              style={{
-                background: "#fff",
-                border: "1px solid #c9cccf",
-                borderRadius: "6px",
-                padding: "8px 16px",
-                fontSize: "14px",
-                fontWeight: "500",
-                cursor: isSubmitting ? "not-allowed" : "pointer",
-                color: "#202223",
-                opacity: isSubmitting ? 0.7 : 1,
-              }}
             >
               {es.nuevaPorcentaje.btnBorrador}
-            </button>
-            <button
+            </Btn>
+            <Btn
               type="submit"
               name="intent"
               value="activate"
+              variant="primary"
+              size="md"
               disabled={isSubmitting}
-              style={{
-                background: isSubmitting ? "#4d9e8a" : "#008060",
-                border: "none",
-                borderRadius: "6px",
-                padding: "8px 20px",
-                fontSize: "14px",
-                fontWeight: "600",
-                cursor: isSubmitting ? "not-allowed" : "pointer",
-                color: "#ffffff",
-              }}
+              style={isSubmitting ? { background: "#4d9e8a" } : undefined}
             >
               {isSubmitting
                 ? es.editarPorcentaje.btnCargando
                 : es.editarPorcentaje.btnGuardar}
-            </button>
+            </Btn>
           </div>
         </div>
       </Form>

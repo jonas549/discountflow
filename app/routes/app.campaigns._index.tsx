@@ -3,10 +3,11 @@ import type {
   HeadersFunction,
   LoaderFunctionArgs,
 } from "react-router";
-import { useLoaderData, Link, useFetcher } from "react-router";
-import { useEffect, useRef, useState } from "react";
+import { useLoaderData, useFetcher } from "react-router";
+import { useState } from "react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { Plus } from "lucide-react";
+import { Link } from "react-router";
 import { authenticate } from "../shopify.server";
 import { prisma } from "../lib/db";
 import { getOrCreateShop } from "../lib/shopify/shop.server";
@@ -15,6 +16,7 @@ import {
   reactivatePercentageDiscount,
 } from "../lib/discounts/percentage";
 import { es, estadoLabel, tipoLabel, formatDate } from "../i18n";
+import { Btn, LinkBtn } from "../components/Btn";
 
 // ─── Action ───────────────────────────────────────────────────────────────────
 
@@ -33,28 +35,17 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const campaign = await prisma.campaign.findFirst({
     where: { id: campaignId, shopId: shop.id },
   });
-
-  if (!campaign) {
-    return Response.json({ error: "Campaña no encontrada" }, { status: 404 });
-  }
+  if (!campaign) return Response.json({ error: "Campaña no encontrada" }, { status: 404 });
 
   try {
     if (actionType === "pause" && campaign.status === "ACTIVE") {
       await revertPercentageDiscount(admin, campaignId);
-      await prisma.campaign.update({
-        where: { id: campaignId },
-        data: { status: "PAUSED" },
-      });
+      await prisma.campaign.update({ where: { id: campaignId }, data: { status: "PAUSED" } });
     } else if (actionType === "activate" && campaign.status === "PAUSED") {
       await reactivatePercentageDiscount(admin, campaignId);
-      await prisma.campaign.update({
-        where: { id: campaignId },
-        data: { status: "ACTIVE" },
-      });
+      await prisma.campaign.update({ where: { id: campaignId }, data: { status: "ACTIVE" } });
     } else if (actionType === "delete") {
-      if (campaign.status === "ACTIVE") {
-        await revertPercentageDiscount(admin, campaignId);
-      }
+      if (campaign.status === "ACTIVE") await revertPercentageDiscount(admin, campaignId);
       await prisma.campaign.delete({ where: { id: campaignId } });
     }
   } catch (err) {
@@ -164,14 +155,7 @@ function MockupRango() {
         marginBottom: "16px",
       }}
     >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "8px",
-          fontSize: "13px",
-        }}
-      >
+      <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px" }}>
         <span style={{ color: "#6d7175" }}>$35.00</span>
         <span style={{ color: "#8c9196", fontSize: "16px" }}>→</span>
         <span style={{ fontWeight: "700", color: "#202223" }}>$15.00</span>
@@ -301,12 +285,7 @@ function CampaignCard({
       )}
       {mockup}
       <div
-        style={{
-          fontSize: "15px",
-          fontWeight: "600",
-          color: "#202223",
-          marginBottom: "6px",
-        }}
+        style={{ fontSize: "15px", fontWeight: "600", color: "#202223", marginBottom: "6px" }}
       >
         {title}
       </div>
@@ -333,50 +312,23 @@ function CampaignCard({
       >
         💡 {ejemplo}
       </div>
-      <div style={{ display: "flex", gap: "8px" }}>
+      <div>
         {disabled ? (
-          <button
-            disabled
-            style={{
-              background: "#e4e5e7",
-              color: "#8c9196",
-              border: "none",
-              borderRadius: "6px",
-              padding: "7px 14px",
-              fontSize: "13px",
-              fontWeight: "500",
-              cursor: "not-allowed",
-            }}
-          >
+          <Btn variant="muted" size="sm" disabled>
             {es.campanas.crear}
-          </button>
+          </Btn>
         ) : (
-          <Link
-            to={href ?? "/app/campaigns"}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "4px",
-              background: "#008060",
-              color: "#ffffff",
-              border: "none",
-              borderRadius: "6px",
-              padding: "7px 14px",
-              fontSize: "13px",
-              fontWeight: "500",
-              textDecoration: "none",
-            }}
-          >
+          <LinkBtn to={href ?? "/app/campaigns"} variant="primary" size="sm">
             <Plus size={14} />
             {es.campanas.crear}
-          </Link>
+          </LinkBtn>
         )}
       </div>
     </div>
   );
 }
 
-// ─── Status badge colors ──────────────────────────────────────────────────────
+// ─── Status badge ─────────────────────────────────────────────────────────────
 
 const ESTADO_COLORS: Record<string, { bg: string; text: string }> = {
   ACTIVE: { bg: "#d3f5e2", text: "#007a5a" },
@@ -386,196 +338,85 @@ const ESTADO_COLORS: Record<string, { bg: string; text: string }> = {
   CANCELLED: { bg: "#fde8e8", text: "#c0392b" },
 };
 
-// ─── Row actions dropdown (Issue #1) ─────────────────────────────────────────
+// ─── Delete confirmation modal ────────────────────────────────────────────────
 
-type CampaignRow = {
-  id: string;
-  name: string;
-  type: string;
-  status: string;
-  config: Record<string, unknown>;
-  productsCount: number;
-  startsAt: string | null;
-  endsAt: string | null;
-};
-
-const menuItemStyle: React.CSSProperties = {
-  display: "block",
-  width: "100%",
-  padding: "9px 14px",
-  textAlign: "left",
-  background: "transparent",
-  border: "none",
-  fontSize: "13px",
-  color: "#202223",
-  cursor: "pointer",
-  textDecoration: "none",
-};
-
-const menuItemDangerStyle: React.CSSProperties = {
-  ...menuItemStyle,
-  color: "#d82c0d",
-};
-
-function RowDropdown({
-  campaign,
-  onAction,
+function DeleteModal({
+  campaignName,
+  onConfirm,
+  onCancel,
 }: {
-  campaign: CampaignRow;
-  onAction: (campaignId: string, actionType: "pause" | "activate" | "delete") => void;
+  campaignName: string;
+  onConfirm: () => void;
+  onCancel: () => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-        setConfirmDelete(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
-
   return (
-    <div ref={containerRef} style={{ position: "relative", display: "inline-block" }}>
-      <button
-        type="button"
-        onClick={() => {
-          setOpen((o) => !o);
-          setConfirmDelete(false);
-        }}
+    <div
+      style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: "rgba(0,0,0,0.48)",
+        zIndex: 9999,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "16px",
+      }}
+      onClick={onCancel}
+    >
+      <div
         style={{
-          background: "transparent",
-          border: "1px solid #c9cccf",
-          borderRadius: "5px",
-          padding: "4px 10px",
-          fontSize: "18px",
-          lineHeight: 1,
-          cursor: "pointer",
-          color: "#202223",
-          letterSpacing: "2px",
+          background: "#ffffff",
+          borderRadius: "12px",
+          padding: "24px 28px",
+          maxWidth: "480px",
+          width: "100%",
+          boxShadow: "0 8px 40px rgba(0,0,0,0.18)",
         }}
-        title="Acciones"
+        onClick={(e) => e.stopPropagation()}
       >
-        ⋯
-      </button>
-
-      {open && (
-        <div
+        <h3
           style={{
-            position: "absolute",
-            right: 0,
-            top: "calc(100% + 4px)",
-            background: "#fff",
-            border: "1px solid #c9cccf",
-            borderRadius: "8px",
-            boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
-            minWidth: "180px",
-            zIndex: 200,
-            overflow: "hidden",
+            fontSize: "16px",
+            fontWeight: "600",
+            color: "#202223",
+            margin: "0 0 10px",
           }}
         >
-          {!confirmDelete ? (
-            <>
-              <Link
-                to={`/app/campaigns/${campaign.id}/edit`}
-                style={menuItemStyle}
-                onClick={() => setOpen(false)}
-              >
-                {es.campanas.acciones.editar}
-              </Link>
-              {campaign.status === "ACTIVE" && (
-                <button
-                  type="button"
-                  style={menuItemStyle}
-                  onClick={() => {
-                    onAction(campaign.id, "pause");
-                    setOpen(false);
-                  }}
-                >
-                  {es.campanas.acciones.pausar}
-                </button>
-              )}
-              {campaign.status === "PAUSED" && (
-                <button
-                  type="button"
-                  style={menuItemStyle}
-                  onClick={() => {
-                    onAction(campaign.id, "activate");
-                    setOpen(false);
-                  }}
-                >
-                  {es.campanas.acciones.reactivar}
-                </button>
-              )}
-              <div
-                style={{ height: "1px", background: "#f1f2f3", margin: "4px 0" }}
-              />
-              <button
-                type="button"
-                style={menuItemDangerStyle}
-                onClick={() => setConfirmDelete(true)}
-              >
-                {es.campanas.acciones.eliminar}
-              </button>
-            </>
-          ) : (
-            <div style={{ padding: "12px 14px" }}>
-              <p
-                style={{
-                  fontSize: "12px",
-                  color: "#202223",
-                  marginBottom: "10px",
-                  lineHeight: "1.4",
-                }}
-              >
-                {es.campanas.acciones.confirmarEliminar}
-              </p>
-              <div style={{ display: "flex", gap: "8px" }}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onAction(campaign.id, "delete");
-                    setOpen(false);
-                    setConfirmDelete(false);
-                  }}
-                  style={{
-                    background: "#d82c0d",
-                    color: "#fff",
-                    border: "none",
-                    borderRadius: "5px",
-                    padding: "5px 10px",
-                    fontSize: "12px",
-                    fontWeight: "500",
-                    cursor: "pointer",
-                  }}
-                >
-                  {es.campanas.acciones.siEliminar}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setConfirmDelete(false)}
-                  style={{
-                    background: "transparent",
-                    color: "#6d7175",
-                    border: "1px solid #c9cccf",
-                    borderRadius: "5px",
-                    padding: "5px 10px",
-                    fontSize: "12px",
-                    cursor: "pointer",
-                  }}
-                >
-                  {es.campanas.acciones.cancelar}
-                </button>
-              </div>
-            </div>
+          {es.campanas.acciones.modalTitulo}
+        </h3>
+        <p
+          style={{
+            fontSize: "14px",
+            color: "#6d7175",
+            lineHeight: "1.55",
+            margin: "0 0 24px",
+          }}
+        >
+          {es.campanas.acciones.modalTexto}
+          {campaignName && (
+            <strong style={{ color: "#202223" }}> "{campaignName}"</strong>
           )}
+          {". "}
+          {es.campanas.acciones.modalAdvertencia}
+        </p>
+        <div
+          style={{
+            display: "flex",
+            gap: "10px",
+            justifyContent: "flex-end",
+          }}
+        >
+          <Btn variant="secondary" size="md" onClick={onCancel}>
+            {es.campanas.acciones.cancelar}
+          </Btn>
+          <Btn variant="destructive" size="md" onClick={onConfirm}>
+            {es.campanas.acciones.siEliminar}
+          </Btn>
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -586,18 +427,36 @@ export default function Campaigns() {
   const { campaigns } = useLoaderData<typeof loader>();
   const fetcher = useFetcher();
 
-  const handleAction = (
-    campaignId: string,
-    actionType: "pause" | "activate" | "delete"
-  ) => {
+  // Track which campaign is pending deletion (null = modal closed)
+  const [deleteCandidate, setDeleteCandidate] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+
+  const submitAction = (campaignId: string, actionType: "pause" | "activate" | "delete") => {
     const fd = new FormData();
     fd.append("campaignId", campaignId);
     fd.append("actionType", actionType);
     fetcher.submit(fd, { method: "post" });
   };
 
+  const handleDeleteConfirm = () => {
+    if (!deleteCandidate) return;
+    submitAction(deleteCandidate.id, "delete");
+    setDeleteCandidate(null);
+  };
+
   return (
     <s-page heading={es.campanas.titulo}>
+      {/* Delete confirmation modal */}
+      {deleteCandidate && (
+        <DeleteModal
+          campaignName={deleteCandidate.name}
+          onConfirm={handleDeleteConfirm}
+          onCancel={() => setDeleteCandidate(null)}
+        />
+      )}
+
       {/* Campaign type picker */}
       <s-section heading={es.campanas.crearSeccion}>
         <p style={{ fontSize: "14px", color: "#6d7175", marginBottom: "20px" }}>
@@ -684,16 +543,9 @@ export default function Campaigns() {
                       ? `${(c.config as { discountPercent?: number }).discountPercent ?? "—"}%`
                       : "—";
                   return (
-                    <tr
-                      key={c.id}
-                      style={{ borderBottom: "1px solid #f1f2f3" }}
-                    >
+                    <tr key={c.id} style={{ borderBottom: "1px solid #f1f2f3" }}>
                       <td
-                        style={{
-                          padding: "12px",
-                          fontWeight: "500",
-                          color: "#202223",
-                        }}
+                        style={{ padding: "12px", fontWeight: "500", color: "#202223" }}
                       >
                         {c.name}
                       </td>
@@ -720,17 +572,71 @@ export default function Campaigns() {
                         {c.productsCount}
                       </td>
                       <td
-                        style={{ padding: "12px", color: "#6d7175", whiteSpace: "nowrap" }}
+                        style={{
+                          padding: "12px",
+                          color: "#6d7175",
+                          whiteSpace: "nowrap",
+                        }}
                       >
                         {formatDate(c.startsAt)}
                       </td>
                       <td
-                        style={{ padding: "12px", color: "#6d7175", whiteSpace: "nowrap" }}
+                        style={{
+                          padding: "12px",
+                          color: "#6d7175",
+                          whiteSpace: "nowrap",
+                        }}
                       >
                         {formatDate(c.endsAt)}
                       </td>
+
+                      {/* ── Acciones inline — sin dropdown ── */}
                       <td style={{ padding: "12px" }}>
-                        <RowDropdown campaign={c} onAction={handleAction} />
+                        <div
+                          style={{ display: "flex", gap: "8px", alignItems: "center" }}
+                        >
+                          {/* Editar — siempre visible, acción positiva */}
+                          <LinkBtn
+                            to={`/app/campaigns/${c.id}/edit`}
+                            variant="primary"
+                            size="sm"
+                          >
+                            {es.campanas.acciones.editar}
+                          </LinkBtn>
+
+                          {/* Pausar — solo cuando ACTIVE */}
+                          {c.status === "ACTIVE" && (
+                            <Btn
+                              variant="muted"
+                              size="sm"
+                              onClick={() => submitAction(c.id, "pause")}
+                            >
+                              {es.campanas.acciones.pausar}
+                            </Btn>
+                          )}
+
+                          {/* Reactivar — solo cuando PAUSED, misma jerarquía que Editar */}
+                          {c.status === "PAUSED" && (
+                            <Btn
+                              variant="primary"
+                              size="sm"
+                              onClick={() => submitAction(c.id, "activate")}
+                            >
+                              {es.campanas.acciones.reactivar}
+                            </Btn>
+                          )}
+
+                          {/* Eliminar — siempre visible, abre modal */}
+                          <Btn
+                            variant="destructive"
+                            size="sm"
+                            onClick={() =>
+                              setDeleteCandidate({ id: c.id, name: c.name })
+                            }
+                          >
+                            {es.campanas.acciones.eliminar}
+                          </Btn>
+                        </div>
                       </td>
                     </tr>
                   );
