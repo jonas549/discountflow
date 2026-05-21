@@ -90,7 +90,9 @@ Rather than three tables (`PercentageCampaign`, `RangeCampaign`, `BxgyCampaign`)
 
 React Router v7 uses the same build output format as Remix (`build/client` for static assets, `build/server` for the SSR handler). Vercel's Remix framework preset handles this format natively, routing static asset requests to CDN and dynamic requests to a Node.js serverless function.
 
-**Cron jobs:** Campaign activation/deactivation (starting/ending campaigns at `startsAt`/`endsAt`) is scheduled via `vercel.json` crons. The cron endpoint is `/api/cron/sync-campaigns` running every 10 minutes (Phase 2 implementation).
+**Cron jobs:** Campaign activation/deactivation (starting/ending campaigns at `startsAt`/`endsAt`) is scheduled via `vercel.json` crons. The cron endpoint is `/api/cron/sync-campaigns`.
+
+> **Vercel plan constraint:** The current schedule is `0 0 * * *` (daily at midnight UTC) because Vercel Hobby only supports daily crons. On Vercel Pro, change this back to `*/10 * * * *` (every 10 minutes) for accurate campaign start/end timing.
 
 **Timeout budget:** Most Shopify Admin API calls resolve in < 3 s. Bulk product price updates for large catalogs may approach the 60 s Pro limit. We will batch updates and use pagination to stay within the limit.
 
