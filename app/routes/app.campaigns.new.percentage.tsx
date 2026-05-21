@@ -3,7 +3,7 @@ import type {
   HeadersFunction,
   LoaderFunctionArgs,
 } from "react-router";
-import { redirect, useActionData, useLoaderData, useNavigation } from "react-router";
+import { redirect, useActionData, useLoaderData, useNavigation, Link } from "react-router";
 import { Form } from "react-router";
 import { useState } from "react";
 import { useAppBridge } from "@shopify/app-bridge-react";
@@ -616,8 +616,8 @@ export default function NewPercentageCampaign() {
     <s-page heading={es.nuevaPorcentaje.titulo}>
       {/* Back link */}
       <div style={{ marginBottom: "4px" }}>
-        <a
-          href="/app/campaigns"
+        <Link
+          to="/app/campaigns"
           style={{
             fontSize: "13px",
             color: "#006fbb",
@@ -625,7 +625,7 @@ export default function NewPercentageCampaign() {
           }}
         >
           {es.nuevaPorcentaje.volver}
-        </a>
+        </Link>
       </div>
 
       {errors.general && (
@@ -1022,8 +1022,8 @@ export default function NewPercentageCampaign() {
             zIndex: 10,
           }}
         >
-          <a
-            href="/app/campaigns"
+          <Link
+            to="/app/campaigns"
             style={{
               color: "#6d7175",
               fontSize: "14px",
@@ -1032,7 +1032,7 @@ export default function NewPercentageCampaign() {
             }}
           >
             {es.nuevaPorcentaje.btnCancelar}
-          </a>
+          </Link>
           <div style={{ marginLeft: "auto", display: "flex", gap: "10px" }}>
             <button
               type="submit"

@@ -1,5 +1,5 @@
 import type { HeadersFunction, LoaderFunctionArgs } from "react-router";
-import { useLoaderData } from "react-router";
+import { useLoaderData, Link } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import {
   TrendingUp,
@@ -162,8 +162,8 @@ export default function Dashboard() {
       {/* Quick Actions */}
       <s-section heading={es.dashboard.accionesRapidas}>
         <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-          <a
-            href="/app/campaigns/new/percentage"
+          <Link
+            to="/app/campaigns/new/percentage"
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -181,9 +181,9 @@ export default function Dashboard() {
           >
             <Plus size={16} />
             {es.dashboard.crearCampana}
-          </a>
-          <a
-            href="/app/analytics"
+          </Link>
+          <Link
+            to="/app/analytics"
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -201,9 +201,9 @@ export default function Dashboard() {
           >
             <BarChart2 size={16} />
             {es.dashboard.verAnaliticas}
-          </a>
-          <a
-            href="/app/support"
+          </Link>
+          <Link
+            to="/app/support"
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -221,7 +221,7 @@ export default function Dashboard() {
           >
             <HelpCircle size={16} />
             {es.dashboard.centroDeSoporte}
-          </a>
+          </Link>
         </div>
       </s-section>
 
@@ -239,8 +239,8 @@ export default function Dashboard() {
             <p style={{ marginBottom: "20px", fontSize: "14px" }}>
               {es.dashboard.sinCampanas}
             </p>
-            <a
-              href="/app/campaigns/new/percentage"
+            <Link
+              to="/app/campaigns/new/percentage"
               style={{
                 display: "inline-flex",
                 alignItems: "center",
@@ -257,7 +257,7 @@ export default function Dashboard() {
             >
               <Plus size={16} />
               {es.dashboard.crearCTA}
-            </a>
+            </Link>
           </div>
         ) : (
           <div style={{ overflowX: "auto" }}>

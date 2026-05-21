@@ -1,5 +1,5 @@
 import type { HeadersFunction, LoaderFunctionArgs } from "react-router";
-import { useLoaderData } from "react-router";
+import { useLoaderData, Link } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { Plus } from "lucide-react";
 import { authenticate } from "../shopify.server";
@@ -310,8 +310,8 @@ function CampaignCard({
             {es.campanas.crear}
           </button>
         ) : (
-          <a
-            href={href}
+          <Link
+            to={href ?? "/app/campaigns"}
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -328,7 +328,7 @@ function CampaignCard({
           >
             <Plus size={14} />
             {es.campanas.crear}
-          </a>
+          </Link>
         )}
         <button
           disabled={disabled}
