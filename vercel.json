@@ -1,5 +1,6 @@
 {
-  "framework": "remix",
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "react-router",
   "buildCommand": "npm run setup && npm run build",
   "installCommand": "npm install",
   "regions": ["iad1"],
