@@ -209,15 +209,13 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
 
   if (shouldActivate) {
     const hasNewProducts = selectedProducts.length > 0;
-    const isCollectionsWithId = selectionMode === "collections" && collectionId;
     const isAllStore = selectionMode === "all";
-
     const hasNewCollections = selectionMode === "collections" && collectionIds.length > 0;
     const hasNewTags = selectionMode === "tags" && selectedTags.length > 0;
     const hasNewVendors = selectionMode === "vendors" && selectedVendors.length > 0;
     const hasNewTypes = selectionMode === "productTypes" && selectedProductTypes.length > 0;
 
-    if (hasNewProducts || isCollectionsWithId || isAllStore || hasNewCollections || hasNewTags || hasNewVendors || hasNewTypes) {
+    if (hasNewProducts || isAllStore || hasNewCollections || hasNewTags || hasNewVendors || hasNewTypes) {
       // User provided a new selection — replace existing CampaignProduct records
       await prisma.campaignProduct.deleteMany({ where: { campaignId } });
 
@@ -673,7 +671,7 @@ export default function EditPercentageCampaign() {
               helper={es.nuevaPorcentaje.descuentoHelper}
               error={errors.discountPercent}
             >
-              <div style={{ display: "flex" }}>
+              <div style={{ display: "flex", width: "100%" }}>
                 <input
                   name="discountPercent"
                   type="number"
@@ -686,7 +684,8 @@ export default function EditPercentageCampaign() {
                   style={{
                     ...(errors.discountPercent ? inputErrorStyle : inputStyle),
                     borderRadius: "6px 0 0 6px",
-                    width: "100px",
+                    flex: 1,
+                    minWidth: 0,
                   }}
                 />
                 <span
@@ -766,32 +765,91 @@ export default function EditPercentageCampaign() {
 
         {/* 3. Productos */}
         <Section title={es.nuevaPorcentaje.secProductos} defaultOpen>
-          {/* Selector de modo */}
-          <div style={{ marginTop: "16px" }}>
-            <label
-              style={{
-                display: "block",
-                fontSize: "13px",
-                fontWeight: "500",
-                color: "#202223",
-                marginBottom: "5px",
-              }}
-            >
-              {es.nuevaPorcentaje.modoLabel}
-            </label>
-            <select
-              name="selectionMode"
-              value={selectionMode}
-              onChange={(e) => setSelectionMode(e.target.value as SelectionMode)}
-              style={inputStyle}
-            >
-              <option value="products">{es.nuevaPorcentaje.modoProductos}</option>
-              <option value="collections">{es.nuevaPorcentaje.modoColecciones}</option>
-              <option value="tags">{es.nuevaPorcentaje.modoTags}</option>
-              <option value="vendors">{es.nuevaPorcentaje.modoVendedor}</option>
-              <option value="productTypes">{es.nuevaPorcentaje.modoTipo}</option>
-              <option value="all">{es.nuevaPorcentaje.modoTienda}</option>
-            </select>
+          {/* Selector de modo + botón picker (50/50) */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginTop: "16px", alignItems: "flex-end" }}>
+            <div>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: "13px",
+                  fontWeight: "500",
+                  color: "#202223",
+                  marginBottom: "5px",
+                }}
+              >
+                {es.nuevaPorcentaje.modoLabel}
+              </label>
+              <select
+                name="selectionMode"
+                value={selectionMode}
+                onChange={(e) => setSelectionMode(e.target.value as SelectionMode)}
+                style={inputStyle}
+              >
+                <option value="products">{es.nuevaPorcentaje.modoProductos}</option>
+                <option value="collections">{es.nuevaPorcentaje.modoColecciones}</option>
+                <option value="tags">{es.nuevaPorcentaje.modoTags}</option>
+                <option value="vendors">{es.nuevaPorcentaje.modoVendedor}</option>
+                <option value="productTypes">{es.nuevaPorcentaje.modoTipo}</option>
+                <option value="all">{es.nuevaPorcentaje.modoTienda}</option>
+              </select>
+            </div>
+            <div>
+              {selectionMode === "products" && (
+                <button
+                  type="button"
+                  onClick={handleSelectProducts}
+                  style={{ ...inputStyle, cursor: "pointer", textAlign: "left" }}
+                >
+                  {campaign.existingProductsCount > 0
+                    ? es.editarPorcentaje.reemplazarSeleccion
+                    : es.nuevaPorcentaje.btnSeleccionarProductos}
+                </button>
+              )}
+              {selectionMode === "collections" && (
+                <button
+                  type="button"
+                  onClick={handleSelectCollections}
+                  style={{ ...inputStyle, cursor: "pointer", textAlign: "left" }}
+                >
+                  {selectedCollections.length > 0
+                    ? es.editarPorcentaje.reemplazarSeleccion
+                    : es.nuevaPorcentaje.btnSeleccionarColecciones}
+                </button>
+              )}
+              {selectionMode === "tags" && (
+                <button
+                  type="button"
+                  onClick={() => setPickerMode("tags")}
+                  style={{ ...inputStyle, cursor: "pointer", textAlign: "left" }}
+                >
+                  {selectedTags.length > 0
+                    ? es.editarPorcentaje.reemplazarSeleccion
+                    : es.nuevaPorcentaje.btnSeleccionarTags}
+                </button>
+              )}
+              {selectionMode === "vendors" && (
+                <button
+                  type="button"
+                  onClick={() => setPickerMode("vendors")}
+                  style={{ ...inputStyle, cursor: "pointer", textAlign: "left" }}
+                >
+                  {selectedVendors.length > 0
+                    ? es.editarPorcentaje.reemplazarSeleccion
+                    : es.nuevaPorcentaje.btnSeleccionarVendedores}
+                </button>
+              )}
+              {selectionMode === "productTypes" && (
+                <button
+                  type="button"
+                  onClick={() => setPickerMode("productTypes")}
+                  style={{ ...inputStyle, cursor: "pointer", textAlign: "left" }}
+                >
+                  {selectedProductTypes.length > 0
+                    ? es.editarPorcentaje.reemplazarSeleccion
+                    : es.nuevaPorcentaje.btnSeleccionarTipos}
+                </button>
+              )}
+            </div>
           </div>
 
           {errors.products && (
@@ -800,18 +858,12 @@ export default function EditPercentageCampaign() {
             </p>
           )}
 
-          {/* Productos */}
+          {/* Chips / contenido debajo del grid */}
           {selectionMode === "products" && (
             <div style={{ marginTop: "10px" }}>
-              <button type="button" onClick={handleSelectProducts} style={pickerBtnStyle}>
-                {campaign.existingProductsCount > 0
-                  ? es.editarPorcentaje.reemplazarSeleccion
-                  : es.nuevaPorcentaje.btnSeleccionarProductos}
-              </button>
               {campaign.existingProductsCount > 0 && selectedProducts.length === 0 && (
                 <div
                   style={{
-                    marginTop: "10px",
                     background: "#f1f8f5",
                     border: "1px solid #b5e3d8",
                     borderRadius: "6px",
@@ -832,133 +884,75 @@ export default function EditPercentageCampaign() {
             </div>
           )}
 
-          {/* Colecciones */}
-          {selectionMode === "collections" && (
-            <div style={{ marginTop: "10px" }}>
-              <button
-                type="button"
-                onClick={handleSelectCollections}
-                style={pickerBtnStyle}
-              >
-                {selectedCollections.length > 0
-                  ? es.editarPorcentaje.reemplazarSeleccion
-                  : es.nuevaPorcentaje.btnSeleccionarColecciones}
-              </button>
-              {selectedCollections.length > 0 && (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "10px" }}>
-                  {selectedCollections.map((c) => (
-                    <div key={c.id} style={chipStyle}>
-                      {c.title}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setSelectedCollections((prev) => prev.filter((x) => x.id !== c.id))
-                        }
-                        style={chipRemoveStyle}
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
+          {selectionMode === "collections" && selectedCollections.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "10px" }}>
+              {selectedCollections.map((c) => (
+                <div key={c.id} style={chipStyle}>
+                  {c.title}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSelectedCollections((prev) => prev.filter((x) => x.id !== c.id))
+                    }
+                    style={chipRemoveStyle}
+                  >
+                    ×
+                  </button>
                 </div>
-              )}
+              ))}
             </div>
           )}
 
-          {/* Tags */}
-          {selectionMode === "tags" && (
-            <div style={{ marginTop: "10px" }}>
-              <button
-                type="button"
-                onClick={() => setPickerMode("tags")}
-                style={pickerBtnStyle}
-              >
-                {selectedTags.length > 0
-                  ? es.editarPorcentaje.reemplazarSeleccion
-                  : es.nuevaPorcentaje.btnSeleccionarTags}
-              </button>
-              {selectedTags.length > 0 && (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "10px" }}>
-                  {selectedTags.map((t) => (
-                    <div key={t} style={chipStyle}>
-                      {t}
-                      <button
-                        type="button"
-                        onClick={() => setSelectedTags((prev) => prev.filter((x) => x !== t))}
-                        style={chipRemoveStyle}
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
+          {selectionMode === "tags" && selectedTags.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "10px" }}>
+              {selectedTags.map((t) => (
+                <div key={t} style={chipStyle}>
+                  {t}
+                  <button
+                    type="button"
+                    onClick={() => setSelectedTags((prev) => prev.filter((x) => x !== t))}
+                    style={chipRemoveStyle}
+                  >
+                    ×
+                  </button>
                 </div>
-              )}
+              ))}
             </div>
           )}
 
-          {/* Vendedores */}
-          {selectionMode === "vendors" && (
-            <div style={{ marginTop: "10px" }}>
-              <button
-                type="button"
-                onClick={() => setPickerMode("vendors")}
-                style={pickerBtnStyle}
-              >
-                {selectedVendors.length > 0
-                  ? es.editarPorcentaje.reemplazarSeleccion
-                  : es.nuevaPorcentaje.btnSeleccionarVendedores}
-              </button>
-              {selectedVendors.length > 0 && (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "10px" }}>
-                  {selectedVendors.map((v) => (
-                    <div key={v} style={chipStyle}>
-                      {v}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setSelectedVendors((prev) => prev.filter((x) => x !== v))
-                        }
-                        style={chipRemoveStyle}
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
+          {selectionMode === "vendors" && selectedVendors.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "10px" }}>
+              {selectedVendors.map((v) => (
+                <div key={v} style={chipStyle}>
+                  {v}
+                  <button
+                    type="button"
+                    onClick={() => setSelectedVendors((prev) => prev.filter((x) => x !== v))}
+                    style={chipRemoveStyle}
+                  >
+                    ×
+                  </button>
                 </div>
-              )}
+              ))}
             </div>
           )}
 
-          {/* Tipos de producto */}
-          {selectionMode === "productTypes" && (
-            <div style={{ marginTop: "10px" }}>
-              <button
-                type="button"
-                onClick={() => setPickerMode("productTypes")}
-                style={pickerBtnStyle}
-              >
-                {selectedProductTypes.length > 0
-                  ? es.editarPorcentaje.reemplazarSeleccion
-                  : es.nuevaPorcentaje.btnSeleccionarTipos}
-              </button>
-              {selectedProductTypes.length > 0 && (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "10px" }}>
-                  {selectedProductTypes.map((t) => (
-                    <div key={t} style={chipStyle}>
-                      {t}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setSelectedProductTypes((prev) => prev.filter((x) => x !== t))
-                        }
-                        style={chipRemoveStyle}
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
+          {selectionMode === "productTypes" && selectedProductTypes.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "10px" }}>
+              {selectedProductTypes.map((t) => (
+                <div key={t} style={chipStyle}>
+                  {t}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSelectedProductTypes((prev) => prev.filter((x) => x !== t))
+                    }
+                    style={chipRemoveStyle}
+                  >
+                    ×
+                  </button>
                 </div>
-              )}
+              ))}
             </div>
           )}
 
