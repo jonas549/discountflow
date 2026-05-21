@@ -20,7 +20,7 @@ import {
 import { authenticate } from "../shopify.server";
 import { prisma } from "../lib/db";
 import { getOrCreateShop } from "../lib/shopify/shop.server";
-import { getProductMetadata } from "../lib/shopify/admin-api";
+import { getProductMetadata, getProductsByIds, getCollectionsByIds } from "../lib/shopify/admin-api";
 import {
   createBxgyDiscount,
   updateBxgyDiscount,
@@ -47,8 +47,24 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   });
   if (!campaign) throw new Response("Not found", { status: 404 });
 
-  const productMeta = await getProductMetadata(admin);
   const config = campaign.config as BxgyCampaignConfig;
+
+  const [productMeta, prefilledXProducts, prefilledYProducts, prefilledXCollections, prefilledYCollections] =
+    await Promise.all([
+      getProductMetadata(admin),
+      config.xMode === "products" && (config.xProductIds ?? []).length > 0
+        ? getProductsByIds(admin, config.xProductIds)
+        : Promise.resolve([]),
+      config.yMode === "products" && (config.yProductIds ?? []).length > 0
+        ? getProductsByIds(admin, config.yProductIds)
+        : Promise.resolve([]),
+      config.xMode === "collections" && (config.xCollectionIds ?? []).length > 0
+        ? getCollectionsByIds(admin, config.xCollectionIds)
+        : Promise.resolve([]),
+      config.yMode === "collections" && (config.yCollectionIds ?? []).length > 0
+        ? getCollectionsByIds(admin, config.yCollectionIds)
+        : Promise.resolve([]),
+    ]);
 
   return {
     campaign: {
@@ -59,6 +75,10 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       endsAt: campaign.endsAt ? campaign.endsAt.toISOString().slice(0, 16) : "",
       config,
     },
+    prefilledXProducts,
+    prefilledYProducts,
+    prefilledXCollections,
+    prefilledYCollections,
     availableTags: productMeta.tags,
     availableVendors: productMeta.vendors,
     availableProductTypes: productMeta.productTypes,
@@ -144,6 +164,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   if (!xHasSelection) errors.xProducts = es.nuevaBxgy.errXProductos;
 
   const yHasSelection =
+    discountType === "freeShipping" ||
     yMode === "same-as-x" ||
     yMode === "all" ||
     (yMode === "products" && yProducts.length > 0) ||
@@ -485,8 +506,16 @@ function SelectionPanel({
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function EditBxgyCampaign() {
-  const { campaign, availableTags, availableVendors, availableProductTypes } =
-    useLoaderData<typeof loader>();
+  const {
+    campaign,
+    prefilledXProducts,
+    prefilledYProducts,
+    prefilledXCollections,
+    prefilledYCollections,
+    availableTags,
+    availableVendors,
+    availableProductTypes,
+  } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>() as { errors?: ActionErrors } | undefined;
   const navigation = useNavigation();
   const shopify = useAppBridge();
@@ -497,12 +526,10 @@ export default function EditBxgyCampaign() {
 
   const [name, setName] = useState(campaign.name);
 
-  // X state — pre-filled from config
+  // X state — pre-filled from loader
   const [xMode, setXMode] = useState<string>(cfg.xMode ?? "products");
-  const [xProducts, setXProducts] = useState<ProductItem[]>([]);
-  const [xCollections, setXCollections] = useState<CollectionItem[]>(
-    (cfg.xCollectionIds ?? []).map((id: string) => ({ id, title: id }))
-  );
+  const [xProducts, setXProducts] = useState<ProductItem[]>(prefilledXProducts);
+  const [xCollections, setXCollections] = useState<CollectionItem[]>(prefilledXCollections);
   const [xTags, setXTags] = useState<string[]>(cfg.xRawItems && cfg.xMode === "tags" ? cfg.xRawItems : []);
   const [xVendors, setXVendors] = useState<string[]>(cfg.xRawItems && cfg.xMode === "vendors" ? cfg.xRawItems : []);
   const [xTypes, setXTypes] = useState<string[]>(cfg.xRawItems && cfg.xMode === "productTypes" ? cfg.xRawItems : []);
@@ -513,19 +540,17 @@ export default function EditBxgyCampaign() {
   const [xExcluded, setXExcluded] = useState<ProductItem[]>([]);
   const [xPickerMode, setXPickerMode] = useState<"tags" | "vendors" | "productTypes" | null>(null);
 
-  // Y state — pre-filled
+  // Y state — pre-filled from loader
   const [yMode, setYMode] = useState<string>(cfg.yMode ?? "same-as-x");
-  const [yProducts, setYProducts] = useState<ProductItem[]>([]);
-  const [yCollections, setYCollections] = useState<CollectionItem[]>(
-    (cfg.yCollectionIds ?? []).map((id: string) => ({ id, title: id }))
-  );
+  const [yProducts, setYProducts] = useState<ProductItem[]>(prefilledYProducts);
+  const [yCollections, setYCollections] = useState<CollectionItem[]>(prefilledYCollections);
   const [yTags, setYTags] = useState<string[]>(cfg.yRawItems && cfg.yMode === "tags" ? cfg.yRawItems : []);
   const [yVendors, setYVendors] = useState<string[]>(cfg.yRawItems && cfg.yMode === "vendors" ? cfg.yRawItems : []);
   const [yTypes, setYTypes] = useState<string[]>(cfg.yRawItems && cfg.yMode === "productTypes" ? cfg.yRawItems : []);
   const [yQuantity, setYQuantity] = useState(cfg.yQuantity ?? 1);
   const [yPickerMode, setYPickerMode] = useState<"tags" | "vendors" | "productTypes" | null>(null);
 
-  const [discountType, setDiscountType] = useState<"free" | "percentage">(cfg.discountType ?? "free");
+  const [discountType, setDiscountType] = useState<"free" | "percentage" | "freeShipping">(cfg.discountType ?? "free");
   const [discountValue, setDiscountValue] = useState(cfg.discountValue ?? 50);
   const [startsAt, setStartsAt] = useState(campaign.startsAt);
   const [endsAt, setEndsAt] = useState(campaign.endsAt);
@@ -732,63 +757,79 @@ export default function EditBxgyCampaign() {
               </div>
             </Section>
 
-            {/* 3. Recibe Y */}
-            <Section title={es.nuevaBxgy.secRecibeY} defaultOpen>
-              <SelectionPanel
-                prefix="y"
-                modes={Y_SELECTION_MODES}
-                selectionMode={yMode}
-                onModeChange={setYMode}
-                selectedProducts={yProducts}
-                selectedCollections={yCollections}
-                selectedTags={yTags}
-                selectedVendors={yVendors}
-                selectedProductTypes={yTypes}
-                onSelectProducts={() => pickProducts(yProducts, setYProducts)}
-                onSelectCollections={() => pickCollections(yCollections, setYCollections)}
-                onOpenTagPicker={() => setYPickerMode("tags")}
-                onOpenVendorPicker={() => setYPickerMode("vendors")}
-                onOpenTypePicker={() => setYPickerMode("productTypes")}
-                onRemoveProduct={(id) => setYProducts((p) => p.filter((x) => x.id !== id))}
-                onRemoveCollection={(id) => setYCollections((c) => c.filter((x) => x.id !== id))}
-                onRemoveTag={(t) => setYTags((v) => v.filter((x) => x !== t))}
-                onRemoveVendor={(v) => setYVendors((a) => a.filter((x) => x !== v))}
-                onRemoveType={(t) => setYTypes((a) => a.filter((x) => x !== t))}
-                error={errors.yProducts}
-                btnProductos={es.editarBxgy.reemplazarSeleccion}
-                btnColecciones={es.editarBxgy.reemplazarSeleccion}
-                btnTags={es.editarBxgy.reemplazarSeleccion}
-                btnVendedores={es.editarBxgy.reemplazarSeleccion}
-                btnTipos={es.editarBxgy.reemplazarSeleccion}
-              />
+            {/* 3. Recibe Y — oculto cuando es envío gratis */}
+            {discountType === "freeShipping" ? (
+              <div
+                style={{
+                  margin: "16px 0",
+                  background: "#f0f8ff",
+                  border: "1px solid #b4d7f0",
+                  borderRadius: "8px",
+                  padding: "14px 16px",
+                  fontSize: "13px",
+                  color: "#0070c0",
+                }}
+              >
+                ℹ️ {es.nuevaBxgy.msgEnvioGratis}
+              </div>
+            ) : (
+              <Section title={es.nuevaBxgy.secRecibeY} defaultOpen>
+                <SelectionPanel
+                  prefix="y"
+                  modes={Y_SELECTION_MODES}
+                  selectionMode={yMode}
+                  onModeChange={setYMode}
+                  selectedProducts={yProducts}
+                  selectedCollections={yCollections}
+                  selectedTags={yTags}
+                  selectedVendors={yVendors}
+                  selectedProductTypes={yTypes}
+                  onSelectProducts={() => pickProducts(yProducts, setYProducts)}
+                  onSelectCollections={() => pickCollections(yCollections, setYCollections)}
+                  onOpenTagPicker={() => setYPickerMode("tags")}
+                  onOpenVendorPicker={() => setYPickerMode("vendors")}
+                  onOpenTypePicker={() => setYPickerMode("productTypes")}
+                  onRemoveProduct={(id) => setYProducts((p) => p.filter((x) => x.id !== id))}
+                  onRemoveCollection={(id) => setYCollections((c) => c.filter((x) => x.id !== id))}
+                  onRemoveTag={(t) => setYTags((v) => v.filter((x) => x !== t))}
+                  onRemoveVendor={(v) => setYVendors((a) => a.filter((x) => x !== v))}
+                  onRemoveType={(t) => setYTypes((a) => a.filter((x) => x !== t))}
+                  error={errors.yProducts}
+                  btnProductos={es.editarBxgy.reemplazarSeleccion}
+                  btnColecciones={es.editarBxgy.reemplazarSeleccion}
+                  btnTags={es.editarBxgy.reemplazarSeleccion}
+                  btnVendedores={es.editarBxgy.reemplazarSeleccion}
+                  btnTipos={es.editarBxgy.reemplazarSeleccion}
+                />
 
-              <FieldGroup label={es.nuevaBxgy.yCantidadLabel} helper={es.nuevaBxgy.yCantidadHelper}>
-                <div style={{ display: "flex", width: "160px" }}>
-                  <input
-                    name="yQuantity"
-                    type="number"
-                    min={1}
-                    value={yQuantity}
-                    onChange={(e) => setYQuantity(Math.max(1, Number(e.target.value)))}
-                    style={{ ...inputStyle, borderRadius: "6px 0 0 6px", flex: 1, minWidth: 0 }}
-                  />
-                  <span
-                    style={{
-                      background: "#f1f2f3",
-                      border: "1px solid #c9cccf",
-                      borderLeft: "none",
-                      borderRadius: "0 6px 6px 0",
-                      padding: "8px 12px",
-                      fontSize: "14px",
-                      color: "#6d7175",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    unidades
-                  </span>
-                </div>
-              </FieldGroup>
-            </Section>
+                <FieldGroup label={es.nuevaBxgy.yCantidadLabel} helper={es.nuevaBxgy.yCantidadHelper}>
+                  <div style={{ display: "flex", width: "160px" }}>
+                    <input
+                      name="yQuantity"
+                      type="number"
+                      min={1}
+                      value={yQuantity}
+                      onChange={(e) => setYQuantity(Math.max(1, Number(e.target.value)))}
+                      style={{ ...inputStyle, borderRadius: "6px 0 0 6px", flex: 1, minWidth: 0 }}
+                    />
+                    <span
+                      style={{
+                        background: "#f1f2f3",
+                        border: "1px solid #c9cccf",
+                        borderLeft: "none",
+                        borderRadius: "0 6px 6px 0",
+                        padding: "8px 12px",
+                        fontSize: "14px",
+                        color: "#6d7175",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      unidades
+                    </span>
+                  </div>
+                </FieldGroup>
+              </Section>
+            )}
 
             {/* 4. Descuento */}
             <Section title={es.nuevaBxgy.secDescuento} defaultOpen>
@@ -797,11 +838,12 @@ export default function EditBxgyCampaign() {
                   <select
                     name="discountType"
                     value={discountType}
-                    onChange={(e) => setDiscountType(e.target.value as "free" | "percentage")}
+                    onChange={(e) => setDiscountType(e.target.value as "free" | "percentage" | "freeShipping")}
                     style={inputStyle}
                   >
                     <option value="free">{es.nuevaBxgy.descuentoGratis}</option>
                     <option value="percentage">{es.nuevaBxgy.descuentoPorcentaje}</option>
+                    <option value="freeShipping">{es.nuevaBxgy.descuentoEnvioGratis}</option>
                   </select>
                 </FieldGroup>
                 {discountType === "percentage" && (
@@ -904,7 +946,7 @@ export default function EditBxgyCampaign() {
                 { label: es.nuevaBxgy.resumenRecibe, value: `${yQuantity} × ${yMode === "same-as-x" ? "igual que X" : yMode}` },
                 {
                   label: es.nuevaBxgy.resumenDescuento,
-                  value: discountType === "free" ? "GRATIS" : `${discountValue}%`,
+                  value: discountType === "free" ? "GRATIS" : discountType === "freeShipping" ? "Envío gratis" : `${discountValue}%`,
                 },
                 { label: "Estado actual", value: estadoLabel(campaign.status) },
               ].map(({ label, value }) => (

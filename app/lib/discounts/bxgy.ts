@@ -93,6 +93,100 @@ function discountEffect(config: BxgyCampaignConfig) {
   };
 }
 
+// ─── Free Shipping (discountAutomaticFreeShippingCreate/Update) ───────────────
+// NOTE: Shopify's free shipping discount does NOT support product-specific targeting
+// on the "buys" side. The minimumRequirement applies to ANY items in the cart.
+// The X product selection in the config is stored for display purposes only.
+
+async function createFreeShippingDiscount(
+  admin: AdminClient,
+  campaignId: string,
+  campaignName: string,
+  config: BxgyCampaignConfig,
+  startsAt: Date | null,
+  endsAt: Date | null
+): Promise<string> {
+  const res = await admin.graphql(
+    `#graphql
+    mutation CreateFreeShipping($discount: DiscountAutomaticFreeShippingInput!) {
+      discountAutomaticFreeShippingCreate(freeShippingAutomaticDiscount: $discount) {
+        automaticDiscountNode { id }
+        userErrors { field message }
+      }
+    }`,
+    {
+      variables: {
+        discount: {
+          title: `[DiscountFlow] ${campaignName}`,
+          startsAt: (startsAt ?? new Date()).toISOString(),
+          endsAt: endsAt?.toISOString() ?? null,
+          minimumRequirement: {
+            quantity: { greaterThanOrEqualToQuantity: String(config.xMinQuantity) },
+          },
+          destination: { all: true },
+          combinesWith: { orderDiscounts: false, productDiscounts: true, shippingDiscounts: false },
+        },
+      },
+    }
+  );
+  const json = await res.json();
+  const result = json.data?.discountAutomaticFreeShippingCreate;
+  if (result?.userErrors?.length > 0)
+    throw new Error(result.userErrors.map((e: { message: string }) => e.message).join(", "));
+  const shopifyDiscountId: string = result?.automaticDiscountNode?.id;
+  if (!shopifyDiscountId) throw new Error("Shopify no retornó un ID de descuento");
+  const updatedConfig: BxgyCampaignConfig = { ...config, shopifyDiscountId };
+  await prisma.campaign.update({
+    where: { id: campaignId },
+    data: { config: updatedConfig as unknown as Record<string, unknown> },
+  });
+  return shopifyDiscountId;
+}
+
+async function updateFreeShippingDiscount(
+  admin: AdminClient,
+  shopifyDiscountId: string,
+  campaignId: string,
+  campaignName: string,
+  config: BxgyCampaignConfig,
+  startsAt: Date | null,
+  endsAt: Date | null
+): Promise<void> {
+  const res = await admin.graphql(
+    `#graphql
+    mutation UpdateFreeShipping($id: ID!, $discount: DiscountAutomaticFreeShippingInput!) {
+      discountAutomaticFreeShippingUpdate(id: $id, freeShippingAutomaticDiscount: $discount) {
+        automaticDiscountNode { id }
+        userErrors { field message }
+      }
+    }`,
+    {
+      variables: {
+        id: shopifyDiscountId,
+        discount: {
+          title: `[DiscountFlow] ${campaignName}`,
+          startsAt: (startsAt ?? new Date()).toISOString(),
+          endsAt: endsAt?.toISOString() ?? null,
+          minimumRequirement: {
+            quantity: { greaterThanOrEqualToQuantity: String(config.xMinQuantity) },
+          },
+          destination: { all: true },
+          combinesWith: { orderDiscounts: false, productDiscounts: true, shippingDiscounts: false },
+        },
+      },
+    }
+  );
+  const json = await res.json();
+  const errors = json.data?.discountAutomaticFreeShippingUpdate?.userErrors;
+  if (errors?.length > 0)
+    throw new Error(errors.map((e: { message: string }) => e.message).join(", "));
+  const updatedConfig: BxgyCampaignConfig = { ...config, shopifyDiscountId };
+  await prisma.campaign.update({
+    where: { id: campaignId },
+    data: { config: updatedConfig as unknown as Record<string, unknown> },
+  });
+}
+
 // ─── Create ────────────────────────────────────────────────────────────────────
 
 export async function createBxgyDiscount(
@@ -103,6 +197,9 @@ export async function createBxgyDiscount(
   startsAt: Date | null,
   endsAt: Date | null
 ): Promise<string> {
+  if (config.discountType === "freeShipping")
+    return createFreeShippingDiscount(admin, campaignId, campaignName, config, startsAt, endsAt);
+
   const { xItems, yItems, xProductIds, yProductIds } = await resolveItems(admin, config);
 
   const res = await admin.graphql(
@@ -179,6 +276,10 @@ export async function updateBxgyDiscount(
   startsAt: Date | null,
   endsAt: Date | null
 ): Promise<void> {
+  if (config.discountType === "freeShipping") {
+    return updateFreeShippingDiscount(admin, shopifyDiscountId, campaignId, campaignName, config, startsAt, endsAt);
+  }
+
   const { xItems, yItems, xProductIds, yProductIds } = await resolveItems(admin, config);
 
   const res = await admin.graphql(

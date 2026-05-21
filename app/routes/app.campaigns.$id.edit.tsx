@@ -22,7 +22,7 @@ import {
   type SelectedProductInput,
   type SelectionMode,
 } from "../lib/discounts/percentage";
-import { getCollections, getProductMetadata } from "../lib/shopify/admin-api";
+import { getCollections, getProductMetadata, getProductsByIds } from "../lib/shopify/admin-api";
 import { es } from "../i18n";
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
@@ -45,9 +45,15 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     where: { campaignId: campaign.id },
   });
 
-  const collections = await getCollections(admin);
+  const productIdsToHydrate = uniqueProducts.map((p) => p.shopifyProductId);
 
-  const [productMeta] = await Promise.all([getProductMetadata(admin)]);
+  const [collections, productMeta, prefilledProducts] = await Promise.all([
+    getCollections(admin),
+    getProductMetadata(admin),
+    config.selectionMode === "products" || !config.selectionMode
+      ? getProductsByIds(admin, productIdsToHydrate)
+      : Promise.resolve([]),
+  ]);
 
   const config = campaign.config as {
     discountPercent: number;
@@ -85,6 +91,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       prefilledTags: config.selectedTags ?? [],
       prefilledVendors: config.selectedVendors ?? [],
       prefilledProductTypes: config.selectedProductTypes ?? [],
+      prefilledProducts,
       existingProductsCount: uniqueProducts.length,
       startsAt: campaign.startsAt
         ? campaign.startsAt.toISOString().slice(0, 16)
@@ -481,7 +488,7 @@ export default function EditPercentageCampaign() {
   const [selectionMode, setSelectionMode] = useState<SelectionMode>(campaign.selectionMode);
   const [selectedProducts, setSelectedProducts] = useState<
     Array<{ id: string; title: string; variants: Array<{ id: string }> }>
-  >([]);
+  >(campaign.prefilledProducts);
   const [selectedCollections, setSelectedCollections] = useState<
     Array<{ id: string; title: string }>
   >(campaign.prefilledCollections);

@@ -205,6 +205,65 @@ export async function getProductsByFilter(
   return results;
 }
 
+// Fetch products by their GIDs (for hydrating saved selections in edit forms).
+export type ProductPreview = { id: string; title: string; variants: Array<{ id: string }> };
+
+export async function getProductsByIds(
+  admin: { graphql: (q: string, o?: { variables: unknown }) => Promise<Response> },
+  ids: string[]
+): Promise<ProductPreview[]> {
+  if (ids.length === 0) return [];
+  const batch = ids.slice(0, 250);
+  const res = await admin.graphql(
+    `#graphql
+    query GetProductsByIds($ids: [ID!]!) {
+      nodes(ids: $ids) {
+        ... on Product {
+          id
+          title
+          variants(first: 100) { nodes { id } }
+        }
+      }
+    }`,
+    { variables: { ids: batch } }
+  );
+  const json = await res.json();
+  return (json.data?.nodes ?? [])
+    .filter((n: { __typename?: string; id?: string }) => n.__typename === "Product" && n.id)
+    .map((n: { id: string; title: string; variants: { nodes: Array<{ id: string }> } }) => ({
+      id: n.id,
+      title: n.title,
+      variants: n.variants?.nodes ?? [],
+    }));
+}
+
+// Fetch collections by their GIDs (for hydrating saved selections in edit forms).
+export type CollectionPreview = { id: string; title: string };
+
+export async function getCollectionsByIds(
+  admin: { graphql: (q: string, o?: { variables: unknown }) => Promise<Response> },
+  ids: string[]
+): Promise<CollectionPreview[]> {
+  if (ids.length === 0) return [];
+  const batch = ids.slice(0, 250);
+  const res = await admin.graphql(
+    `#graphql
+    query GetCollectionsByIds($ids: [ID!]!) {
+      nodes(ids: $ids) {
+        ... on Collection {
+          id
+          title
+        }
+      }
+    }`,
+    { variables: { ids: batch } }
+  );
+  const json = await res.json();
+  return (json.data?.nodes ?? [])
+    .filter((n: { __typename?: string; id?: string }) => n.__typename === "Collection" && n.id)
+    .map((n: { id: string; title: string }) => ({ id: n.id, title: n.title }));
+}
+
 // Get all collections (for the form dropdown).
 export async function getCollections(
   admin: { graphql: (q: string, o?: { variables: unknown }) => Promise<Response> }

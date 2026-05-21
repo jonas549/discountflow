@@ -170,9 +170,11 @@ export const es = {
     yCantidadHelper: "Unidades del producto Y que se descuentan",
     modoSameAsX: "El mismo producto X",
     // Discount section
-    descuentoTipoLabel: "Tipo de descuento sobre Y",
+    descuentoTipoLabel: "Tipo de descuento / beneficio",
     descuentoGratis: "100% gratis",
     descuentoPorcentaje: "Porcentaje de descuento",
+    descuentoEnvioGratis: "Envío gratis",
+    msgEnvioGratis: "El cliente recibe envío sin costo al cumplir la cantidad mínima de compra. No es necesario definir productos Y. Nota: el envío gratis se activa por cantidad total en el carrito, sin importar el producto específico.",
     descuentoValorLabel: "Valor del descuento (%)",
     descuentoValorHelper: "Introduce un valor entre 1 y 99",
     // Dates (reuse from nuevaPorcentaje)
