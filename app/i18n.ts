@@ -63,6 +63,16 @@ export const es = {
       fin: "Fin",
       acciones: "Acciones",
     },
+    acciones: {
+      editar: "Editar",
+      pausar: "Pausar",
+      reactivar: "Reactivar",
+      eliminar: "Eliminar",
+      confirmarEliminar:
+        "¿Eliminar esta campaña? Si está activa, los precios originales serán restaurados.",
+      siEliminar: "Sí, eliminar",
+      cancelar: "Cancelar",
+    },
   },
   nuevaPorcentaje: {
     titulo: "Descuento por porcentaje",
@@ -70,7 +80,7 @@ export const es = {
     secInfoGeneral: "1. Información general",
     secDescuento: "2. Descuento",
     secProductos: "3. Productos",
-    secProgramacion: "4. Programación",
+    secProgramacion: "4. Programar campaña",
     nombreLabel: "Nombre de la campaña",
     nombreHelper:
       "Este nombre te ayuda a identificar la campaña internamente",
@@ -130,6 +140,17 @@ export const es = {
     errFechas: "La fecha de fin debe ser posterior a la de inicio",
     productosSeleccionados: "productos seleccionados",
     productosExcluidos: "excluidos",
+    fechaInicioHelper: "Sin fecha: la campaña comienza al activarse",
+    fechaFinHelper: "Sin fecha: la campaña no tiene fecha de fin",
+    checkCompareDesc:
+      "El descuento se calcula sobre el precio tachado si el producto ya lo tiene configurado.",
+  },
+  editarPorcentaje: {
+    titulo: "Editar campaña",
+    btnGuardar: "Guardar cambios",
+    btnCargando: "Guardando...",
+    productosActuales: "productos configurados actualmente",
+    reemplazarSeleccion: "Reemplazar selección",
   },
   analytics: {
     titulo: "Analíticas",

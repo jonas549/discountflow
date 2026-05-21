@@ -1,11 +1,70 @@
-import type { HeadersFunction, LoaderFunctionArgs } from "react-router";
-import { useLoaderData, Link } from "react-router";
+import type {
+  ActionFunctionArgs,
+  HeadersFunction,
+  LoaderFunctionArgs,
+} from "react-router";
+import { useLoaderData, Link, useFetcher } from "react-router";
+import { useEffect, useRef, useState } from "react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { Plus } from "lucide-react";
 import { authenticate } from "../shopify.server";
 import { prisma } from "../lib/db";
 import { getOrCreateShop } from "../lib/shopify/shop.server";
+import {
+  revertPercentageDiscount,
+  reactivatePercentageDiscount,
+} from "../lib/discounts/percentage";
 import { es, estadoLabel, tipoLabel, formatDate } from "../i18n";
+
+// ─── Action ───────────────────────────────────────────────────────────────────
+
+export const action = async ({ request }: ActionFunctionArgs) => {
+  const { admin, session } = await authenticate.admin(request);
+  const formData = await request.formData();
+  const campaignId = formData.get("campaignId") as string;
+  const actionType = formData.get("actionType") as "pause" | "activate" | "delete";
+
+  const shop = await getOrCreateShop({
+    domain: session.shop,
+    accessToken: session.accessToken,
+    scopes: session.scope,
+  });
+
+  const campaign = await prisma.campaign.findFirst({
+    where: { id: campaignId, shopId: shop.id },
+  });
+
+  if (!campaign) {
+    return Response.json({ error: "Campaña no encontrada" }, { status: 404 });
+  }
+
+  try {
+    if (actionType === "pause" && campaign.status === "ACTIVE") {
+      await revertPercentageDiscount(admin, campaignId);
+      await prisma.campaign.update({
+        where: { id: campaignId },
+        data: { status: "PAUSED" },
+      });
+    } else if (actionType === "activate" && campaign.status === "PAUSED") {
+      await reactivatePercentageDiscount(admin, campaignId);
+      await prisma.campaign.update({
+        where: { id: campaignId },
+        data: { status: "ACTIVE" },
+      });
+    } else if (actionType === "delete") {
+      if (campaign.status === "ACTIVE") {
+        await revertPercentageDiscount(admin, campaignId);
+      }
+      await prisma.campaign.delete({ where: { id: campaignId } });
+    }
+  } catch (err) {
+    return Response.json({ error: `Error: ${String(err)}` }, { status: 500 });
+  }
+
+  return Response.json({ success: true });
+};
+
+// ─── Loader ───────────────────────────────────────────────────────────────────
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -33,7 +92,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   };
 };
 
-// ─── Mini visual mockups ──────────────────────────────────────────────────────
+// ─── Visual mockups ───────────────────────────────────────────────────────────
 
 function MockupPorcentaje() {
   return (
@@ -84,12 +143,7 @@ function MockupPorcentaje() {
             $50.00
           </div>
           <div
-            style={{
-              fontSize: "14px",
-              fontWeight: "700",
-              color: "#202223",
-              lineHeight: 1.3,
-            }}
+            style={{ fontSize: "14px", fontWeight: "700", color: "#202223", lineHeight: 1.3 }}
           >
             $40.00
           </div>
@@ -152,24 +206,12 @@ function MockupBxGy() {
     >
       <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
         <div
-          style={{
-            background: "#e1e3e5",
-            borderRadius: "5px",
-            width: "28px",
-            height: "28px",
-          }}
+          style={{ background: "#e1e3e5", borderRadius: "5px", width: "28px", height: "28px" }}
         />
         <div
-          style={{
-            background: "#e1e3e5",
-            borderRadius: "5px",
-            width: "28px",
-            height: "28px",
-          }}
+          style={{ background: "#e1e3e5", borderRadius: "5px", width: "28px", height: "28px" }}
         />
-        <span style={{ color: "#8c9196", fontSize: "12px", margin: "0 4px" }}>
-          +
-        </span>
+        <span style={{ color: "#8c9196", fontSize: "12px", margin: "0 4px" }}>+</span>
         <div style={{ position: "relative" }}>
           <div
             style={{
@@ -231,7 +273,6 @@ function CampaignCard({
         display: "flex",
         flexDirection: "column",
         opacity: disabled ? 0.75 : 1,
-        transition: "box-shadow 0.15s, border-color 0.15s",
         cursor: disabled ? "not-allowed" : "default",
         flex: "1 1 260px",
         minWidth: "260px",
@@ -330,26 +371,12 @@ function CampaignCard({
             {es.campanas.crear}
           </Link>
         )}
-        <button
-          disabled={disabled}
-          style={{
-            background: "transparent",
-            color: disabled ? "#8c9196" : "#006fbb",
-            border: "none",
-            padding: "7px 10px",
-            fontSize: "13px",
-            fontWeight: "500",
-            cursor: disabled ? "not-allowed" : "pointer",
-          }}
-        >
-          {es.campanas.masInfo}
-        </button>
       </div>
     </div>
   );
 }
 
-// ─── Status badge ─────────────────────────────────────────────────────────────
+// ─── Status badge colors ──────────────────────────────────────────────────────
 
 const ESTADO_COLORS: Record<string, { bg: string; text: string }> = {
   ACTIVE: { bg: "#d3f5e2", text: "#007a5a" },
@@ -359,31 +386,224 @@ const ESTADO_COLORS: Record<string, { bg: string; text: string }> = {
   CANCELLED: { bg: "#fde8e8", text: "#c0392b" },
 };
 
+// ─── Row actions dropdown (Issue #1) ─────────────────────────────────────────
+
+type CampaignRow = {
+  id: string;
+  name: string;
+  type: string;
+  status: string;
+  config: Record<string, unknown>;
+  productsCount: number;
+  startsAt: string | null;
+  endsAt: string | null;
+};
+
+const menuItemStyle: React.CSSProperties = {
+  display: "block",
+  width: "100%",
+  padding: "9px 14px",
+  textAlign: "left",
+  background: "transparent",
+  border: "none",
+  fontSize: "13px",
+  color: "#202223",
+  cursor: "pointer",
+  textDecoration: "none",
+};
+
+const menuItemDangerStyle: React.CSSProperties = {
+  ...menuItemStyle,
+  color: "#d82c0d",
+};
+
+function RowDropdown({
+  campaign,
+  onAction,
+}: {
+  campaign: CampaignRow;
+  onAction: (campaignId: string, actionType: "pause" | "activate" | "delete") => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setConfirmDelete(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  return (
+    <div ref={containerRef} style={{ position: "relative", display: "inline-block" }}>
+      <button
+        type="button"
+        onClick={() => {
+          setOpen((o) => !o);
+          setConfirmDelete(false);
+        }}
+        style={{
+          background: "transparent",
+          border: "1px solid #c9cccf",
+          borderRadius: "5px",
+          padding: "4px 10px",
+          fontSize: "18px",
+          lineHeight: 1,
+          cursor: "pointer",
+          color: "#202223",
+          letterSpacing: "2px",
+        }}
+        title="Acciones"
+      >
+        ⋯
+      </button>
+
+      {open && (
+        <div
+          style={{
+            position: "absolute",
+            right: 0,
+            top: "calc(100% + 4px)",
+            background: "#fff",
+            border: "1px solid #c9cccf",
+            borderRadius: "8px",
+            boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
+            minWidth: "180px",
+            zIndex: 200,
+            overflow: "hidden",
+          }}
+        >
+          {!confirmDelete ? (
+            <>
+              <Link
+                to={`/app/campaigns/${campaign.id}/edit`}
+                style={menuItemStyle}
+                onClick={() => setOpen(false)}
+              >
+                {es.campanas.acciones.editar}
+              </Link>
+              {campaign.status === "ACTIVE" && (
+                <button
+                  type="button"
+                  style={menuItemStyle}
+                  onClick={() => {
+                    onAction(campaign.id, "pause");
+                    setOpen(false);
+                  }}
+                >
+                  {es.campanas.acciones.pausar}
+                </button>
+              )}
+              {campaign.status === "PAUSED" && (
+                <button
+                  type="button"
+                  style={menuItemStyle}
+                  onClick={() => {
+                    onAction(campaign.id, "activate");
+                    setOpen(false);
+                  }}
+                >
+                  {es.campanas.acciones.reactivar}
+                </button>
+              )}
+              <div
+                style={{ height: "1px", background: "#f1f2f3", margin: "4px 0" }}
+              />
+              <button
+                type="button"
+                style={menuItemDangerStyle}
+                onClick={() => setConfirmDelete(true)}
+              >
+                {es.campanas.acciones.eliminar}
+              </button>
+            </>
+          ) : (
+            <div style={{ padding: "12px 14px" }}>
+              <p
+                style={{
+                  fontSize: "12px",
+                  color: "#202223",
+                  marginBottom: "10px",
+                  lineHeight: "1.4",
+                }}
+              >
+                {es.campanas.acciones.confirmarEliminar}
+              </p>
+              <div style={{ display: "flex", gap: "8px" }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onAction(campaign.id, "delete");
+                    setOpen(false);
+                    setConfirmDelete(false);
+                  }}
+                  style={{
+                    background: "#d82c0d",
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: "5px",
+                    padding: "5px 10px",
+                    fontSize: "12px",
+                    fontWeight: "500",
+                    cursor: "pointer",
+                  }}
+                >
+                  {es.campanas.acciones.siEliminar}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmDelete(false)}
+                  style={{
+                    background: "transparent",
+                    color: "#6d7175",
+                    border: "1px solid #c9cccf",
+                    borderRadius: "5px",
+                    padding: "5px 10px",
+                    fontSize: "12px",
+                    cursor: "pointer",
+                  }}
+                >
+                  {es.campanas.acciones.cancelar}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function Campaigns() {
   const { campaigns } = useLoaderData<typeof loader>();
+  const fetcher = useFetcher();
+
+  const handleAction = (
+    campaignId: string,
+    actionType: "pause" | "activate" | "delete"
+  ) => {
+    const fd = new FormData();
+    fd.append("campaignId", campaignId);
+    fd.append("actionType", actionType);
+    fetcher.submit(fd, { method: "post" });
+  };
 
   return (
     <s-page heading={es.campanas.titulo}>
       {/* Campaign type picker */}
       <s-section heading={es.campanas.crearSeccion}>
-        <p
-          style={{
-            fontSize: "14px",
-            color: "#6d7175",
-            marginBottom: "20px",
-          }}
-        >
+        <p style={{ fontSize: "14px", color: "#6d7175", marginBottom: "20px" }}>
           {es.campanas.subtitulo}
         </p>
-        <div
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "16px",
-          }}
-        >
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "16px" }}>
           <CampaignCard
             mockup={<MockupPorcentaje />}
             title={es.campanas.porcentaje.titulo}
@@ -424,11 +644,7 @@ export default function Campaigns() {
         ) : (
           <div style={{ overflowX: "auto" }}>
             <table
-              style={{
-                width: "100%",
-                borderCollapse: "collapse",
-                fontSize: "14px",
-              }}
+              style={{ width: "100%", borderCollapse: "collapse", fontSize: "14px" }}
             >
               <thead>
                 <tr style={{ borderBottom: "2px solid #e1e3e5" }}>
@@ -462,8 +678,7 @@ export default function Campaigns() {
               </thead>
               <tbody>
                 {campaigns.map((c) => {
-                  const st =
-                    ESTADO_COLORS[c.status] ?? ESTADO_COLORS.DRAFT;
+                  const st = ESTADO_COLORS[c.status] ?? ESTADO_COLORS.DRAFT;
                   const discount =
                     c.type === "PERCENTAGE"
                       ? `${(c.config as { discountPercent?: number }).discountPercent ?? "—"}%`
@@ -471,10 +686,7 @@ export default function Campaigns() {
                   return (
                     <tr
                       key={c.id}
-                      style={{
-                        borderBottom: "1px solid #f1f2f3",
-                        transition: "background 0.1s",
-                      }}
+                      style={{ borderBottom: "1px solid #f1f2f3" }}
                     >
                       <td
                         style={{
@@ -503,67 +715,22 @@ export default function Campaigns() {
                           {estadoLabel(c.status)}
                         </span>
                       </td>
-                      <td style={{ padding: "12px", color: "#6d7175" }}>
-                        {discount}
-                      </td>
+                      <td style={{ padding: "12px", color: "#6d7175" }}>{discount}</td>
                       <td style={{ padding: "12px", color: "#6d7175" }}>
                         {c.productsCount}
                       </td>
                       <td
-                        style={{
-                          padding: "12px",
-                          color: "#6d7175",
-                          whiteSpace: "nowrap",
-                        }}
+                        style={{ padding: "12px", color: "#6d7175", whiteSpace: "nowrap" }}
                       >
                         {formatDate(c.startsAt)}
                       </td>
                       <td
-                        style={{
-                          padding: "12px",
-                          color: "#6d7175",
-                          whiteSpace: "nowrap",
-                        }}
+                        style={{ padding: "12px", color: "#6d7175", whiteSpace: "nowrap" }}
                       >
                         {formatDate(c.endsAt)}
                       </td>
                       <td style={{ padding: "12px" }}>
-                        <div
-                          style={{
-                            display: "flex",
-                            gap: "8px",
-                            alignItems: "center",
-                          }}
-                        >
-                          <button
-                            style={{
-                              background: "transparent",
-                              border: "1px solid #c9cccf",
-                              borderRadius: "5px",
-                              padding: "4px 10px",
-                              fontSize: "12px",
-                              cursor: "pointer",
-                              color: "#202223",
-                            }}
-                          >
-                            Editar
-                          </button>
-                          {c.status === "ACTIVE" && (
-                            <button
-                              style={{
-                                background: "transparent",
-                                border: "1px solid #c9cccf",
-                                borderRadius: "5px",
-                                padding: "4px 10px",
-                                fontSize: "12px",
-                                cursor: "pointer",
-                                color: "#202223",
-                              }}
-                            >
-                              Pausar
-                            </button>
-                          )}
-                        </div>
+                        <RowDropdown campaign={c} onAction={handleAction} />
                       </td>
                     </tr>
                   );

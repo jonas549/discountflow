@@ -14,6 +14,8 @@ import { prisma } from "../lib/db";
 import { getOrCreateShop } from "../lib/shopify/shop.server";
 import {
   applyPercentageDiscount,
+  revertPercentageDiscount,
+  reactivatePercentageDiscount,
   type SelectedProductInput,
 } from "../lib/discounts/percentage";
 import { getCollections } from "../lib/shopify/admin-api";
@@ -21,10 +23,55 @@ import { es } from "../i18n";
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
-export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { admin } = await authenticate.admin(request);
+export const loader = async ({ request, params }: LoaderFunctionArgs) => {
+  const { admin, session } = await authenticate.admin(request);
+  const shop = await getOrCreateShop({
+    domain: session.shop,
+    accessToken: session.accessToken,
+    scopes: session.scope,
+  });
+
+  const campaign = await prisma.campaign.findFirst({
+    where: { id: params.id!, shopId: shop.id },
+  });
+  if (!campaign) throw new Response("Not found", { status: 404 });
+
+  const uniqueProducts = await prisma.campaignProduct.groupBy({
+    by: ["shopifyProductId"],
+    where: { campaignId: campaign.id },
+  });
+
   const collections = await getCollections(admin);
-  return { collections };
+
+  const config = campaign.config as {
+    discountPercent: number;
+    showCompareAtPrice?: boolean;
+    selectionMode?: string;
+    collectionId?: string;
+  };
+
+  return {
+    campaign: {
+      id: campaign.id,
+      name: campaign.name,
+      status: campaign.status,
+      discountPercent: config.discountPercent,
+      useCompareAtPriceAsBase: config.showCompareAtPrice ?? false,
+      selectionMode: (config.selectionMode ?? "products") as
+        | "products"
+        | "collections"
+        | "all",
+      collectionId: config.collectionId ?? "",
+      existingProductsCount: uniqueProducts.length,
+      startsAt: campaign.startsAt
+        ? campaign.startsAt.toISOString().slice(0, 16)
+        : "",
+      endsAt: campaign.endsAt
+        ? campaign.endsAt.toISOString().slice(0, 16)
+        : "",
+    },
+    collections,
+  };
 };
 
 // ─── Action ───────────────────────────────────────────────────────────────────
@@ -37,9 +84,10 @@ type ActionErrors = {
   general?: string;
 };
 
-export const action = async ({ request }: ActionFunctionArgs) => {
+export const action = async ({ request, params }: ActionFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
   const formData = await request.formData();
+  const campaignId = params.id!;
 
   const name = (formData.get("name") as string | null) ?? "";
   const discountPercent = Number(formData.get("discountPercent"));
@@ -49,11 +97,20 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const collectionId = (formData.get("collectionId") as string) || "";
   const enableExclusions = formData.get("enableExclusions") === "on";
   const excludedProductsJson = (formData.get("excludedProductsJson") as string) || "[]";
-  // Issue #6: no scheduleEnabled toggle — dates are always optional
   const startsAt = (formData.get("startsAt") as string) || "";
   const endsAt = (formData.get("endsAt") as string) || "";
-  // Issue #3: intent comes directly from the submit button value
   const intent = (formData.get("intent") as "draft" | "activate") || "draft";
+
+  const shop = await getOrCreateShop({
+    domain: session.shop,
+    accessToken: session.accessToken,
+    scopes: session.scope,
+  });
+
+  const existing = await prisma.campaign.findFirst({
+    where: { id: campaignId, shopId: shop.id },
+  });
+  if (!existing) throw new Response("Not found", { status: 404 });
 
   const errors: ActionErrors = {};
   if (!name.trim()) errors.name = es.nuevaPorcentaje.errNombre;
@@ -67,35 +124,37 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     selectedProducts = [];
   }
 
-  if (selectionMode === "products" && selectedProducts.length === 0)
-    errors.products = es.nuevaPorcentaje.errProductos;
+  // For products mode, require at least one product OR existing products in DB
+  if (selectionMode === "products" && selectedProducts.length === 0) {
+    const existingCount = await prisma.campaignProduct.count({
+      where: { campaignId },
+    });
+    if (existingCount === 0) errors.products = es.nuevaPorcentaje.errProductos;
+  }
   if (selectionMode === "collections" && !collectionId)
     errors.products = "Debes seleccionar una colección";
 
-  // Issue #6: validate dates without a toggle
   if (startsAt && endsAt && new Date(endsAt) <= new Date(startsAt))
     errors.dates = es.nuevaPorcentaje.errFechas;
 
   if (Object.keys(errors).length > 0)
     return Response.json({ errors }, { status: 422 });
 
-  const shop = await getOrCreateShop({
-    domain: session.shop,
-    accessToken: session.accessToken,
-    scopes: session.scope,
-  });
-
   const campaignStartsAt = startsAt ? new Date(startsAt) : null;
   const campaignEndsAt = endsAt ? new Date(endsAt) : null;
   const isScheduled = campaignStartsAt !== null && campaignStartsAt > new Date();
   const shouldActivate = intent === "activate" && !isScheduled;
 
-  // Store selectionMode and collectionId in config for edit re-use
-  const campaign = await prisma.campaign.create({
+  // Revert prices if currently active
+  if (existing.status === "ACTIVE") {
+    await revertPercentageDiscount(admin, campaignId);
+  }
+
+  // Update campaign record with new config (including selectionMode for future edits)
+  await prisma.campaign.update({
+    where: { id: campaignId },
     data: {
-      shopId: shop.id,
       name: name.trim(),
-      type: "PERCENTAGE",
       status: shouldActivate ? "ACTIVE" : "DRAFT",
       config: {
         discountPercent,
@@ -108,44 +167,67 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     },
   });
 
-  let excludedVariantIds: Set<string> | undefined;
-  if (enableExclusions) {
-    try {
-      const excluded: SelectedProductInput[] = JSON.parse(excludedProductsJson);
-      excludedVariantIds = new Set(
-        excluded.flatMap((p) => (p.variants ?? []).map((v) => v.id))
-      );
-    } catch {
-      // ignore
-    }
-  }
-
   if (shouldActivate) {
-    try {
-      await applyPercentageDiscount(admin, campaign.id, {
-        discountPercent,
-        useCompareAtPriceAsBase,
-        selectionMode: selectionMode as "products" | "collections" | "all",
-        selectedProducts: selectionMode === "products" ? selectedProducts : undefined,
-        collectionId: selectionMode === "collections" ? collectionId : undefined,
-        excludedVariantIds,
-      });
-    } catch (err) {
-      await prisma.campaign.update({
-        where: { id: campaign.id },
-        data: { status: "DRAFT" },
-      });
-      return Response.json(
-        { errors: { general: `Error al aplicar el descuento: ${String(err)}` } },
-        { status: 500 }
-      );
+    const hasNewProducts = selectedProducts.length > 0;
+    const isCollectionsWithId = selectionMode === "collections" && collectionId;
+    const isAllStore = selectionMode === "all";
+
+    if (hasNewProducts || isCollectionsWithId || isAllStore) {
+      // User provided a new selection — replace existing CampaignProduct records
+      await prisma.campaignProduct.deleteMany({ where: { campaignId } });
+
+      let excludedVariantIds: Set<string> | undefined;
+      if (enableExclusions) {
+        try {
+          const excluded: SelectedProductInput[] = JSON.parse(excludedProductsJson);
+          excludedVariantIds = new Set(
+            excluded.flatMap((p) => (p.variants ?? []).map((v) => v.id))
+          );
+        } catch {
+          // ignore
+        }
+      }
+
+      try {
+        await applyPercentageDiscount(admin, campaignId, {
+          discountPercent,
+          useCompareAtPriceAsBase,
+          selectionMode: selectionMode as "products" | "collections" | "all",
+          selectedProducts: selectionMode === "products" ? selectedProducts : undefined,
+          collectionId: selectionMode === "collections" ? collectionId : undefined,
+          excludedVariantIds,
+        });
+      } catch (err) {
+        await prisma.campaign.update({
+          where: { id: campaignId },
+          data: { status: "DRAFT" },
+        });
+        return Response.json(
+          { errors: { general: `Error al aplicar el descuento: ${String(err)}` } },
+          { status: 500 }
+        );
+      }
+    } else {
+      // No new products provided — re-apply to existing CampaignProduct records
+      try {
+        await reactivatePercentageDiscount(admin, campaignId);
+      } catch (err) {
+        await prisma.campaign.update({
+          where: { id: campaignId },
+          data: { status: "DRAFT" },
+        });
+        return Response.json(
+          { errors: { general: `Error al reactivar el descuento: ${String(err)}` } },
+          { status: 500 }
+        );
+      }
     }
   }
 
   return redirect("/app/campaigns");
 };
 
-// ─── UI helpers ───────────────────────────────────────────────────────────────
+// ─── UI helpers (same as new.percentage) ─────────────────────────────────────
 
 function Section({
   title,
@@ -297,184 +379,10 @@ function ProductChips({
   );
 }
 
-function DiscountPreview({
-  discountPercent,
-  name,
-  productsCount,
-  startsAt,
-  endsAt,
-}: {
-  discountPercent: number;
-  name: string;
-  productsCount: number | "∞";
-  startsAt: string;
-  endsAt: string;
-}) {
-  const base = 100;
-  const discounted = discountPercent > 0 ? base * (1 - discountPercent / 100) : base;
-  const savings = base - discounted;
-
-  return (
-    <>
-      <div
-        style={{
-          border: "1px solid #e1e3e5",
-          borderRadius: "10px",
-          padding: "16px",
-          marginBottom: "14px",
-          background: "#fff",
-        }}
-      >
-        <p
-          style={{
-            fontSize: "12px",
-            fontWeight: "600",
-            color: "#6d7175",
-            textTransform: "uppercase",
-            letterSpacing: "0.05em",
-            marginBottom: "14px",
-          }}
-        >
-          {es.nuevaPorcentaje.previewTitulo}
-        </p>
-        <div
-          style={{
-            background: "#f8fafb",
-            border: "1px solid #e1e3e5",
-            borderRadius: "8px",
-            padding: "14px",
-            position: "relative",
-          }}
-        >
-          {discountPercent > 0 && (
-            <div
-              style={{
-                position: "absolute",
-                top: "10px",
-                right: "10px",
-                background: "#008060",
-                color: "#fff",
-                fontSize: "11px",
-                fontWeight: "700",
-                padding: "3px 8px",
-                borderRadius: "12px",
-              }}
-            >
-              -{discountPercent}%
-            </div>
-          )}
-          <p style={{ fontSize: "11px", color: "#8c9196", marginBottom: "6px" }}>
-            {es.nuevaPorcentaje.previewEjemplo}
-          </p>
-          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            <div
-              style={{
-                width: "40px",
-                height: "40px",
-                background: "#e1e3e5",
-                borderRadius: "6px",
-                flexShrink: 0,
-              }}
-            />
-            <div>
-              <div style={{ fontSize: "12px", color: "#8c9196", textDecoration: "line-through" }}>
-                ${base.toFixed(2)}
-              </div>
-              <div style={{ fontSize: "18px", fontWeight: "700", color: "#008060" }}>
-                ${discounted.toFixed(2)}
-              </div>
-              {discountPercent > 0 && (
-                <div style={{ fontSize: "11px", color: "#6d7175" }}>
-                  Ahorro: ${savings.toFixed(2)}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div
-        style={{
-          border: "1px solid #e1e3e5",
-          borderRadius: "10px",
-          padding: "16px",
-          background: "#fff",
-        }}
-      >
-        <p
-          style={{
-            fontSize: "12px",
-            fontWeight: "600",
-            color: "#6d7175",
-            textTransform: "uppercase",
-            letterSpacing: "0.05em",
-            marginBottom: "14px",
-          }}
-        >
-          {es.nuevaPorcentaje.resumenTitulo}
-        </p>
-        {[
-          { label: es.nuevaPorcentaje.resumenNombre, value: name || es.nuevaPorcentaje.sinDefinir },
-          { label: es.nuevaPorcentaje.resumenTipo, value: es.nuevaPorcentaje.resumenTipoPorcentaje },
-          {
-            label: es.nuevaPorcentaje.resumenDescuento,
-            value: discountPercent > 0 ? `${discountPercent}%` : es.nuevaPorcentaje.sinDefinir,
-          },
-          {
-            label: es.nuevaPorcentaje.resumenProductos,
-            value:
-              productsCount === "∞"
-                ? "Toda la tienda"
-                : productsCount === 0
-                ? es.nuevaPorcentaje.sinDefinir
-                : String(productsCount),
-          },
-          {
-            label: es.nuevaPorcentaje.resumenInicio,
-            value: startsAt
-              ? new Date(startsAt).toLocaleDateString("es-MX")
-              : es.nuevaPorcentaje.resumenInmediato,
-          },
-          {
-            label: es.nuevaPorcentaje.resumenFin,
-            value: endsAt
-              ? new Date(endsAt).toLocaleDateString("es-MX")
-              : es.nuevaPorcentaje.resumenSinFin,
-          },
-        ].map(({ label, value }) => (
-          <div
-            key={label}
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              padding: "6px 0",
-              borderBottom: "1px solid #f1f2f3",
-              fontSize: "13px",
-            }}
-          >
-            <span style={{ color: "#6d7175" }}>{label}</span>
-            <span
-              style={{
-                color: "#202223",
-                fontWeight: "500",
-                textAlign: "right",
-                maxWidth: "60%",
-                wordBreak: "break-word",
-              }}
-            >
-              {value}
-            </span>
-          </div>
-        ))}
-      </div>
-    </>
-  );
-}
-
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export default function NewPercentageCampaign() {
-  const { collections } = useLoaderData<typeof loader>();
+export default function EditPercentageCampaign() {
+  const { campaign, collections } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>() as
     | { errors?: ActionErrors }
     | undefined;
@@ -484,14 +392,16 @@ export default function NewPercentageCampaign() {
   const isSubmitting = navigation.state === "submitting";
   const errors = actionData?.errors ?? {};
 
-  const [name, setName] = useState("");
-  const [discountPercent, setDiscountPercent] = useState(20);
-  const [useCompareAtPriceAsBase, setUseCompareAtPriceAsBase] = useState(false);
+  const [name, setName] = useState(campaign.name);
+  const [discountPercent, setDiscountPercent] = useState(campaign.discountPercent);
+  const [useCompareAtPriceAsBase, setUseCompareAtPriceAsBase] = useState(
+    campaign.useCompareAtPriceAsBase
+  );
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [selectionMode, setSelectionMode] = useState<"products" | "collections" | "all">(
-    "products"
+    campaign.selectionMode
   );
-  const [collectionId, setCollectionId] = useState("");
+  const [collectionId, setCollectionId] = useState(campaign.collectionId);
   const [selectedProducts, setSelectedProducts] = useState<
     Array<{ id: string; title: string; variants: Array<{ id: string }> }>
   >([]);
@@ -499,8 +409,8 @@ export default function NewPercentageCampaign() {
   const [excludedProducts, setExcludedProducts] = useState<
     Array<{ id: string; title: string; variants: Array<{ id: string }> }>
   >([]);
-  const [startsAt, setStartsAt] = useState("");
-  const [endsAt, setEndsAt] = useState("");
+  const [startsAt, setStartsAt] = useState(campaign.startsAt);
+  const [endsAt, setEndsAt] = useState(campaign.endsAt);
 
   const productChips: ProductChip[] = selectedProducts.map((p) => ({
     id: p.id,
@@ -512,7 +422,6 @@ export default function NewPercentageCampaign() {
     title: p.title,
     variantCount: p.variants.length,
   }));
-  const productsCount = selectionMode === "all" ? ("∞" as const) : selectedProducts.length;
 
   const handleSelectProducts = async () => {
     const selected = await shopify.resourcePicker({
@@ -553,7 +462,7 @@ export default function NewPercentageCampaign() {
   };
 
   return (
-    <s-page heading={es.nuevaPorcentaje.titulo}>
+    <s-page heading={es.editarPorcentaje.titulo}>
       <div style={{ marginBottom: "4px" }}>
         <Link
           to="/app/campaigns"
@@ -591,7 +500,7 @@ export default function NewPercentageCampaign() {
           value={JSON.stringify(excludedProducts.map((p) => ({ id: p.id, variants: p.variants })))}
         />
 
-        {/* ─── 1. Información general ─── */}
+        {/* 1. Información general */}
         <Section title={es.nuevaPorcentaje.secInfoGeneral} defaultOpen>
           <FieldGroup
             label={es.nuevaPorcentaje.nombreLabel}
@@ -609,9 +518,8 @@ export default function NewPercentageCampaign() {
           </FieldGroup>
         </Section>
 
-        {/* ─── 2. Descuento — Issue #4: 2-column layout ─── */}
+        {/* 2. Descuento */}
         <Section title={es.nuevaPorcentaje.secDescuento} defaultOpen>
-          {/* Issue #4: horizontal 2-col grid */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
             <FieldGroup label={es.nuevaPorcentaje.tipoLabel}>
               <select
@@ -659,13 +567,8 @@ export default function NewPercentageCampaign() {
             </FieldGroup>
           </div>
 
-          {/* Issue #8: advanced options with description */}
           <div
-            style={{
-              marginTop: "16px",
-              borderTop: "1px solid #f1f2f3",
-              paddingTop: "14px",
-            }}
+            style={{ marginTop: "16px", borderTop: "1px solid #f1f2f3", paddingTop: "14px" }}
           >
             <button
               type="button"
@@ -722,9 +625,8 @@ export default function NewPercentageCampaign() {
           </div>
         </Section>
 
-        {/* ─── 3. Productos — Issue #5: select dropdown + ResourcePicker ─── */}
+        {/* 3. Productos */}
         <Section title={es.nuevaPorcentaje.secProductos} defaultOpen>
-          {/* Mode selector + action button in one row */}
           <div style={{ marginTop: "16px" }}>
             <label
               style={{
@@ -766,15 +668,31 @@ export default function NewPercentageCampaign() {
                     whiteSpace: "nowrap",
                   }}
                 >
-                  {es.nuevaPorcentaje.btnSeleccionarProductos}
+                  {campaign.existingProductsCount > 0
+                    ? es.editarPorcentaje.reemplazarSeleccion
+                    : es.nuevaPorcentaje.btnSeleccionarProductos}
                 </button>
               )}
             </div>
           </div>
 
-          {/* Products mode content */}
           {selectionMode === "products" && (
             <div style={{ marginTop: "8px" }}>
+              {campaign.existingProductsCount > 0 && selectedProducts.length === 0 && (
+                <div
+                  style={{
+                    marginTop: "10px",
+                    background: "#f1f8f5",
+                    border: "1px solid #b5e3d8",
+                    borderRadius: "6px",
+                    padding: "8px 12px",
+                    fontSize: "12px",
+                    color: "#007a5a",
+                  }}
+                >
+                  ✓ {campaign.existingProductsCount} {es.editarPorcentaje.productosActuales}
+                </div>
+              )}
               {errors.products && (
                 <p style={{ fontSize: "12px", color: "#d82c0d", marginTop: "4px" }}>
                   {errors.products}
@@ -794,7 +712,6 @@ export default function NewPercentageCampaign() {
             </div>
           )}
 
-          {/* Collections mode */}
           {selectionMode === "collections" && (
             <FieldGroup label={es.nuevaPorcentaje.coleccionLabel} error={errors.products}>
               <select
@@ -813,7 +730,6 @@ export default function NewPercentageCampaign() {
             </FieldGroup>
           )}
 
-          {/* All store mode */}
           {selectionMode === "all" && (
             <div
               style={{
@@ -832,11 +748,7 @@ export default function NewPercentageCampaign() {
 
           {/* Exclusions */}
           <div
-            style={{
-              marginTop: "18px",
-              borderTop: "1px solid #f1f2f3",
-              paddingTop: "14px",
-            }}
+            style={{ marginTop: "18px", borderTop: "1px solid #f1f2f3", paddingTop: "14px" }}
           >
             <label
               style={{
@@ -859,13 +771,7 @@ export default function NewPercentageCampaign() {
             </label>
             {enableExclusions && (
               <div style={{ marginTop: "10px" }}>
-                <p
-                  style={{
-                    fontSize: "12px",
-                    color: "#6d7175",
-                    marginBottom: "8px",
-                  }}
-                >
+                <p style={{ fontSize: "12px", color: "#6d7175", marginBottom: "8px" }}>
                   {es.nuevaPorcentaje.excluirHelper}
                 </p>
                 <button
@@ -894,8 +800,8 @@ export default function NewPercentageCampaign() {
           </div>
         </Section>
 
-        {/* ─── 4. Programar campaña — Issue #6: no toggle, always show dates ─── */}
-        <Section title={es.nuevaPorcentaje.secProgramacion} defaultOpen={false}>
+        {/* 4. Programar campaña */}
+        <Section title={es.nuevaPorcentaje.secProgramacion} defaultOpen>
           <div
             style={{
               display: "grid",
@@ -932,7 +838,7 @@ export default function NewPercentageCampaign() {
           </div>
         </Section>
 
-        {/* ─── Action bar — Issue #7: better padding ─── */}
+        {/* Action bar */}
         <div
           style={{
             position: "sticky",
@@ -960,7 +866,6 @@ export default function NewPercentageCampaign() {
             {es.nuevaPorcentaje.btnCancelar}
           </Link>
           <div style={{ marginLeft: "auto", display: "flex", gap: "10px" }}>
-            {/* Issue #3: value on button, no hidden intent input */}
             <button
               type="submit"
               name="intent"
@@ -996,22 +901,13 @@ export default function NewPercentageCampaign() {
                 color: "#ffffff",
               }}
             >
-              {isSubmitting ? es.nuevaPorcentaje.btnCargando : es.nuevaPorcentaje.btnActivar}
+              {isSubmitting
+                ? es.editarPorcentaje.btnCargando
+                : es.editarPorcentaje.btnGuardar}
             </button>
           </div>
         </div>
       </Form>
-
-      {/* Aside */}
-      <s-section slot="aside">
-        <DiscountPreview
-          discountPercent={discountPercent}
-          name={name}
-          productsCount={productsCount}
-          startsAt={startsAt}
-          endsAt={endsAt}
-        />
-      </s-section>
     </s-page>
   );
 }

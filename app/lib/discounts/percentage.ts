@@ -132,6 +132,63 @@ export async function applyPercentageDiscount(
   return { applied, errors };
 }
 
+// Re-apply a percentage discount to a previously-paused campaign using stored
+// originals and the campaign's current config JSON.
+export async function reactivatePercentageDiscount(
+  admin: AdminClient,
+  campaignId: string
+): Promise<{ applied: number; errors: string[] }> {
+  const campaign = await prisma.campaign.findUniqueOrThrow({
+    where: { id: campaignId },
+    include: { products: true },
+  });
+
+  const config = campaign.config as {
+    discountPercent: number;
+    showCompareAtPrice?: boolean;
+  };
+  const discountPercent = config.discountPercent;
+  const useCompareAtPriceAsBase = config.showCompareAtPrice ?? false;
+
+  const byProduct = new Map<string, typeof campaign.products>();
+  for (const cp of campaign.products) {
+    if (!byProduct.has(cp.shopifyProductId)) byProduct.set(cp.shopifyProductId, []);
+    byProduct.get(cp.shopifyProductId)!.push(cp);
+  }
+
+  const errors: string[] = [];
+  let applied = 0;
+
+  for (const [productId, variants] of byProduct) {
+    const updates = variants
+      .filter((v) => v.shopifyVariantId !== null)
+      .map((v) => {
+        const origPrice = parseFloat(v.originalPrice?.toString() ?? "0");
+        const origCap = v.originalCompareAtPrice
+          ? parseFloat(v.originalCompareAtPrice.toString())
+          : null;
+        const base = useCompareAtPriceAsBase && origCap !== null ? origCap : origPrice;
+        const newPrice = base * (1 - discountPercent / 100);
+        return {
+          id: v.shopifyVariantId!,
+          price: newPrice.toFixed(2),
+          compareAtPrice: base.toFixed(2),
+        };
+      });
+
+    if (updates.length === 0) continue;
+
+    try {
+      await bulkUpdateVariantPrices(admin, productId, updates);
+      applied += updates.length;
+    } catch (err) {
+      errors.push(`Error reactivando producto ${productId}: ${String(err)}`);
+    }
+  }
+
+  return { applied, errors };
+}
+
 // Revert prices for a campaign by restoring originalPrice / originalCompareAtPrice.
 export async function revertPercentageDiscount(
   admin: AdminClient,
