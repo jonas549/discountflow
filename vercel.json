@@ -1,0 +1,12 @@
+{
+  "framework": "remix",
+  "buildCommand": "npm run setup && npm run build",
+  "installCommand": "npm install",
+  "regions": ["iad1"],
+  "crons": [
+    {
+      "path": "/api/cron/sync-campaigns",
+      "schedule": "*/10 * * * *"
+    }
+  ]
+}

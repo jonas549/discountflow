@@ -1,0 +1,137 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─── Session (Shopify OAuth — do not modify) ─────────────────────────────────
+
+model Session {
+  id                  String    @id
+  shop                String
+  state               String
+  isOnline            Boolean   @default(false)
+  scope               String?
+  expires             DateTime?
+  accessToken         String
+  userId              BigInt?
+  firstName           String?
+  lastName            String?
+  email               String?
+  accountOwner        Boolean   @default(false)
+  locale              String?
+  collaborator        Boolean?  @default(false)
+  emailVerified       Boolean?  @default(false)
+  refreshToken        String?
+  refreshTokenExpires DateTime?
+}
+
+// ─── Multi-tenant shop ────────────────────────────────────────────────────────
+
+model Shop {
+  id          String     @id @default(cuid())
+  domain      String     @unique
+  accessToken String
+  scopes      String?
+  installedAt DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  campaigns   Campaign[]
+}
+
+// ─── Campaign ─────────────────────────────────────────────────────────────────
+
+enum CampaignType {
+  PERCENTAGE
+  RANGE
+  BXGY
+}
+
+enum CampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+// config JSON shape by type:
+//   PERCENTAGE : { discountPercent: number, showCompareAtPrice: boolean }
+//   RANGE      : { fixedPrice: number, currency: string }
+//   BXGY       : { buyQuantity: number, getQuantity: number, getDiscountPercent: number }
+model Campaign {
+  id       String         @id @default(cuid())
+  shopId   String
+  shop     Shop           @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  name     String
+  type     CampaignType
+  status   CampaignStatus @default(DRAFT)
+  startsAt DateTime?
+  endsAt   DateTime?
+  config   Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  products          CampaignProduct[]
+  orderAttributions OrderAttribution[]
+  analyticsEvents   AnalyticsEvent[]
+
+  @@index([shopId])
+  @@index([status])
+  @@index([startsAt, endsAt])
+}
+
+// ─── Products in a campaign ───────────────────────────────────────────────────
+
+model CampaignProduct {
+  id                     String   @id @default(cuid())
+  campaignId             String
+  campaign               Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  shopifyProductId       String
+  shopifyVariantId       String?
+  // Original prices stored before modification (PERCENTAGE / RANGE only)
+  originalPrice          Decimal? @db.Decimal(10, 2)
+  originalCompareAtPrice Decimal? @db.Decimal(10, 2)
+  createdAt              DateTime @default(now())
+
+  @@unique([campaignId, shopifyVariantId])
+  @@index([campaignId])
+  @@index([shopifyProductId])
+}
+
+// ─── Order attribution (for analytics) ───────────────────────────────────────
+
+model OrderAttribution {
+  id             String   @id @default(cuid())
+  campaignId     String
+  campaign       Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  shopifyOrderId String
+  orderAmount    Decimal  @db.Decimal(10, 2)
+  discountAmount Decimal  @db.Decimal(10, 2)
+  currency       String   @default("USD")
+  createdAt      DateTime @default(now())
+
+  @@unique([campaignId, shopifyOrderId])
+  @@index([campaignId])
+}
+
+// ─── Raw analytics events ─────────────────────────────────────────────────────
+
+model AnalyticsEvent {
+  id         String   @id @default(cuid())
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  shopId     String
+  eventType  String
+  data       Json?
+  createdAt  DateTime @default(now())
+
+  @@index([campaignId])
+  @@index([shopId])
+  @@index([eventType])
+  @@index([createdAt])
+}

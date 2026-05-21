@@ -1,0 +1,39 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+# Run `shopify app config link` to link this file to your Partner Dashboard app.
+
+client_id = "cca497b9abcf56c14d019ee24d0260d5"
+application_url = "https://example.com"
+embedded = true
+name = "DiscountFlow"
+
+[access_scopes]
+# read_products + write_products: modify compareAtPrice & price for PERCENTAGE / RANGE campaigns
+# read_orders: attribute orders to campaigns (analytics)
+# read_discounts + write_discounts: create and manage Shopify Functions automatic discounts (BXGY)
+scopes = "read_products,write_products,read_orders,read_discounts,write_discounts"
+
+[webhooks]
+api_version = "2026-07"
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app/uninstalled"
+  topics = ["app/uninstalled"]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app/scopes_update"
+  topics = ["app/scopes_update"]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/orders/create"
+  topics = ["orders/create"]
+
+[auth]
+redirect_urls = [
+  "https://example.com/api/auth",
+  "http://localhost:3000/auth/callback",
+  "http://localhost:3000/auth/shopify/callback"
+]
+
+[build]
+include_config_on_deploy = true
+automatically_update_urls_on_dev = true
