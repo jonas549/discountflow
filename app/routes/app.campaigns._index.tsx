@@ -24,8 +24,14 @@ import {
   bxgyDiscountLabel,
   type BxgyCampaignConfig,
 } from "../lib/discounts/bxgy-client";
+import {
+  revertRangeDiscount,
+  reactivateRangeDiscount,
+  type RangeCampaignConfig,
+} from "../lib/discounts/range";
 import { es, estadoLabel, tipoLabel, formatDate } from "../i18n";
 import { Btn, LinkBtn } from "../components/Btn";
+import { useSearchParams } from "react-router";
 
 // ─── Action ───────────────────────────────────────────────────────────────────
 
@@ -52,6 +58,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     if (actionType === "pause" && campaign.status === "ACTIVE") {
       if (campaign.type === "PERCENTAGE") {
         await revertPercentageDiscount(admin, campaignId);
+      } else if (campaign.type === "RANGE") {
+        await revertRangeDiscount(admin, campaignId);
       } else if (campaign.type === "BXGY" && bxgyId) {
         await deactivateBxgyDiscount(admin, bxgyId);
       }
@@ -59,6 +67,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     } else if (actionType === "activate" && campaign.status === "PAUSED") {
       if (campaign.type === "PERCENTAGE") {
         await reactivatePercentageDiscount(admin, campaignId);
+      } else if (campaign.type === "RANGE") {
+        await reactivateRangeDiscount(admin, campaignId);
       } else if (campaign.type === "BXGY" && bxgyId) {
         await activateBxgyDiscount(admin, bxgyId);
       }
@@ -67,6 +77,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       if (campaign.status === "ACTIVE" || campaign.status === "PAUSED") {
         if (campaign.type === "PERCENTAGE") {
           await revertPercentageDiscount(admin, campaignId);
+        } else if (campaign.type === "RANGE") {
+          await revertRangeDiscount(admin, campaignId);
         } else if (campaign.type === "BXGY" && bxgyId) {
           try { await deleteBxgyDiscount(admin, bxgyId); } catch { /* discount may already be gone */ }
         }
@@ -94,7 +106,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     orderBy: { createdAt: "desc" },
     include: { _count: { select: { products: true } } },
   });
+  const skipped = Number(new URL(request.url).searchParams.get("skipped") ?? 0);
   return {
+    skipped,
     campaigns: campaigns.map((c) => ({
       id: c.id,
       name: c.name,
@@ -449,8 +463,12 @@ function DeleteModal({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function Campaigns() {
-  const { campaigns } = useLoaderData<typeof loader>();
+  const { campaigns, skipped } = useLoaderData<typeof loader>();
+  const [searchParams] = useSearchParams();
   const fetcher = useFetcher();
+
+  // skipped from URL param (set after activating a range campaign)
+  const skippedCount = skipped || Number(searchParams.get("skipped") ?? 0);
 
   // Track which campaign is pending deletion (null = modal closed)
   const [deleteCandidate, setDeleteCandidate] = useState<{
@@ -495,6 +513,23 @@ export default function Campaigns() {
         />
       )}
 
+      {/* Banner de productos saltados (rango de precio) */}
+      {skippedCount > 0 && (
+        <div
+          style={{
+            background: "#fff8e1",
+            border: "1px solid #ffe082",
+            borderRadius: "8px",
+            padding: "12px 16px",
+            fontSize: "14px",
+            color: "#8b5e00",
+            marginBottom: "16px",
+          }}
+        >
+          {es.nuevaRango.skippedBanner(skippedCount)}
+        </div>
+      )}
+
       {/* Campaign type picker */}
       <s-section heading={es.campanas.crearSeccion}>
         <p style={{ fontSize: "14px", color: "#6d7175", marginBottom: "20px" }}>
@@ -513,7 +548,7 @@ export default function Campaigns() {
             title={es.campanas.rango.titulo}
             description={es.campanas.rango.descripcion}
             ejemplo={es.campanas.rango.ejemplo}
-            disabled
+            href="/app/campaigns/new/range"
           />
           <CampaignCard
             mockup={<MockupBxGy />}
@@ -576,15 +611,22 @@ export default function Campaigns() {
               <tbody>
                 {campaigns.map((c) => {
                   const st = ESTADO_COLORS[c.status] ?? ESTADO_COLORS.DRAFT;
+                  const rangeConfig = c.config as RangeCampaignConfig;
                   const discount =
                     c.type === "PERCENTAGE"
                       ? `${(c.config as { discountPercent?: number }).discountPercent ?? "—"}%`
                       : c.type === "BXGY"
                       ? bxgyDiscountLabel(c.config as BxgyCampaignConfig)
+                      : c.type === "RANGE"
+                      ? rangeConfig.mode === "fixedPrice"
+                        ? `Precio fijo $${rangeConfig.value}`
+                        : `$${rangeConfig.value} de descuento`
                       : "—";
                   const editHref =
                     c.type === "BXGY"
                       ? `/app/campaigns/${c.id}/edit/bxgy`
+                      : c.type === "RANGE"
+                      ? `/app/campaigns/${c.id}/edit/range`
                       : `/app/campaigns/${c.id}/edit`;
                   return (
                     <tr key={c.id} style={{ borderBottom: "1px solid #f1f2f3" }}>
