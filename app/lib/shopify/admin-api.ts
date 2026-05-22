@@ -218,6 +218,7 @@ export async function getProductsByIds(
     `#graphql
     query GetProductsByIds($ids: [ID!]!) {
       nodes(ids: $ids) {
+        __typename
         ... on Product {
           id
           title
@@ -229,7 +230,7 @@ export async function getProductsByIds(
   );
   const json = await res.json();
   return (json.data?.nodes ?? [])
-    .filter((n: { __typename?: string; id?: string }) => n.__typename === "Product" && n.id)
+    .filter((n: { __typename?: string; id?: string }) => n != null && n.__typename === "Product" && n.id)
     .map((n: { id: string; title: string; variants: { nodes: Array<{ id: string }> } }) => ({
       id: n.id,
       title: n.title,
@@ -250,6 +251,7 @@ export async function getCollectionsByIds(
     `#graphql
     query GetCollectionsByIds($ids: [ID!]!) {
       nodes(ids: $ids) {
+        __typename
         ... on Collection {
           id
           title
@@ -260,7 +262,7 @@ export async function getCollectionsByIds(
   );
   const json = await res.json();
   return (json.data?.nodes ?? [])
-    .filter((n: { __typename?: string; id?: string }) => n.__typename === "Collection" && n.id)
+    .filter((n: { __typename?: string; id?: string }) => n != null && n.__typename === "Collection" && n.id)
     .map((n: { id: string; title: string }) => ({ id: n.id, title: n.title }));
 }
 
