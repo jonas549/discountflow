@@ -112,6 +112,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const isScheduled = campaignStartsAt !== null && campaignStartsAt > new Date();
   const shouldActivate = intent === "activate" && !isScheduled;
 
+  let excluded: SelectedProductInput[] = [];
+  try { excluded = JSON.parse(excludedProductsJson); } catch { /* noop */ }
+  const excludedVariantIds =
+    enableExclusions && excluded.length > 0
+      ? new Set(excluded.flatMap((p) => (p.variants ?? []).map((v) => v.id)))
+      : undefined;
+
   const campaign = await prisma.campaign.create({
     data: {
       shopId: shop.id,
@@ -126,23 +133,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         selectedTags,
         selectedVendors,
         selectedProductTypes,
+        excludedProductIds: enableExclusions ? excluded.map((p) => p.id) : [],
+        enableExclusions,
       },
       startsAt: campaignStartsAt,
       endsAt: campaignEndsAt,
     },
   });
-
-  let excludedVariantIds: Set<string> | undefined;
-  if (enableExclusions) {
-    try {
-      const excluded: SelectedProductInput[] = JSON.parse(excludedProductsJson);
-      excludedVariantIds = new Set(
-        excluded.flatMap((p) => (p.variants ?? []).map((v) => v.id))
-      );
-    } catch {
-      // ignore
-    }
-  }
 
   if (shouldActivate) {
     try {

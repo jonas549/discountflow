@@ -47,11 +47,14 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
 
   const productIdsToHydrate = uniqueProducts.map((p) => p.shopifyProductId);
 
-  const [collections, productMeta, prefilledProducts] = await Promise.all([
+  const [collections, productMeta, prefilledProducts, prefilledExcludedProducts] = await Promise.all([
     getCollections(admin),
     getProductMetadata(admin),
     config.selectionMode === "products" || !config.selectionMode
       ? getProductsByIds(admin, productIdsToHydrate)
+      : Promise.resolve([]),
+    (config.excludedProductIds ?? []).length > 0
+      ? getProductsByIds(admin, config.excludedProductIds!)
       : Promise.resolve([]),
   ]);
 
@@ -64,6 +67,8 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     selectedTags?: string[];
     selectedVendors?: string[];
     selectedProductTypes?: string[];
+    excludedProductIds?: string[];
+    enableExclusions?: boolean;
   };
 
   // Resolve prefilledCollections from IDs stored in config
@@ -92,6 +97,8 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       prefilledVendors: config.selectedVendors ?? [],
       prefilledProductTypes: config.selectedProductTypes ?? [],
       prefilledProducts,
+      prefilledExcludedProducts,
+      enableExclusions: config.enableExclusions ?? false,
       existingProductsCount: uniqueProducts.length,
       startsAt: campaign.startsAt
         ? campaign.startsAt.toISOString().slice(0, 16)
@@ -189,6 +196,14 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   const isScheduled = campaignStartsAt !== null && campaignStartsAt > new Date();
   const shouldActivate = intent === "activate" && !isScheduled;
 
+  // Parse exclusions before updating config so they can be persisted
+  let excluded: SelectedProductInput[] = [];
+  try { excluded = JSON.parse(excludedProductsJson); } catch { /* noop */ }
+  const excludedVariantIds =
+    enableExclusions && excluded.length > 0
+      ? new Set(excluded.flatMap((p) => (p.variants ?? []).map((v) => v.id)))
+      : undefined;
+
   // Revert prices if currently active
   if (existing.status === "ACTIVE") {
     await revertPercentageDiscount(admin, campaignId);
@@ -208,6 +223,8 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
         selectedTags,
         selectedVendors,
         selectedProductTypes,
+        excludedProductIds: enableExclusions ? excluded.map((p) => p.id) : [],
+        enableExclusions,
       },
       startsAt: campaignStartsAt,
       endsAt: campaignEndsAt,
@@ -225,18 +242,6 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     if (hasNewProducts || isAllStore || hasNewCollections || hasNewTags || hasNewVendors || hasNewTypes) {
       // User provided a new selection — replace existing CampaignProduct records
       await prisma.campaignProduct.deleteMany({ where: { campaignId } });
-
-      let excludedVariantIds: Set<string> | undefined;
-      if (enableExclusions) {
-        try {
-          const excluded: SelectedProductInput[] = JSON.parse(excludedProductsJson);
-          excludedVariantIds = new Set(
-            excluded.flatMap((p) => (p.variants ?? []).map((v) => v.id))
-          );
-        } catch {
-          // ignore
-        }
-      }
 
       try {
         await applyPercentageDiscount(admin, campaignId, {
@@ -498,10 +503,12 @@ export default function EditPercentageCampaign() {
     campaign.prefilledProductTypes
   );
   const [pickerMode, setPickerMode] = useState<"tags" | "vendors" | "productTypes" | null>(null);
-  const [enableExclusions, setEnableExclusions] = useState(false);
+  const [enableExclusions, setEnableExclusions] = useState(
+    campaign.enableExclusions || campaign.prefilledExcludedProducts.length > 0
+  );
   const [excludedProducts, setExcludedProducts] = useState<
     Array<{ id: string; title: string; variants: Array<{ id: string }> }>
-  >([]);
+  >(campaign.prefilledExcludedProducts);
   const [startsAt, setStartsAt] = useState(campaign.startsAt);
   const [endsAt, setEndsAt] = useState(campaign.endsAt);
 
