@@ -22,9 +22,9 @@ export const PLAN_LIMITS = {
     label: "Lite",
   },
   ESSENTIAL: {
-    campaigns: 20,
-    variants: 3000,
-    price: 24.99,
+    campaigns: 50,
+    variants: 6000,
+    price: 27.99,
     trialDays: 0,
     handle: "essential",
     label: "Essential",

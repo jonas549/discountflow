@@ -63,8 +63,8 @@ const FEATURES: Record<Plan, string[]> = {
     "Soporte prioritario",
   ],
   ESSENTIAL: [
-    "20 campañas activas",
-    "3,000 variantes en descuento",
+    "50 campañas activas",
+    "6,000 variantes en descuento",
     "Porcentaje, Rango de precio, BxGy",
     "Analíticas completas + ROI",
     "Soporte prioritario",
