@@ -13,7 +13,7 @@ import {
 import { authenticate } from "../shopify.server";
 import { prisma } from "../lib/db";
 import { getOrCreateShop } from "../lib/shopify/shop.server";
-import { es, estadoLabel, tipoLabel, formatDate } from "../i18n";
+import { es, estadoLabel, tipoLabel, formatDate, formatCurrency } from "../i18n";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -24,27 +24,37 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     scopes: session.scope,
   });
 
-  const [activeCampaigns, allCampaigns] = await Promise.all([
-    prisma.campaign.count({
-      where: { shopId: shop.id, status: "ACTIVE" },
-    }),
-    prisma.campaign.findMany({
-      where: { shopId: shop.id },
-      orderBy: { createdAt: "desc" },
-      take: 5,
-      include: { _count: { select: { products: true } } },
-    }),
-  ]);
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-  const productsOnDiscount = await prisma.campaignProduct.count({
-    where: {
-      campaign: { shopId: shop.id, status: "ACTIVE" },
-    },
-  });
+  const [activeCampaigns, allCampaigns, productsOnDiscount, ingresosAggregate, pedidosMes] =
+    await Promise.all([
+      prisma.campaign.count({ where: { shopId: shop.id, status: "ACTIVE" } }),
+      prisma.campaign.findMany({
+        where: { shopId: shop.id },
+        orderBy: { createdAt: "desc" },
+        take: 5,
+        include: { _count: { select: { products: true } } },
+      }),
+      prisma.campaignProduct.count({
+        where: { campaign: { shopId: shop.id, status: "ACTIVE" } },
+      }),
+      prisma.orderAttribution.aggregate({
+        where: { campaign: { shopId: shop.id } },
+        _sum: { orderAmount: true },
+      }),
+      prisma.orderAttribution.count({
+        where: { campaign: { shopId: shop.id }, createdAt: { gte: startOfMonth } },
+      }),
+    ]);
+
+  const ingresosAtribuidos = Number(ingresosAggregate._sum.orderAmount ?? 0);
 
   return {
     activeCampaigns,
     productsOnDiscount,
+    ingresosAtribuidos,
+    pedidosMes,
     recentCampaigns: allCampaigns.map((c) => ({
       id: c.id,
       name: c.name,
@@ -116,7 +126,7 @@ const ESTADO_COLORS: Record<string, { bg: string; text: string }> = {
 };
 
 export default function Dashboard() {
-  const { activeCampaigns, productsOnDiscount, recentCampaigns } =
+  const { activeCampaigns, productsOnDiscount, ingresosAtribuidos, pedidosMes, recentCampaigns } =
     useLoaderData<typeof loader>();
 
   const estadoStyle = (status: string) =>
@@ -146,15 +156,15 @@ export default function Dashboard() {
           />
           <KpiCard
             icon={<DollarSign size={18} />}
-            value="$0"
+            value={ingresosAtribuidos > 0 ? formatCurrency(ingresosAtribuidos) : "$0"}
             label={es.dashboard.kpi.ingresosAtribuidos}
-            sublabel="Disponible en Fase 2"
+            sublabel={ingresosAtribuidos === 0 ? "Pendiente de aprobación" : undefined}
           />
           <KpiCard
             icon={<ShoppingCart size={18} />}
-            value="0"
+            value={String(pedidosMes)}
             label={es.dashboard.kpi.conversionesMes}
-            sublabel="Disponible en Fase 2"
+            sublabel={pedidosMes === 0 ? "Pendiente de aprobación" : undefined}
           />
         </div>
       </s-section>

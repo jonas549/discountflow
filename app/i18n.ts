@@ -310,19 +310,50 @@ export const es = {
   analytics: {
     titulo: "Analíticas",
     subtitulo: "Rendimiento de campañas",
-    proximamente:
-      "Las analíticas detalladas estarán disponibles próximamente. Crea y activa campañas para comenzar a ver datos.",
+    bannerPendiente:
+      "Activación pendiente: estamos esperando aprobación de Shopify para acceder a datos de pedidos. Una vez aprobado, estos datos aparecerán automáticamente.",
+    kpi: {
+      campanasActivas: "Campañas activas",
+      productosEnDescuento: "Productos en descuento",
+      totalDescontadoEst: "Total descontado",
+      ingresosAtribuidos: "Ingresos atribuidos",
+    },
+    tabla: {
+      campana: "Campaña",
+      tipo: "Tipo",
+      estado: "Estado",
+      pedidos: "Pedidos",
+      recaudacion: "Recaudación",
+      totalDescontado: "Total descontado",
+      roi: "ROI",
+    },
+    sinCampanas:
+      "Aún no has creado campañas. Crea tu primera campaña para comenzar a ver analíticas.",
+    sinPedidos:
+      "Aún no hay pedidos atribuidos. Los datos aparecerán a medida que los clientes usen tus campañas activas.",
+    estimadoNota: "Estimado — suma por variante × descuento unitario",
+    pendienteAprobacion: "Pendiente de aprobación",
+    noAplica: "N/A",
   },
   soporte: {
-    titulo: "Soporte",
-    necesitasAyuda: "¿Necesitas ayuda?",
-    descripcion:
-      "Nuestro equipo está disponible para ayudarte a configurar y optimizar tus campañas de descuento.",
-    contactar: "Contactar soporte",
-    recursos: "Recursos",
-    guiaInicio: "Guía de inicio",
-    tiposCampanas: "Tipos de campañas explicados",
-    faq: "Preguntas frecuentes",
+    titulo: "Centro de soporte",
+    bienvenidaTitulo: "Atención al cliente",
+    bienvenidaTexto:
+      "En DiscountFlow estamos comprometidos con ayudarte a aprovechar al máximo tus campañas de descuentos. Nuestro equipo de soporte está disponible para resolver cualquier duda, sugerencia o inconveniente que tengas con la app.",
+    bienvenidaSub:
+      "Nos esforzamos en responder cualquier consulta en menos de 15 minutos durante horario laboral. Tu éxito es nuestra prioridad.",
+    contactoTitulo: "Contacto",
+    correo: "contacto@appsdeveloperspro.com",
+    btnEnviarCorreo: "Enviar correo",
+    tiempoTitulo: "Tiempo de respuesta",
+    tiempoTexto: "Respuesta en menos de 15 minutos",
+    tiempoSub: "Estamos disponibles para ayudarte cuando lo necesites.",
+    recursosTitulo: "Recursos rápidos",
+    recursos: [
+      "¿Cómo crear una campaña de porcentaje?",
+      "Diferencias entre los 3 tipos de campañas",
+      "¿Cómo pausar o eliminar una campaña?",
+    ],
   },
 };
 
@@ -369,4 +400,12 @@ export function formatDate(date: Date | string | null): string {
     month: "short",
     year: "numeric",
   });
+}
+
+export function formatCurrency(amount: number): string {
+  if (amount === 0) return "$0";
+  return `$${amount.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 }

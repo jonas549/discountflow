@@ -132,6 +132,55 @@ El tsconfig no define el alias `~` en `paths`, por lo que `~/db.server` y simila
 
 ---
 
+## 10. Analytics y webhook orders/create (Fase 2.4-2.5)
+
+**Estado actual:** Implementado parcialmente — datos de campaña reales, datos de pedidos pendientes de aprobación.
+
+### Lo que está activo en producción
+- `/app/analytics` — KPIs de campañas activas, productos en descuento y descuento estimado por variante. Tabla de rendimiento por campaña con pedidos/recaudación en $0 hasta que llegue la aprobación.
+- `/app` (Dashboard) — KPIs de ingresos y pedidos del mes conectados al modelo `OrderAttribution`. Mostrarán datos reales automáticamente cuando el webhook se active.
+- `/app/support` — Página de soporte completa con datos de contacto reales.
+
+### Pendiente: aprobación Level 1 Protected Customer Data
+
+El webhook `orders/create` y el scope `read_orders` requieren **Level 1 Protected Customer Data** approval en el Partner Dashboard para apps públicas. Este nivel da acceso a datos de pedidos (ID, total, descuentos, line items) sin PII de cliente (nombre, email, dirección — eso es Level 2).
+
+**Por qué Level 1 y no Level 2:** Solo necesitamos `shopifyOrderId`, `orderAmount`, `discountAmount`. No almacenamos ningún dato personal del comprador.
+
+**Alternativas investigadas y descartadas:**
+- `shopifyqlQuery` + `read_reports` → también requiere Level 2 PCD + solo disponible para Shopify Plus merchants.
+- Polling con Admin API → mismo scope `read_orders`, mismo bloqueo.
+- No hay backdoor: Discounty y similares tienen esta aprobación concedida.
+
+### Cómo activar el webhook cuando llegue la aprobación
+
+1. En Partner Dashboard: Apps → tu app → API access requests → Protected customer data access → Request access → **Level 1** → justificar: "necesitamos order ID, total y discount amounts para atribuir pedidos a campañas activas, sin datos personales del cliente".
+
+2. Una vez aprobado, editar `shopify.app.toml`:
+   ```toml
+   [access_scopes]
+   scopes = "read_products,write_products,read_discounts,write_discounts,read_orders"
+
+   # Descomentar este bloque:
+   [[webhooks.subscriptions]]
+   uri = "/webhooks/orders/create"
+   topics = ["orders/create"]
+   ```
+
+3. Ejecutar `shopify app deploy` desde el directorio del proyecto.
+
+4. Re-instalar la app en la tienda de desarrollo para que tome los nuevos scopes.
+
+5. Los datos de `OrderAttribution` empezarán a poblar el dashboard y la tabla de analíticas automáticamente — no se requiere ningún cambio de código.
+
+### Lógica de atribución (ya implementada en webhooks.orders.create.tsx)
+
+- **PERCENTAGE / RANGE:** Se hace matching por `variant_id` del pedido contra `CampaignProduct.shopifyVariantId`. El descuento atribuido = (`originalPrice` - precio cobrado) × cantidad.
+- **BXGY:** Se hace matching por `discount_applications[].title` (nombre del descuento automático en Shopify) contra el nombre de la campaña en DiscountFlow.
+- Idempotente: usa `upsert` con `campaignId_shopifyOrderId` unique constraint para manejar re-entregas del webhook.
+
+---
+
 ## 9. App Distribution
 
 **Decision: `AppDistribution.AppStore` from day 1, deployed as UNLISTED during development**
