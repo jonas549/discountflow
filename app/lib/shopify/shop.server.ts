@@ -41,8 +41,6 @@ export async function syncShopPlanIfStale(
           activeSubscription {
             name
             status
-            currentPeriodEnd
-            trialDays
           }
         }
       }
@@ -53,8 +51,6 @@ export async function syncShopPlanIfStale(
           activeSubscription?: {
             name: string;
             status: string;
-            currentPeriodEnd: string | null;
-            trialDays: number | null;
           } | null;
         };
       };
@@ -71,20 +67,15 @@ export async function syncShopPlanIfStale(
     }
 
     let newPlan = "FREE";
-    let trialEndsAt: Date | null = null;
 
     if (sub && (sub.status === "ACTIVE" || sub.status === "PENDING")) {
       newPlan = handleToPlan(sub.name);
-      if (sub.currentPeriodEnd && sub.trialDays && sub.trialDays > 0) {
-        trialEndsAt = new Date(sub.currentPeriodEnd);
-      }
     }
 
     return prisma.shop.update({
       where: { id: shop.id },
       data: {
         plan: newPlan,
-        trialEndsAt,
         lastSyncAt: now,
         ...(newPlan !== shop.plan ? { planActivatedAt: now } : {}),
       },

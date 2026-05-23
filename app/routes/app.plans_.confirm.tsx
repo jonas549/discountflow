@@ -3,7 +3,7 @@ import { redirect } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { getOrCreateShop } from "../lib/shopify/shop.server";
-import { handleToPlan, PLAN_LIMITS } from "../lib/billing/plan-limits";
+import { handleToPlan } from "../lib/billing/plan-limits";
 import { prisma } from "../lib/db";
 
 // Shopify redirects here after a merchant approves a plan change.
@@ -15,7 +15,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const url = new URL(request.url);
   const planHandle = url.searchParams.get("plan_handle") ?? "free";
   const newPlan = handleToPlan(planHandle);
-  const limits = PLAN_LIMITS[newPlan];
 
   const shop = await getOrCreateShop({
     domain: session.shop,
@@ -24,17 +23,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   });
 
   const now = new Date();
-  const trialEndsAt =
-    limits.trialDays > 0
-      ? new Date(now.getTime() + limits.trialDays * 86_400_000)
-      : null;
 
   await prisma.shop.update({
     where: { id: shop.id },
     data: {
       plan: newPlan,
       planActivatedAt: now,
-      trialEndsAt,
       lastSyncAt: now,
     },
   });

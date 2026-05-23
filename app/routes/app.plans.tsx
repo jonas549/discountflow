@@ -38,7 +38,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   return {
     currentPlan: syncedShop.plan as Plan,
-    trialEndsAt: syncedShop.trialEndsAt?.toISOString() ?? null,
     campaignCount,
     variantCount,
     shopName,
@@ -51,7 +50,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 const FEATURES: Record<Plan, string[]> = {
   FREE: [
     "2 campañas activas",
-    "100 variantes en descuento",
+    "50 variantes en descuento",
     "Porcentaje, Rango de precio, BxGy",
     "Analíticas básicas",
     "Soporte por email",
@@ -62,7 +61,6 @@ const FEATURES: Record<Plan, string[]> = {
     "Porcentaje, Rango de precio, BxGy",
     "Analíticas completas",
     "Soporte prioritario",
-    "7 días de prueba gratis",
   ],
   ESSENTIAL: [
     "20 campañas activas",
@@ -70,7 +68,6 @@ const FEATURES: Record<Plan, string[]> = {
     "Porcentaje, Rango de precio, BxGy",
     "Analíticas completas + ROI",
     "Soporte prioritario",
-    "14 días de prueba gratis",
   ],
   PROFESSIONAL: [
     "100 campañas activas",
@@ -78,7 +75,6 @@ const FEATURES: Record<Plan, string[]> = {
     "Porcentaje, Rango de precio, BxGy",
     "Analíticas avanzadas",
     "Soporte dedicado",
-    "14 días de prueba gratis",
   ],
 };
 
@@ -160,11 +156,6 @@ function PlanCard({
             <span style={{ fontSize: "13px", opacity: 0.75 }}>{es.planes.mes}</span>
           )}
         </div>
-        {limits.trialDays > 0 && (
-          <div style={{ fontSize: "12px", marginTop: "4px", opacity: 0.85 }}>
-            {es.planes.prueba(limits.trialDays)}
-          </div>
-        )}
       </div>
 
       {/* Features */}
@@ -232,15 +223,10 @@ function PlanCard({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function Plans() {
-  const { currentPlan, trialEndsAt, campaignCount, variantCount, shopName, appHandle } =
+  const { currentPlan, campaignCount, variantCount, shopName, appHandle } =
     useLoaderData<typeof loader>();
 
   const pricingUrl = `https://admin.shopify.com/store/${shopName}/charges/${appHandle}/pricing_plans`;
-
-  const daysLeft =
-    trialEndsAt
-      ? Math.max(0, Math.ceil((new Date(trialEndsAt).getTime() - Date.now()) / 86_400_000))
-      : 0;
 
   const limits = PLAN_LIMITS[currentPlan];
 
@@ -278,21 +264,6 @@ export default function Plans() {
             </div>
             <div style={{ fontSize: "16px", fontWeight: "600", color: "#202223" }}>
               {limits.label}
-              {daysLeft > 0 && (
-                <span
-                  style={{
-                    marginLeft: "10px",
-                    fontSize: "12px",
-                    fontWeight: "500",
-                    background: "#fff8e1",
-                    color: "#a05c00",
-                    padding: "2px 8px",
-                    borderRadius: "10px",
-                  }}
-                >
-                  {es.planes.dashCard.trial(daysLeft)}
-                </span>
-              )}
             </div>
             <div style={{ fontSize: "12px", color: "#8c9196", marginTop: "4px" }}>
               {campaignCount} / {limits.campaigns} campañas · {variantCount.toLocaleString("en-US")} / {limits.variants.toLocaleString("en-US")} variantes

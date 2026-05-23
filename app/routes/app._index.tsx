@@ -56,12 +56,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const currentPlan = (shop.plan as Plan) || "FREE";
   const planLimits = PLAN_LIMITS[currentPlan];
 
-  // Trial days remaining
-  const trialDaysLeft =
-    shop.trialEndsAt && shop.trialEndsAt > now
-      ? Math.ceil((shop.trialEndsAt.getTime() - now.getTime()) / 86_400_000)
-      : 0;
-
   return {
     activeCampaigns,
     productsOnDiscount,
@@ -74,7 +68,6 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       campaignLimit: planLimits.campaigns,
       variantCount: totalVariantCount,
       variantLimit: planLimits.variants,
-      trialDaysLeft,
     },
     recentCampaigns: allCampaigns.map((c) => ({
       id: c.id,
@@ -211,21 +204,6 @@ export default function Dashboard() {
             <div>
               <div style={{ fontSize: "16px", fontWeight: "600", color: "#202223" }}>
                 {plan.label}
-                {plan.trialDaysLeft > 0 && (
-                  <span
-                    style={{
-                      marginLeft: "10px",
-                      fontSize: "12px",
-                      fontWeight: "500",
-                      background: "#fff8e1",
-                      color: "#a05c00",
-                      padding: "2px 8px",
-                      borderRadius: "10px",
-                    }}
-                  >
-                    {es.planes.dashCard.trial(plan.trialDaysLeft)}
-                  </span>
-                )}
               </div>
             </div>
             <Link

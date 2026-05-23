@@ -41,7 +41,6 @@ model Shop {
   updatedAt       DateTime   @updatedAt
   // Billing / plan
   plan            String     @default("FREE")
-  trialEndsAt     DateTime?
   planActivatedAt DateTime?
   lastSyncAt      DateTime?
   campaigns       Campaign[]
