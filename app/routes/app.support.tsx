@@ -1,6 +1,6 @@
 import type { HeadersFunction, LoaderFunctionArgs } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
-import { Mail, Clock, BookOpen, Zap } from "lucide-react";
+import { Mail, Clock, Zap } from "lucide-react";
 import { authenticate } from "../shopify.server";
 import { Btn } from "../components/Btn";
 import { es } from "../i18n";
@@ -199,7 +199,7 @@ export default function Support() {
                 margin: "0 0 6px",
               }}
             >
-              ⚡ {es.soporte.tiempoTexto}
+              {es.soporte.tiempoTexto}
             </p>
             <p
               style={{
@@ -213,53 +213,6 @@ export default function Support() {
             </p>
           </Card>
 
-          {/* Card 4 — Recursos rápidos */}
-          <Card style={{ gridColumn: "1 / -1" }}>
-            <CardIcon
-              icon={<BookOpen size={20} />}
-              color="#4d2db8"
-              bg="#f0ebff"
-            />
-            <h3
-              style={{
-                fontSize: "15px",
-                fontWeight: "600",
-                color: "#202223",
-                margin: "0 0 14px",
-              }}
-            >
-              {es.soporte.recursosTitulo}
-            </h3>
-            <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: "10px" }}>
-              {es.soporte.recursos.map((item) => (
-                <li key={item}>
-                  <a
-                    href="#"
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "8px",
-                      fontSize: "14px",
-                      color: "#008060",
-                      textDecoration: "none",
-                      fontWeight: "500",
-                    }}
-                  >
-                    <span
-                      style={{
-                        width: "6px",
-                        height: "6px",
-                        borderRadius: "50%",
-                        background: "#008060",
-                        flexShrink: 0,
-                      }}
-                    />
-                    {item}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </Card>
         </div>
       </s-section>
     </s-page>

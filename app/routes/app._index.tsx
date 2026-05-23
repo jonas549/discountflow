@@ -173,7 +173,7 @@ export default function Dashboard() {
       <s-section heading={es.dashboard.accionesRapidas}>
         <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
           <Link
-            to="/app/campaigns/new/percentage"
+            to="/app/campaigns"
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -250,7 +250,7 @@ export default function Dashboard() {
               {es.dashboard.sinCampanas}
             </p>
             <Link
-              to="/app/campaigns/new/percentage"
+              to="/app/campaigns"
               style={{
                 display: "inline-flex",
                 alignItems: "center",
