@@ -31,6 +31,8 @@ import {
 } from "../lib/discounts/bxgy";
 import type { SelectionMode } from "../lib/discounts/percentage";
 import { es, estadoLabel } from "../i18n";
+import { PLAN_LIMITS, type Plan } from "../lib/billing/plan-limits";
+import { getActiveCampaignCount } from "../lib/billing/plan-limits.server";
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
@@ -201,6 +203,17 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   const campaignEndsAt = endsAt ? new Date(endsAt) : null;
   const isScheduled = campaignStartsAt !== null && campaignStartsAt > new Date();
   const shouldActivate = intent === "activate" && !isScheduled;
+
+  if (shouldActivate && existing.status !== "ACTIVE") {
+    const plan = (shop.plan as Plan) || "FREE";
+    const activeCount = await getActiveCampaignCount(shop.id);
+    if (activeCount >= PLAN_LIMITS[plan].campaigns) {
+      return Response.json(
+        { errors: { general: es.planes.limiteCampanas(activeCount, PLAN_LIMITS[plan].campaigns) }, limitExceeded: true },
+        { status: 422 }
+      );
+    }
+  }
 
   const xExcludeProductIds = enableXExclusions ? xExcluded.map((p) => p.id) : [];
 
@@ -520,7 +533,7 @@ export default function EditBxgyCampaign() {
     availableVendors,
     availableProductTypes,
   } = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>() as { errors?: ActionErrors } | undefined;
+  const actionData = useActionData<typeof action>() as { errors?: ActionErrors; limitExceeded?: boolean } | undefined;
   const navigation = useNavigation();
   const shopify = useAppBridge();
 
@@ -620,7 +633,7 @@ export default function EditBxgyCampaign() {
         </span>
       </div>
 
-      {errors.general && <GeneralErrorBanner message={errors.general} />}
+      {errors.general && <GeneralErrorBanner message={errors.general} limitExceeded={actionData?.limitExceeded} />}
 
       <Form method="post">
         <input

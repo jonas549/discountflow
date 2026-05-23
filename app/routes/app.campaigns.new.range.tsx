@@ -29,7 +29,7 @@ import { applyRangeDiscount, type RangeMode } from "../lib/discounts/range";
 import type { SelectedProductInput, SelectionMode } from "../lib/shopify/resolve-variants";
 import { getCollections, getProductMetadata } from "../lib/shopify/admin-api";
 import { type Plan, PLAN_LIMITS } from "../lib/billing/plan-limits";
-import { getCampaignCount } from "../lib/billing/plan-limits.server";
+import { getActiveCampaignCount } from "../lib/billing/plan-limits.server";
 import { es } from "../i18n";
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
@@ -115,15 +115,17 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     scopes: session.scope,
   });
 
-  // Plan enforcement — campaign count
-  const plan = (shop.plan as Plan) || "FREE";
-  const limits = PLAN_LIMITS[plan];
-  const campaignCount = await getCampaignCount(shop.id);
-  if (campaignCount >= limits.campaigns) {
-    return Response.json(
-      { errors: { general: es.planes.limiteCampanas(campaignCount, limits.campaigns) }, limitExceeded: true },
-      { status: 422 }
-    );
+  // Plan enforcement — only when activating (drafts are always allowed)
+  if (shouldActivate) {
+    const plan = (shop.plan as Plan) || "FREE";
+    const limits = PLAN_LIMITS[plan];
+    const activeCount = await getActiveCampaignCount(shop.id);
+    if (activeCount >= limits.campaigns) {
+      return Response.json(
+        { errors: { general: es.planes.limiteCampanas(activeCount, limits.campaigns) }, limitExceeded: true },
+        { status: 422 }
+      );
+    }
   }
 
   const campaignStartsAt = startsAt ? new Date(startsAt) : null;

@@ -23,6 +23,8 @@ import {
   type SelectionMode,
 } from "../lib/discounts/percentage";
 import { getCollections, getProductMetadata, getProductsByIds } from "../lib/shopify/admin-api";
+import { PLAN_LIMITS, type Plan } from "../lib/billing/plan-limits";
+import { getActiveCampaignCount } from "../lib/billing/plan-limits.server";
 import { es } from "../i18n";
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
@@ -203,6 +205,18 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     enableExclusions && excluded.length > 0
       ? new Set(excluded.flatMap((p) => (p.variants ?? []).map((v) => v.id)))
       : undefined;
+
+  // Plan enforcement — only when transitioning to ACTIVE from a non-active state
+  if (shouldActivate && existing.status !== "ACTIVE") {
+    const plan = (shop.plan as Plan) || "FREE";
+    const activeCount = await getActiveCampaignCount(shop.id);
+    if (activeCount >= PLAN_LIMITS[plan].campaigns) {
+      return Response.json(
+        { errors: { general: es.planes.limiteCampanas(activeCount, PLAN_LIMITS[plan].campaigns) }, limitExceeded: true },
+        { status: 422 }
+      );
+    }
+  }
 
   // Revert prices if currently active
   if (existing.status === "ACTIVE") {
@@ -476,7 +490,7 @@ export default function EditPercentageCampaign() {
   const { campaign, collections, availableTags, availableVendors, availableProductTypes } =
     useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>() as
-    | { errors?: ActionErrors }
+    | { errors?: ActionErrors; limitExceeded?: boolean }
     | undefined;
   const navigation = useNavigation();
   const shopify = useAppBridge();
@@ -610,16 +624,25 @@ export default function EditPercentageCampaign() {
       {errors.general && (
         <div
           style={{
-            background: "#fde8e8",
-            border: "1px solid #f97066",
+            background: actionData?.limitExceeded ? "#fff8e1" : "#fde8e8",
+            border: `1px solid ${actionData?.limitExceeded ? "#f9a825" : "#f97066"}`,
             borderRadius: "8px",
             padding: "12px 16px",
-            color: "#c0392b",
+            color: actionData?.limitExceeded ? "#a05c00" : "#c0392b",
             fontSize: "14px",
             marginBottom: "16px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "12px",
           }}
         >
-          {errors.general}
+          <span>{errors.general}</span>
+          {actionData?.limitExceeded && (
+            <Link to="/app/plans" style={{ fontSize: "13px", fontWeight: "600", color: "#008060", textDecoration: "none", whiteSpace: "nowrap" }}>
+              Ver planes →
+            </Link>
+          )}
         </div>
       )}
 

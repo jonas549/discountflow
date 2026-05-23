@@ -31,7 +31,7 @@ import {
 } from "../lib/discounts/bxgy";
 import type { SelectionMode } from "../lib/discounts/percentage";
 import { type Plan, PLAN_LIMITS } from "../lib/billing/plan-limits";
-import { getCampaignCount } from "../lib/billing/plan-limits.server";
+import { getActiveCampaignCount } from "../lib/billing/plan-limits.server";
 import { es } from "../i18n";
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
@@ -165,15 +165,17 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const isScheduled = campaignStartsAt !== null && campaignStartsAt > new Date();
   const shouldActivate = intent === "activate" && !isScheduled;
 
-  // Plan enforcement — campaign count
-  const plan = (shop.plan as Plan) || "FREE";
-  const limits = PLAN_LIMITS[plan];
-  const campaignCount = await getCampaignCount(shop.id);
-  if (campaignCount >= limits.campaigns) {
-    return Response.json(
-      { errors: { general: es.planes.limiteCampanas(campaignCount, limits.campaigns) }, limitExceeded: true },
-      { status: 422 }
-    );
+  // Plan enforcement — only when activating (drafts are always allowed)
+  if (shouldActivate) {
+    const plan = (shop.plan as Plan) || "FREE";
+    const limits = PLAN_LIMITS[plan];
+    const activeCount = await getActiveCampaignCount(shop.id);
+    if (activeCount >= limits.campaigns) {
+      return Response.json(
+        { errors: { general: es.planes.limiteCampanas(activeCount, limits.campaigns) }, limitExceeded: true },
+        { status: 422 }
+      );
+    }
   }
 
   const xExcludeProductIds = enableXExclusions

@@ -3,7 +3,7 @@ import type {
   HeadersFunction,
   LoaderFunctionArgs,
 } from "react-router";
-import { useLoaderData, useFetcher } from "react-router";
+import { useLoaderData, useFetcher, Link } from "react-router";
 import { useState, useEffect } from "react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { Plus } from "lucide-react";
@@ -31,6 +31,8 @@ import {
 } from "../lib/discounts/range";
 import { es, estadoLabel, tipoLabel, formatDate } from "../i18n";
 import { Btn, LinkBtn } from "../components/Btn";
+import { PLAN_LIMITS, type Plan } from "../lib/billing/plan-limits";
+import { getActiveCampaignCount } from "../lib/billing/plan-limits.server";
 import { useSearchParams } from "react-router";
 
 // ─── Action ───────────────────────────────────────────────────────────────────
@@ -65,6 +67,18 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       }
       await prisma.campaign.update({ where: { id: campaignId }, data: { status: "PAUSED" } });
     } else if (actionType === "activate" && campaign.status === "PAUSED") {
+      // Limit check before reactivating
+      const plan = (shop.plan as Plan) || "FREE";
+      const activeCount = await getActiveCampaignCount(shop.id);
+      if (activeCount >= PLAN_LIMITS[plan].campaigns) {
+        return Response.json(
+          {
+            error: es.planes.limiteCampanas(activeCount, PLAN_LIMITS[plan].campaigns),
+            limitExceeded: true,
+          },
+          { status: 422 }
+        );
+      }
       if (campaign.type === "PERCENTAGE") {
         await reactivatePercentageDiscount(admin, campaignId);
       } else if (campaign.type === "RANGE") {
@@ -502,6 +516,8 @@ export default function Campaigns() {
 
   const isBusy = fetcher.state !== "idle";
 
+  const fetcherData = fetcher.data as { error?: string; limitExceeded?: boolean } | undefined;
+
   return (
     <s-page heading={es.campanas.titulo}>
       {/* Delete confirmation modal */}
@@ -511,6 +527,33 @@ export default function Campaigns() {
           onConfirm={handleDeleteConfirm}
           onCancel={() => setDeleteCandidate(null)}
         />
+      )}
+
+      {/* Banner de límite de plan */}
+      {fetcherData?.limitExceeded && fetcherData.error && (
+        <div
+          style={{
+            background: "#fff8e1",
+            border: "1px solid #f9a825",
+            borderRadius: "8px",
+            padding: "12px 16px",
+            fontSize: "14px",
+            color: "#a05c00",
+            marginBottom: "16px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "12px",
+          }}
+        >
+          <span>{fetcherData.error}</span>
+          <Link
+            to="/app/plans"
+            style={{ fontSize: "13px", fontWeight: "600", color: "#008060", textDecoration: "none", whiteSpace: "nowrap" }}
+          >
+            {es.planes.verPlanes} →
+          </Link>
+        </div>
       )}
 
       {/* Banner de productos saltados (rango de precio) */}

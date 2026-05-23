@@ -40,6 +40,8 @@ import {
   getCollectionsByIds,
 } from "../lib/shopify/admin-api";
 import { es } from "../i18n";
+import { PLAN_LIMITS, type Plan } from "../lib/billing/plan-limits";
+import { getActiveCampaignCount } from "../lib/billing/plan-limits.server";
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
@@ -186,6 +188,17 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   const isScheduled = campaignStartsAt !== null && campaignStartsAt > new Date();
   const shouldActivate = intent === "activate" && !isScheduled;
 
+  if (shouldActivate && existing.status !== "ACTIVE") {
+    const plan = (shop.plan as Plan) || "FREE";
+    const activeCount = await getActiveCampaignCount(shop.id);
+    if (activeCount >= PLAN_LIMITS[plan].campaigns) {
+      return Response.json(
+        { errors: { general: es.planes.limiteCampanas(activeCount, PLAN_LIMITS[plan].campaigns) }, limitExceeded: true },
+        { status: 422 }
+      );
+    }
+  }
+
   let excluded: SelectedProductInput[] = [];
   try { excluded = JSON.parse(excludedProductsJson); } catch { /* noop */ }
   const excludedVariantIds =
@@ -272,7 +285,7 @@ export default function EditRangeCampaign() {
   const { campaign, collections, availableTags, availableVendors, availableProductTypes } =
     useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>() as
-    | { errors?: ActionErrors }
+    | { errors?: ActionErrors; limitExceeded?: boolean }
     | undefined;
   const navigation = useNavigation();
   const shopify = useAppBridge();
@@ -379,7 +392,7 @@ export default function EditRangeCampaign() {
         </Link>
       </div>
 
-      {errors.general && <GeneralErrorBanner message={errors.general} />}
+      {errors.general && <GeneralErrorBanner message={errors.general} limitExceeded={actionData?.limitExceeded} />}
 
       <Form method="post">
         <input

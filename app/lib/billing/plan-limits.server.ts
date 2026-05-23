@@ -1,17 +1,18 @@
 import { prisma } from "../db";
 
-/** Count active (non-finished) campaigns for quota. */
-export async function getCampaignCount(shopId: string): Promise<number> {
+/** Count only ACTIVE campaigns (used for plan enforcement and display). */
+export async function getActiveCampaignCount(shopId: string): Promise<number> {
   return prisma.campaign.count({
-    where: { shopId, status: { notIn: ["CANCELLED", "COMPLETED"] } },
+    where: { shopId, status: "ACTIVE" },
   });
 }
 
-/** Count active variant records for quota. */
+/** @deprecated Alias kept for backwards-compat — use getActiveCampaignCount. */
+export const getCampaignCount = getActiveCampaignCount;
+
+/** Count variant records in ACTIVE campaigns for quota display. */
 export async function getVariantCount(shopId: string): Promise<number> {
   return prisma.campaignProduct.count({
-    where: {
-      campaign: { shopId, status: { notIn: ["CANCELLED", "COMPLETED"] } },
-    },
+    where: { campaign: { shopId, status: "ACTIVE" } },
   });
 }
