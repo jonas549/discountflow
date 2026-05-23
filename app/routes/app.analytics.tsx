@@ -1,7 +1,7 @@
 import type { HeadersFunction, LoaderFunctionArgs } from "react-router";
 import { useLoaderData, Link } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
-import { TrendingUp, Tag, DollarSign, ShoppingCart, Plus, Clock, Info } from "lucide-react";
+import { TrendingUp, Tag, DollarSign, ShoppingCart, Plus } from "lucide-react";
 import { authenticate } from "../shopify.server";
 import { prisma } from "../lib/db";
 import { getOrCreateShop } from "../lib/shopify/shop.server";
@@ -91,13 +91,29 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     (s, c) => s + c.totalRevenue,
     0
   );
+  const totalOrders = campaignsWithStats.reduce(
+    (s, c) => s + c.totalOrders,
+    0
+  );
+  const totalActualDiscount = campaignsWithStats.reduce(
+    (s, c) => s + c.totalAttributedDiscount,
+    0
+  );
+
+  // Ordenar por recaudación desc, luego por descuento estimado desc
+  const sortedCampaigns = [...campaignsWithStats].sort(
+    (a, b) =>
+      b.totalRevenue - a.totalRevenue || b.estimatedDiscount - a.estimatedDiscount
+  );
 
   return {
     activeCampaigns,
     productsOnDiscount,
     totalEstimatedDiscount,
+    totalActualDiscount,
     totalRevenue,
-    campaigns: campaignsWithStats,
+    totalOrders,
+    campaigns: sortedCampaigns,
   };
 };
 
@@ -108,21 +124,19 @@ type KpiCardProps = {
   value: string;
   label: string;
   sublabel?: string;
-  dimmed?: boolean;
 };
 
-function KpiCard({ icon, value, label, sublabel, dimmed }: KpiCardProps) {
+function KpiCard({ icon, value, label, sublabel }: KpiCardProps) {
   return (
     <div
       style={{
-        background: dimmed ? "#fafafa" : "#ffffff",
-        border: `1px solid ${dimmed ? "#e1e3e5" : "#e1e3e5"}`,
+        background: "#ffffff",
+        border: "1px solid #e1e3e5",
         borderRadius: "12px",
         padding: "20px 24px",
         display: "flex",
         flexDirection: "column",
         gap: "6px",
-        opacity: dimmed ? 0.75 : 1,
       }}
     >
       <div
@@ -130,11 +144,11 @@ function KpiCard({ icon, value, label, sublabel, dimmed }: KpiCardProps) {
           width: "36px",
           height: "36px",
           borderRadius: "8px",
-          background: dimmed ? "#f1f2f3" : "#f1f8f5",
+          background: "#f1f8f5",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          color: dimmed ? "#8c9196" : "#008060",
+          color: "#008060",
           marginBottom: "4px",
         }}
       >
@@ -144,7 +158,7 @@ function KpiCard({ icon, value, label, sublabel, dimmed }: KpiCardProps) {
         style={{
           fontSize: "28px",
           fontWeight: "700",
-          color: dimmed ? "#8c9196" : "#202223",
+          color: "#202223",
           lineHeight: 1,
         }}
       >
@@ -154,18 +168,7 @@ function KpiCard({ icon, value, label, sublabel, dimmed }: KpiCardProps) {
         {label}
       </div>
       {sublabel && (
-        <div
-          style={{
-            fontSize: "11px",
-            color: dimmed ? "#8c9196" : "#6d7175",
-            display: "flex",
-            alignItems: "center",
-            gap: "4px",
-          }}
-        >
-          {dimmed && <Clock size={11} />}
-          {sublabel}
-        </div>
+        <div style={{ fontSize: "12px", color: "#8c9196" }}>{sublabel}</div>
       )}
     </div>
   );
@@ -188,34 +191,24 @@ export default function Analytics() {
     activeCampaigns,
     productsOnDiscount,
     totalEstimatedDiscount,
+    totalActualDiscount,
+    totalRevenue,
+    totalOrders,
     campaigns,
   } = useLoaderData<typeof loader>();
 
   const hasCampaigns = campaigns.length > 0;
+  // Mostrar descuento real si ya tenemos datos de pedidos; estimado si no
+  const discountDisplay =
+    totalActualDiscount > 0
+      ? { value: formatCurrency(totalActualDiscount), sublabel: undefined }
+      : {
+          value: formatCurrency(totalEstimatedDiscount),
+          sublabel: es.analytics.estimadoNota,
+        };
 
   return (
     <s-page heading={es.analytics.titulo}>
-      {/* Banner pendiente de aprobación */}
-      <s-section>
-        <div
-          style={{
-            background: "#fff8e1",
-            border: "1px solid #ffc107",
-            borderRadius: "8px",
-            padding: "12px 16px",
-            display: "flex",
-            alignItems: "flex-start",
-            gap: "10px",
-            marginBottom: "4px",
-          }}
-        >
-          <Info size={16} style={{ color: "#a05c00", flexShrink: 0, marginTop: "1px" }} />
-          <p style={{ fontSize: "13px", color: "#a05c00", margin: 0, lineHeight: 1.5 }}>
-            {es.analytics.bannerPendiente}
-          </p>
-        </div>
-      </s-section>
-
       {/* KPI Grid */}
       <s-section heading={es.analytics.subtitulo}>
         <div
@@ -238,16 +231,19 @@ export default function Analytics() {
           />
           <KpiCard
             icon={<DollarSign size={18} />}
-            value={formatCurrency(totalEstimatedDiscount)}
+            value={discountDisplay.value}
             label={es.analytics.kpi.totalDescontadoEst}
-            sublabel={es.analytics.estimadoNota}
+            sublabel={discountDisplay.sublabel}
           />
           <KpiCard
             icon={<ShoppingCart size={18} />}
-            value="$0"
+            value={totalRevenue > 0 ? formatCurrency(totalRevenue) : "$0"}
             label={es.analytics.kpi.ingresosAtribuidos}
-            sublabel={es.analytics.pendienteAprobacion}
-            dimmed
+            sublabel={
+              totalOrders > 0
+                ? `${totalOrders} pedido${totalOrders !== 1 ? "s" : ""} atribuido${totalOrders !== 1 ? "s" : ""}`
+                : "Sin pedidos atribuidos aún"
+            }
           />
         </div>
       </s-section>
@@ -292,11 +288,7 @@ export default function Analytics() {
           <>
             <div style={{ overflowX: "auto" }}>
               <table
-                style={{
-                  width: "100%",
-                  borderCollapse: "collapse",
-                  fontSize: "14px",
-                }}
+                style={{ width: "100%", borderCollapse: "collapse", fontSize: "14px" }}
               >
                 <thead>
                   <tr style={{ borderBottom: "1px solid #e1e3e5" }}>
@@ -331,16 +323,32 @@ export default function Analytics() {
                   {campaigns.map((c) => {
                     const estadoStyle =
                       ESTADO_COLORS[c.status] ?? ESTADO_COLORS.DRAFT;
-                    const roi =
-                      c.totalRevenue > 0 && c.estimatedDiscount > 0
-                        ? `${((c.totalRevenue / c.estimatedDiscount) * 100).toFixed(0)}%`
-                        : es.analytics.noAplica;
-                    const descuentoCell =
+
+                    // Descuento: real si hay datos, estimado si no (solo PERC/RANGE)
+                    const hasRealDiscount = c.totalAttributedDiscount > 0;
+                    const discountValue =
                       c.type === "BXGY"
-                        ? "—"
+                        ? hasRealDiscount
+                          ? formatCurrency(c.totalAttributedDiscount)
+                          : "—"
+                        : hasRealDiscount
+                        ? formatCurrency(c.totalAttributedDiscount)
                         : c.estimatedDiscount > 0
                         ? formatCurrency(c.estimatedDiscount)
                         : "$0";
+                    const showEstLabel =
+                      c.type !== "BXGY" &&
+                      !hasRealDiscount &&
+                      c.estimatedDiscount > 0;
+
+                    // ROI = Recaudación / Descuento
+                    const roiBase = hasRealDiscount
+                      ? c.totalAttributedDiscount
+                      : c.estimatedDiscount;
+                    const roi =
+                      c.totalRevenue > 0 && roiBase > 0
+                        ? `${((c.totalRevenue / roiBase) * 100).toFixed(0)}%`
+                        : es.analytics.noAplica;
 
                     return (
                       <tr
@@ -357,7 +365,13 @@ export default function Analytics() {
                         >
                           {c.name}
                         </td>
-                        <td style={{ padding: "12px", color: "#6d7175", whiteSpace: "nowrap" }}>
+                        <td
+                          style={{
+                            padding: "12px",
+                            color: "#6d7175",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
                           {tipoLabel(c.type)}
                         </td>
                         <td style={{ padding: "12px" }}>
@@ -403,9 +417,9 @@ export default function Analytics() {
                             whiteSpace: "nowrap",
                           }}
                         >
-                          {c.type !== "BXGY" && c.estimatedDiscount > 0 ? (
+                          {showEstLabel ? (
                             <span>
-                              {descuentoCell}{" "}
+                              {discountValue}{" "}
                               <span
                                 style={{
                                   fontSize: "11px",
@@ -417,16 +431,21 @@ export default function Analytics() {
                               </span>
                             </span>
                           ) : (
-                            <span style={{ color: "#8c9196" }}>
-                              {descuentoCell}
+                            <span
+                              style={{
+                                color: hasRealDiscount ? "#202223" : "#8c9196",
+                              }}
+                            >
+                              {discountValue}
                             </span>
                           )}
                         </td>
                         <td
                           style={{
                             padding: "12px",
-                            color: "#8c9196",
+                            color: roi === es.analytics.noAplica ? "#8c9196" : "#202223",
                             textAlign: "right",
+                            fontWeight: roi !== es.analytics.noAplica ? "600" : "400",
                           }}
                         >
                           {roi}
@@ -437,19 +456,18 @@ export default function Analytics() {
                 </tbody>
               </table>
             </div>
-            <p
-              style={{
-                fontSize: "12px",
-                color: "#8c9196",
-                marginTop: "12px",
-                fontStyle: "italic",
-              }}
-            >
-              * Los valores marcados como "est." son estimados calculados desde
-              el descuento unitario × variantes afectadas. Pedidos y Recaudación
-              aparecerán automáticamente cuando se complete la aprobación de
-              Shopify.
-            </p>
+            {totalActualDiscount === 0 && (
+              <p
+                style={{
+                  fontSize: "12px",
+                  color: "#8c9196",
+                  marginTop: "12px",
+                  fontStyle: "italic",
+                }}
+              >
+                * Los valores marcados como "est." son estimados (descuento unitario × variantes afectadas). Se reemplazarán con datos reales de pedidos automáticamente.
+              </p>
+            )}
           </>
         )}
       </s-section>

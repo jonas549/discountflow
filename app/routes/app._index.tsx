@@ -158,13 +158,13 @@ export default function Dashboard() {
             icon={<DollarSign size={18} />}
             value={ingresosAtribuidos > 0 ? formatCurrency(ingresosAtribuidos) : "$0"}
             label={es.dashboard.kpi.ingresosAtribuidos}
-            sublabel={ingresosAtribuidos === 0 ? "Pendiente de aprobación" : undefined}
+            sublabel={ingresosAtribuidos === 0 ? "Sin pedidos atribuidos aún" : undefined}
           />
           <KpiCard
             icon={<ShoppingCart size={18} />}
             value={String(pedidosMes)}
             label={es.dashboard.kpi.conversionesMes}
-            sublabel={pedidosMes === 0 ? "Pendiente de aprobación" : undefined}
+            sublabel={pedidosMes === 0 ? "Sin pedidos este mes" : undefined}
           />
         </div>
       </s-section>
