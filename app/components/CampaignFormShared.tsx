@@ -266,20 +266,44 @@ export function ActionBar({ children }: { children: React.ReactNode }) {
 
 // ─── GeneralErrorBanner ────────────────────────────────────────────────────────
 
-export function GeneralErrorBanner({ message }: { message: string }) {
+export function GeneralErrorBanner({
+  message,
+  limitExceeded,
+}: {
+  message: string;
+  limitExceeded?: boolean;
+}) {
   return (
     <div
       style={{
-        background: "#fde8e8",
-        border: "1px solid #f97066",
+        background: limitExceeded ? "#fff8e1" : "#fde8e8",
+        border: `1px solid ${limitExceeded ? "#f9a825" : "#f97066"}`,
         borderRadius: "8px",
         padding: "12px 16px",
-        color: "#c0392b",
+        color: limitExceeded ? "#a05c00" : "#c0392b",
         fontSize: "14px",
         marginBottom: "16px",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: "12px",
       }}
     >
-      {message}
+      <span>{message}</span>
+      {limitExceeded && (
+        <a
+          href="/app/plans"
+          style={{
+            fontSize: "13px",
+            fontWeight: "600",
+            color: "#008060",
+            textDecoration: "none",
+            whiteSpace: "nowrap",
+          }}
+        >
+          Ver planes →
+        </a>
+      )}
     </div>
   );
 }

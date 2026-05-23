@@ -13,6 +13,8 @@ import {
 import { authenticate } from "../shopify.server";
 import { prisma } from "../lib/db";
 import { getOrCreateShop } from "../lib/shopify/shop.server";
+import { PLAN_LIMITS, type Plan } from "../lib/billing/plan-limits";
+import { getCampaignCount, getVariantCount } from "../lib/billing/plan-limits.server";
 import { es, estadoLabel, tipoLabel, formatDate, formatCurrency } from "../i18n";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -27,7 +29,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const now = new Date();
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-  const [activeCampaigns, allCampaigns, productsOnDiscount, ingresosAggregate, pedidosMes] =
+  const [activeCampaigns, allCampaigns, productsOnDiscount, ingresosAggregate, pedidosMes, totalCampaignCount, totalVariantCount] =
     await Promise.all([
       prisma.campaign.count({ where: { shopId: shop.id, status: "ACTIVE" } }),
       prisma.campaign.findMany({
@@ -46,15 +48,34 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       prisma.orderAttribution.count({
         where: { campaign: { shopId: shop.id }, createdAt: { gte: startOfMonth } },
       }),
+      getCampaignCount(shop.id),
+      getVariantCount(shop.id),
     ]);
 
   const ingresosAtribuidos = Number(ingresosAggregate._sum.orderAmount ?? 0);
+  const currentPlan = (shop.plan as Plan) || "FREE";
+  const planLimits = PLAN_LIMITS[currentPlan];
+
+  // Trial days remaining
+  const trialDaysLeft =
+    shop.trialEndsAt && shop.trialEndsAt > now
+      ? Math.ceil((shop.trialEndsAt.getTime() - now.getTime()) / 86_400_000)
+      : 0;
 
   return {
     activeCampaigns,
     productsOnDiscount,
     ingresosAtribuidos,
     pedidosMes,
+    plan: {
+      key: currentPlan,
+      label: planLimits.label,
+      campaignCount: totalCampaignCount,
+      campaignLimit: planLimits.campaigns,
+      variantCount: totalVariantCount,
+      variantLimit: planLimits.variants,
+      trialDaysLeft,
+    },
     recentCampaigns: allCampaigns.map((c) => ({
       id: c.id,
       name: c.name,
@@ -126,7 +147,7 @@ const ESTADO_COLORS: Record<string, { bg: string; text: string }> = {
 };
 
 export default function Dashboard() {
-  const { activeCampaigns, productsOnDiscount, ingresosAtribuidos, pedidosMes, recentCampaigns } =
+  const { activeCampaigns, productsOnDiscount, ingresosAtribuidos, pedidosMes, recentCampaigns, plan } =
     useLoaderData<typeof loader>();
 
   const estadoStyle = (status: string) =>
@@ -166,6 +187,133 @@ export default function Dashboard() {
             label={es.dashboard.kpi.conversionesMes}
             sublabel={pedidosMes === 0 ? "Sin pedidos este mes" : undefined}
           />
+        </div>
+      </s-section>
+
+      {/* Plan Status Card */}
+      <s-section heading={es.planes.dashCard.titulo}>
+        <div
+          style={{
+            background: "#ffffff",
+            border: "1px solid #e1e3e5",
+            borderRadius: "12px",
+            padding: "20px 24px",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginBottom: "16px",
+            }}
+          >
+            <div>
+              <div style={{ fontSize: "16px", fontWeight: "600", color: "#202223" }}>
+                {plan.label}
+                {plan.trialDaysLeft > 0 && (
+                  <span
+                    style={{
+                      marginLeft: "10px",
+                      fontSize: "12px",
+                      fontWeight: "500",
+                      background: "#fff8e1",
+                      color: "#a05c00",
+                      padding: "2px 8px",
+                      borderRadius: "10px",
+                    }}
+                  >
+                    {es.planes.dashCard.trial(plan.trialDaysLeft)}
+                  </span>
+                )}
+              </div>
+            </div>
+            <Link
+              to="/app/plans"
+              style={{
+                fontSize: "13px",
+                fontWeight: "500",
+                color: "#008060",
+                textDecoration: "none",
+              }}
+            >
+              {es.planes.dashCard.verPlanes} →
+            </Link>
+          </div>
+
+          {/* Campaign progress */}
+          <div style={{ marginBottom: "14px" }}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                fontSize: "13px",
+                color: "#6d7175",
+                marginBottom: "6px",
+              }}
+            >
+              <span>{es.planes.dashCard.campanas}</span>
+              <span style={{ fontWeight: "500", color: "#202223" }}>
+                {plan.campaignCount} / {plan.campaignLimit}
+              </span>
+            </div>
+            <div
+              style={{
+                height: "6px",
+                background: "#e1e3e5",
+                borderRadius: "4px",
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  height: "100%",
+                  width: `${Math.min(100, (plan.campaignCount / plan.campaignLimit) * 100)}%`,
+                  background:
+                    plan.campaignCount >= plan.campaignLimit ? "#de3618" : "#008060",
+                  borderRadius: "4px",
+                  transition: "width 0.3s ease",
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Variant progress */}
+          <div>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                fontSize: "13px",
+                color: "#6d7175",
+                marginBottom: "6px",
+              }}
+            >
+              <span>{es.planes.dashCard.variantes}</span>
+              <span style={{ fontWeight: "500", color: "#202223" }}>
+                {plan.variantCount.toLocaleString("en-US")} / {plan.variantLimit.toLocaleString("en-US")}
+              </span>
+            </div>
+            <div
+              style={{
+                height: "6px",
+                background: "#e1e3e5",
+                borderRadius: "4px",
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  height: "100%",
+                  width: `${Math.min(100, (plan.variantCount / plan.variantLimit) * 100)}%`,
+                  background:
+                    plan.variantCount >= plan.variantLimit ? "#de3618" : "#008060",
+                  borderRadius: "4px",
+                  transition: "width 0.3s ease",
+                }}
+              />
+            </div>
+          </div>
         </div>
       </s-section>
 

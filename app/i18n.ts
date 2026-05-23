@@ -6,6 +6,7 @@ export const es = {
     inicio: "Inicio",
     campanas: "Campañas",
     analiticas: "Analíticas",
+    planes: "Planes",
     soporte: "Soporte",
   },
   dashboard: {
@@ -334,6 +335,36 @@ export const es = {
     estimadoNota: "Estimado — suma por variante × descuento unitario",
     pendienteAprobacion: "Pendiente de aprobación",
     noAplica: "N/A",
+  },
+  planes: {
+    titulo: "Planes y precios",
+    subtitulo: "Elige el plan que mejor se adapta a tu tienda",
+    planActual: "Plan actual",
+    masPopular: "MÁS POPULAR",
+    gratis: "Gratis",
+    mes: "/mes",
+    prueba: (days: number) => `${days} días de prueba gratis`,
+    caracteristicas: "Características",
+    campanas: (n: number) => `${n} campañas`,
+    variantes: (n: number) => `${n.toLocaleString("en-US")} variantes`,
+    btnActual: "Plan actual",
+    btnUpgrade: "Actualizar",
+    btnDowngrade: "Cambiar",
+    notaConfig:
+      "Los pagos son procesados de forma segura por Shopify.",
+    confirmado: "¡Plan actualizado correctamente!",
+    limiteCampanas: (current: number, limit: number) =>
+      `Límite alcanzado: tienes ${current} de ${limit} campañas disponibles en tu plan. Actualiza para crear más.`,
+    limiteVariantes: (current: number, limit: number) =>
+      `Límite alcanzado: tienes ${current.toLocaleString("en-US")} de ${limit.toLocaleString("en-US")} variantes en uso. Actualiza para incluir más productos.`,
+    verPlanes: "Ver planes",
+    dashCard: {
+      titulo: "Tu plan actual",
+      campanas: "Campañas",
+      variantes: "Variantes",
+      verPlanes: "Gestionar plan",
+      trial: (days: number) => `Prueba gratis — ${days} día${days !== 1 ? "s" : ""} restante${days !== 1 ? "s" : ""}`,
+    },
   },
   soporte: {
     titulo: "Centro de soporte",

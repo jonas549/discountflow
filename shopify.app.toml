@@ -27,6 +27,11 @@ api_version = "2026-07"
   uri = "/webhooks/orders/create"
   topics = ["orders/create"]
 
+  # GDPR handlers are configured via Partner Dashboard → Privacy compliance:
+  #   Customer data request: /webhooks/customers/data_request
+  #   Customer redact:       /webhooks/customers/redact
+  #   Shop redact:           /webhooks/shop/redact
+
 [auth]
 redirect_urls = [
   "https://discountflow-app.vercel.app/auth/callback",

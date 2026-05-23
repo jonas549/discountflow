@@ -21,6 +21,8 @@ import {
   type SelectionMode,
 } from "../lib/discounts/percentage";
 import { getCollections, getProductMetadata } from "../lib/shopify/admin-api";
+import { type Plan, PLAN_LIMITS } from "../lib/billing/plan-limits";
+import { getCampaignCount } from "../lib/billing/plan-limits.server";
 import { es } from "../i18n";
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
@@ -118,6 +120,17 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     enableExclusions && excluded.length > 0
       ? new Set(excluded.flatMap((p) => (p.variants ?? []).map((v) => v.id)))
       : undefined;
+
+  // Plan enforcement — campaign count
+  const plan = (shop.plan as Plan) || "FREE";
+  const limits = PLAN_LIMITS[plan];
+  const campaignCount = await getCampaignCount(shop.id);
+  if (campaignCount >= limits.campaigns) {
+    return Response.json(
+      { errors: { general: es.planes.limiteCampanas(campaignCount, limits.campaigns) }, limitExceeded: true },
+      { status: 422 }
+    );
+  }
 
   const campaign = await prisma.campaign.create({
     data: {
@@ -357,7 +370,7 @@ export default function NewPercentageCampaign() {
   const { collections, availableTags, availableVendors, availableProductTypes } =
     useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>() as
-    | { errors?: ActionErrors }
+    | { errors?: ActionErrors; limitExceeded?: boolean }
     | undefined;
   const navigation = useNavigation();
   const shopify = useAppBridge();
@@ -481,16 +494,34 @@ export default function NewPercentageCampaign() {
       {errors.general && (
         <div
           style={{
-            background: "#fde8e8",
-            border: "1px solid #f97066",
+            background: actionData?.limitExceeded ? "#fff8e1" : "#fde8e8",
+            border: `1px solid ${actionData?.limitExceeded ? "#f9a825" : "#f97066"}`,
             borderRadius: "8px",
             padding: "12px 16px",
-            color: "#c0392b",
+            color: actionData?.limitExceeded ? "#a05c00" : "#c0392b",
             fontSize: "14px",
             marginBottom: "16px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "12px",
           }}
         >
-          {errors.general}
+          <span>{errors.general}</span>
+          {actionData?.limitExceeded && (
+            <Link
+              to="/app/plans"
+              style={{
+                fontSize: "13px",
+                fontWeight: "600",
+                color: "#008060",
+                textDecoration: "none",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {es.planes.verPlanes} →
+            </Link>
+          )}
         </div>
       )}
 

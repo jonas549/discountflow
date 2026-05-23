@@ -30,6 +30,8 @@ import {
   type BxgyYMode,
 } from "../lib/discounts/bxgy";
 import type { SelectionMode } from "../lib/discounts/percentage";
+import { type Plan, PLAN_LIMITS } from "../lib/billing/plan-limits";
+import { getCampaignCount } from "../lib/billing/plan-limits.server";
 import { es } from "../i18n";
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
@@ -162,6 +164,17 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const campaignEndsAt = endsAt ? new Date(endsAt) : null;
   const isScheduled = campaignStartsAt !== null && campaignStartsAt > new Date();
   const shouldActivate = intent === "activate" && !isScheduled;
+
+  // Plan enforcement — campaign count
+  const plan = (shop.plan as Plan) || "FREE";
+  const limits = PLAN_LIMITS[plan];
+  const campaignCount = await getCampaignCount(shop.id);
+  if (campaignCount >= limits.campaigns) {
+    return Response.json(
+      { errors: { general: es.planes.limiteCampanas(campaignCount, limits.campaigns) }, limitExceeded: true },
+      { status: 422 }
+    );
+  }
 
   const xExcludeProductIds = enableXExclusions
     ? xExcluded.map((p) => p.id)
@@ -706,7 +719,7 @@ function BxgyPreview({
 export default function NewBxgyCampaign() {
   const { availableTags, availableVendors, availableProductTypes } =
     useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>() as { errors?: ActionErrors } | undefined;
+  const actionData = useActionData<typeof action>() as { errors?: ActionErrors; limitExceeded?: boolean } | undefined;
   const navigation = useNavigation();
   const shopify = useAppBridge();
 
@@ -801,7 +814,9 @@ export default function NewBxgyCampaign() {
         </Link>
       </div>
 
-      {errors.general && <GeneralErrorBanner message={errors.general} />}
+      {errors.general && (
+        <GeneralErrorBanner message={errors.general} limitExceeded={actionData?.limitExceeded} />
+      )}
 
       <Form method="post">
         {/* Hidden excluded X products */}

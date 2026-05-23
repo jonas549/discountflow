@@ -33,13 +33,18 @@ model Session {
 // ─── Multi-tenant shop ────────────────────────────────────────────────────────
 
 model Shop {
-  id          String     @id @default(cuid())
-  domain      String     @unique
-  accessToken String
-  scopes      String?
-  installedAt DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-  campaigns   Campaign[]
+  id              String     @id @default(cuid())
+  domain          String     @unique
+  accessToken     String
+  scopes          String?
+  installedAt     DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  // Billing / plan
+  plan            String     @default("FREE")
+  trialEndsAt     DateTime?
+  planActivatedAt DateTime?
+  lastSyncAt      DateTime?
+  campaigns       Campaign[]
 }
 
 // ─── Campaign ─────────────────────────────────────────────────────────────────

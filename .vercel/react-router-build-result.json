@@ -1,0 +1,531 @@
+{
+  "buildManifest": {
+    "serverBundles": {
+      "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0": {
+        "id": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+        "file": "build/server/nodejs_eyJydW50aW1lIjoibm9kZWpzIn0/index.js",
+        "config": {
+          "runtime": "nodejs"
+        }
+      }
+    },
+    "routeIdToServerBundleId": {
+      "routes/webhooks.customers.data_request": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/webhooks.app.scopes_update": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/webhooks.customers.redact": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/webhooks.app.uninstalled": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/webhooks.orders.create": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/webhooks.shop.redact": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/auth.login": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/auth.$": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/_index": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/app.campaigns.$id.edit_.range": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/app.campaigns.$id.edit_.bxgy": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/app.campaigns.new.percentage": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/app.campaigns.new.range": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/app.campaigns.$id.edit": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/app.campaigns.new.bxgy": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/app.campaigns._index": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/app.plans_.confirm": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/app.analytics": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/app.support": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/app._index": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/app.plans": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0"
+    },
+    "routes": {
+      "root": {
+        "id": "root",
+        "file": "app/root.tsx",
+        "path": "",
+        "config": {}
+      },
+      "routes/webhooks.customers.data_request": {
+        "id": "routes/webhooks.customers.data_request",
+        "parentId": "root",
+        "file": "app/routes/webhooks.customers.data_request.tsx",
+        "path": "webhooks/customers/data_request",
+        "config": {
+          "runtime": "nodejs"
+        }
+      },
+      "routes/webhooks.app.scopes_update": {
+        "id": "routes/webhooks.app.scopes_update",
+        "parentId": "root",
+        "file": "app/routes/webhooks.app.scopes_update.tsx",
+        "path": "webhooks/app/scopes_update",
+        "config": {
+          "runtime": "nodejs"
+        }
+      },
+      "routes/webhooks.customers.redact": {
+        "id": "routes/webhooks.customers.redact",
+        "parentId": "root",
+        "file": "app/routes/webhooks.customers.redact.tsx",
+        "path": "webhooks/customers/redact",
+        "config": {
+          "runtime": "nodejs"
+        }
+      },
+      "routes/webhooks.app.uninstalled": {
+        "id": "routes/webhooks.app.uninstalled",
+        "parentId": "root",
+        "file": "app/routes/webhooks.app.uninstalled.tsx",
+        "path": "webhooks/app/uninstalled",
+        "config": {
+          "runtime": "nodejs"
+        }
+      },
+      "routes/webhooks.orders.create": {
+        "id": "routes/webhooks.orders.create",
+        "parentId": "root",
+        "file": "app/routes/webhooks.orders.create.tsx",
+        "path": "webhooks/orders/create",
+        "config": {
+          "runtime": "nodejs"
+        }
+      },
+      "routes/webhooks.shop.redact": {
+        "id": "routes/webhooks.shop.redact",
+        "parentId": "root",
+        "file": "app/routes/webhooks.shop.redact.tsx",
+        "path": "webhooks/shop/redact",
+        "config": {
+          "runtime": "nodejs"
+        }
+      },
+      "routes/auth.login": {
+        "id": "routes/auth.login",
+        "parentId": "root",
+        "file": "app/routes/auth.login/route.tsx",
+        "path": "auth/login",
+        "config": {
+          "runtime": "nodejs"
+        }
+      },
+      "routes/auth.$": {
+        "id": "routes/auth.$",
+        "parentId": "root",
+        "file": "app/routes/auth.$.tsx",
+        "path": "auth/*",
+        "config": {
+          "runtime": "nodejs"
+        }
+      },
+      "routes/_index": {
+        "id": "routes/_index",
+        "parentId": "root",
+        "file": "app/routes/_index/route.tsx",
+        "index": true,
+        "config": {
+          "runtime": "nodejs"
+        }
+      },
+      "routes/app": {
+        "id": "routes/app",
+        "parentId": "root",
+        "file": "app/routes/app.tsx",
+        "path": "app",
+        "config": {}
+      },
+      "routes/app.campaigns.$id.edit_.range": {
+        "id": "routes/app.campaigns.$id.edit_.range",
+        "parentId": "routes/app",
+        "file": "app/routes/app.campaigns.$id.edit_.range.tsx",
+        "path": "campaigns/:id/edit/range",
+        "config": {
+          "runtime": "nodejs"
+        }
+      },
+      "routes/app.campaigns.$id.edit_.bxgy": {
+        "id": "routes/app.campaigns.$id.edit_.bxgy",
+        "parentId": "routes/app",
+        "file": "app/routes/app.campaigns.$id.edit_.bxgy.tsx",
+        "path": "campaigns/:id/edit/bxgy",
+        "config": {
+          "runtime": "nodejs"
+        }
+      },
+      "routes/app.campaigns.new.percentage": {
+        "id": "routes/app.campaigns.new.percentage",
+        "parentId": "routes/app",
+        "file": "app/routes/app.campaigns.new.percentage.tsx",
+        "path": "campaigns/new/percentage",
+        "config": {
+          "runtime": "nodejs"
+        }
+      },
+      "routes/app.campaigns.new.range": {
+        "id": "routes/app.campaigns.new.range",
+        "parentId": "routes/app",
+        "file": "app/routes/app.campaigns.new.range.tsx",
+        "path": "campaigns/new/range",
+        "config": {
+          "runtime": "nodejs"
+        }
+      },
+      "routes/app.campaigns.$id.edit": {
+        "id": "routes/app.campaigns.$id.edit",
+        "parentId": "routes/app",
+        "file": "app/routes/app.campaigns.$id.edit.tsx",
+        "path": "campaigns/:id/edit",
+        "config": {
+          "runtime": "nodejs"
+        }
+      },
+      "routes/app.campaigns.new.bxgy": {
+        "id": "routes/app.campaigns.new.bxgy",
+        "parentId": "routes/app",
+        "file": "app/routes/app.campaigns.new.bxgy.tsx",
+        "path": "campaigns/new/bxgy",
+        "config": {
+          "runtime": "nodejs"
+        }
+      },
+      "routes/app.campaigns._index": {
+        "id": "routes/app.campaigns._index",
+        "parentId": "routes/app",
+        "file": "app/routes/app.campaigns._index.tsx",
+        "path": "campaigns",
+        "index": true,
+        "config": {
+          "runtime": "nodejs"
+        }
+      },
+      "routes/app.plans_.confirm": {
+        "id": "routes/app.plans_.confirm",
+        "parentId": "routes/app",
+        "file": "app/routes/app.plans_.confirm.tsx",
+        "path": "plans/confirm",
+        "config": {
+          "runtime": "nodejs"
+        }
+      },
+      "routes/app.analytics": {
+        "id": "routes/app.analytics",
+        "parentId": "routes/app",
+        "file": "app/routes/app.analytics.tsx",
+        "path": "analytics",
+        "config": {
+          "runtime": "nodejs"
+        }
+      },
+      "routes/app.support": {
+        "id": "routes/app.support",
+        "parentId": "routes/app",
+        "file": "app/routes/app.support.tsx",
+        "path": "support",
+        "config": {
+          "runtime": "nodejs"
+        }
+      },
+      "routes/app._index": {
+        "id": "routes/app._index",
+        "parentId": "routes/app",
+        "file": "app/routes/app._index.tsx",
+        "index": true,
+        "config": {
+          "runtime": "nodejs"
+        }
+      },
+      "routes/app.plans": {
+        "id": "routes/app.plans",
+        "parentId": "routes/app",
+        "file": "app/routes/app.plans.tsx",
+        "path": "plans",
+        "config": {
+          "runtime": "nodejs"
+        }
+      }
+    }
+  },
+  "reactRouterConfig": {
+    "appDirectory": "C:/Users/Jonas/Desktop/nuevaApp/discountflow/app",
+    "basename": "/",
+    "buildDirectory": "C:/Users/Jonas/Desktop/nuevaApp/discountflow/build",
+    "future": {
+      "unstable_optimizeDeps": false,
+      "v8_passThroughRequests": false,
+      "unstable_trailingSlashAwareDataRequests": false,
+      "unstable_previewServerPrerendering": false,
+      "v8_middleware": false,
+      "v8_splitRouteModules": false,
+      "v8_viteEnvironmentApi": false
+    },
+    "routes": {
+      "root": {
+        "id": "root",
+        "file": "root.tsx",
+        "path": ""
+      },
+      "routes/webhooks.customers.data_request": {
+        "id": "routes/webhooks.customers.data_request",
+        "parentId": "root",
+        "file": "routes/webhooks.customers.data_request.tsx",
+        "path": "webhooks/customers/data_request"
+      },
+      "routes/webhooks.app.scopes_update": {
+        "id": "routes/webhooks.app.scopes_update",
+        "parentId": "root",
+        "file": "routes/webhooks.app.scopes_update.tsx",
+        "path": "webhooks/app/scopes_update"
+      },
+      "routes/webhooks.customers.redact": {
+        "id": "routes/webhooks.customers.redact",
+        "parentId": "root",
+        "file": "routes/webhooks.customers.redact.tsx",
+        "path": "webhooks/customers/redact"
+      },
+      "routes/webhooks.app.uninstalled": {
+        "id": "routes/webhooks.app.uninstalled",
+        "parentId": "root",
+        "file": "routes/webhooks.app.uninstalled.tsx",
+        "path": "webhooks/app/uninstalled"
+      },
+      "routes/webhooks.orders.create": {
+        "id": "routes/webhooks.orders.create",
+        "parentId": "root",
+        "file": "routes/webhooks.orders.create.tsx",
+        "path": "webhooks/orders/create"
+      },
+      "routes/webhooks.shop.redact": {
+        "id": "routes/webhooks.shop.redact",
+        "parentId": "root",
+        "file": "routes/webhooks.shop.redact.tsx",
+        "path": "webhooks/shop/redact"
+      },
+      "routes/auth.login": {
+        "id": "routes/auth.login",
+        "parentId": "root",
+        "file": "routes/auth.login/route.tsx",
+        "path": "auth/login"
+      },
+      "routes/auth.$": {
+        "id": "routes/auth.$",
+        "parentId": "root",
+        "file": "routes/auth.$.tsx",
+        "path": "auth/*"
+      },
+      "routes/_index": {
+        "id": "routes/_index",
+        "parentId": "root",
+        "file": "routes/_index/route.tsx",
+        "index": true
+      },
+      "routes/app": {
+        "id": "routes/app",
+        "parentId": "root",
+        "file": "routes/app.tsx",
+        "path": "app"
+      },
+      "routes/app.campaigns.$id.edit_.range": {
+        "id": "routes/app.campaigns.$id.edit_.range",
+        "parentId": "routes/app",
+        "file": "routes/app.campaigns.$id.edit_.range.tsx",
+        "path": "campaigns/:id/edit/range"
+      },
+      "routes/app.campaigns.$id.edit_.bxgy": {
+        "id": "routes/app.campaigns.$id.edit_.bxgy",
+        "parentId": "routes/app",
+        "file": "routes/app.campaigns.$id.edit_.bxgy.tsx",
+        "path": "campaigns/:id/edit/bxgy"
+      },
+      "routes/app.campaigns.new.percentage": {
+        "id": "routes/app.campaigns.new.percentage",
+        "parentId": "routes/app",
+        "file": "routes/app.campaigns.new.percentage.tsx",
+        "path": "campaigns/new/percentage"
+      },
+      "routes/app.campaigns.new.range": {
+        "id": "routes/app.campaigns.new.range",
+        "parentId": "routes/app",
+        "file": "routes/app.campaigns.new.range.tsx",
+        "path": "campaigns/new/range"
+      },
+      "routes/app.campaigns.$id.edit": {
+        "id": "routes/app.campaigns.$id.edit",
+        "parentId": "routes/app",
+        "file": "routes/app.campaigns.$id.edit.tsx",
+        "path": "campaigns/:id/edit"
+      },
+      "routes/app.campaigns.new.bxgy": {
+        "id": "routes/app.campaigns.new.bxgy",
+        "parentId": "routes/app",
+        "file": "routes/app.campaigns.new.bxgy.tsx",
+        "path": "campaigns/new/bxgy"
+      },
+      "routes/app.campaigns._index": {
+        "id": "routes/app.campaigns._index",
+        "parentId": "routes/app",
+        "file": "routes/app.campaigns._index.tsx",
+        "path": "campaigns",
+        "index": true
+      },
+      "routes/app.plans_.confirm": {
+        "id": "routes/app.plans_.confirm",
+        "parentId": "routes/app",
+        "file": "routes/app.plans_.confirm.tsx",
+        "path": "plans/confirm"
+      },
+      "routes/app.analytics": {
+        "id": "routes/app.analytics",
+        "parentId": "routes/app",
+        "file": "routes/app.analytics.tsx",
+        "path": "analytics"
+      },
+      "routes/app.support": {
+        "id": "routes/app.support",
+        "parentId": "routes/app",
+        "file": "routes/app.support.tsx",
+        "path": "support"
+      },
+      "routes/app._index": {
+        "id": "routes/app._index",
+        "parentId": "routes/app",
+        "file": "routes/app._index.tsx",
+        "index": true
+      },
+      "routes/app.plans": {
+        "id": "routes/app.plans",
+        "parentId": "routes/app",
+        "file": "routes/app.plans.tsx",
+        "path": "plans"
+      }
+    },
+    "routeDiscovery": {
+      "mode": "lazy",
+      "manifestPath": "/__manifest"
+    },
+    "serverBuildFile": "index.js",
+    "serverModuleFormat": "esm",
+    "ssr": true,
+    "subResourceIntegrity": false,
+    "allowedActionOrigins": false,
+    "unstable_routeConfig": [
+      {
+        "id": "root",
+        "path": "",
+        "file": "root.tsx",
+        "children": [
+          {
+            "id": "routes/webhooks.customers.data_request",
+            "file": "routes/webhooks.customers.data_request.tsx",
+            "path": "webhooks/customers/data_request"
+          },
+          {
+            "id": "routes/webhooks.app.scopes_update",
+            "file": "routes/webhooks.app.scopes_update.tsx",
+            "path": "webhooks/app/scopes_update"
+          },
+          {
+            "id": "routes/webhooks.customers.redact",
+            "file": "routes/webhooks.customers.redact.tsx",
+            "path": "webhooks/customers/redact"
+          },
+          {
+            "id": "routes/webhooks.app.uninstalled",
+            "file": "routes/webhooks.app.uninstalled.tsx",
+            "path": "webhooks/app/uninstalled"
+          },
+          {
+            "id": "routes/webhooks.orders.create",
+            "file": "routes/webhooks.orders.create.tsx",
+            "path": "webhooks/orders/create"
+          },
+          {
+            "id": "routes/webhooks.shop.redact",
+            "file": "routes/webhooks.shop.redact.tsx",
+            "path": "webhooks/shop/redact"
+          },
+          {
+            "id": "routes/auth.login",
+            "file": "routes/auth.login/route.tsx",
+            "path": "auth/login"
+          },
+          {
+            "id": "routes/auth.$",
+            "file": "routes/auth.$.tsx",
+            "path": "auth/*"
+          },
+          {
+            "id": "routes/_index",
+            "file": "routes/_index/route.tsx",
+            "index": true
+          },
+          {
+            "id": "routes/app",
+            "file": "routes/app.tsx",
+            "path": "app",
+            "children": [
+              {
+                "id": "routes/app.campaigns.$id.edit_.range",
+                "file": "routes/app.campaigns.$id.edit_.range.tsx",
+                "path": "campaigns/:id/edit/range"
+              },
+              {
+                "id": "routes/app.campaigns.$id.edit_.bxgy",
+                "file": "routes/app.campaigns.$id.edit_.bxgy.tsx",
+                "path": "campaigns/:id/edit/bxgy"
+              },
+              {
+                "id": "routes/app.campaigns.new.percentage",
+                "file": "routes/app.campaigns.new.percentage.tsx",
+                "path": "campaigns/new/percentage"
+              },
+              {
+                "id": "routes/app.campaigns.new.range",
+                "file": "routes/app.campaigns.new.range.tsx",
+                "path": "campaigns/new/range"
+              },
+              {
+                "id": "routes/app.campaigns.$id.edit",
+                "file": "routes/app.campaigns.$id.edit.tsx",
+                "path": "campaigns/:id/edit"
+              },
+              {
+                "id": "routes/app.campaigns.new.bxgy",
+                "file": "routes/app.campaigns.new.bxgy.tsx",
+                "path": "campaigns/new/bxgy"
+              },
+              {
+                "id": "routes/app.campaigns._index",
+                "file": "routes/app.campaigns._index.tsx",
+                "path": "campaigns",
+                "index": true
+              },
+              {
+                "id": "routes/app.plans_.confirm",
+                "file": "routes/app.plans_.confirm.tsx",
+                "path": "plans/confirm"
+              },
+              {
+                "id": "routes/app.analytics",
+                "file": "routes/app.analytics.tsx",
+                "path": "analytics"
+              },
+              {
+                "id": "routes/app.support",
+                "file": "routes/app.support.tsx",
+                "path": "support"
+              },
+              {
+                "id": "routes/app._index",
+                "file": "routes/app._index.tsx",
+                "index": true
+              },
+              {
+                "id": "routes/app.plans",
+                "file": "routes/app.plans.tsx",
+                "path": "plans"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "viteConfig": {
+    "build": {
+      "assetsDir": "assets"
+    }
+  }
+}
