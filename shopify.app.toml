@@ -27,10 +27,17 @@ api_version = "2026-07"
   uri = "/webhooks/orders/create"
   topics = ["orders/create"]
 
-  # GDPR handlers are configured via Partner Dashboard → Privacy compliance:
-  #   Customer data request: /webhooks/customers/data_request
-  #   Customer redact:       /webhooks/customers/redact
-  #   Shop redact:           /webhooks/shop/redact
+  [[webhooks.subscriptions]]
+  compliance_topics = ["customers/data_request"]
+  uri = "/webhooks/customers/data_request"
+
+  [[webhooks.subscriptions]]
+  compliance_topics = ["customers/redact"]
+  uri = "/webhooks/customers/redact"
+
+  [[webhooks.subscriptions]]
+  compliance_topics = ["shop/redact"]
+  uri = "/webhooks/shop/redact"
 
 [auth]
 redirect_urls = [
