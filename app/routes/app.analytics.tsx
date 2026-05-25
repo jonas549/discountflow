@@ -113,6 +113,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     totalActualDiscount,
     totalRevenue,
     totalOrders,
+    currency: shop.currency ?? "USD",
     campaigns: sortedCampaigns,
   };
 };
@@ -194,6 +195,7 @@ export default function Analytics() {
     totalActualDiscount,
     totalRevenue,
     totalOrders,
+    currency,
     campaigns,
   } = useLoaderData<typeof loader>();
 
@@ -201,9 +203,9 @@ export default function Analytics() {
   // Mostrar descuento real si ya tenemos datos de pedidos; estimado si no
   const discountDisplay =
     totalActualDiscount > 0
-      ? { value: formatCurrency(totalActualDiscount), sublabel: undefined }
+      ? { value: formatCurrency(totalActualDiscount, currency), sublabel: undefined }
       : {
-          value: formatCurrency(totalEstimatedDiscount),
+          value: formatCurrency(totalEstimatedDiscount, currency),
           sublabel: es.analytics.estimadoNota,
         };
 
@@ -237,7 +239,7 @@ export default function Analytics() {
           />
           <KpiCard
             icon={<ShoppingCart size={18} />}
-            value={totalRevenue > 0 ? formatCurrency(totalRevenue) : "$0"}
+            value={formatCurrency(totalRevenue, currency)}
             label={es.analytics.kpi.ingresosAtribuidos}
             sublabel={
               totalOrders > 0
@@ -329,13 +331,13 @@ export default function Analytics() {
                     const discountValue =
                       c.type === "BXGY"
                         ? hasRealDiscount
-                          ? formatCurrency(c.totalAttributedDiscount)
+                          ? formatCurrency(c.totalAttributedDiscount, currency)
                           : "—"
                         : hasRealDiscount
-                        ? formatCurrency(c.totalAttributedDiscount)
+                        ? formatCurrency(c.totalAttributedDiscount, currency)
                         : c.estimatedDiscount > 0
-                        ? formatCurrency(c.estimatedDiscount)
-                        : "$0";
+                        ? formatCurrency(c.estimatedDiscount, currency)
+                        : formatCurrency(0, currency);
                     const showEstLabel =
                       c.type !== "BXGY" &&
                       !hasRealDiscount &&
@@ -406,9 +408,7 @@ export default function Analytics() {
                             whiteSpace: "nowrap",
                           }}
                         >
-                          {c.totalRevenue > 0
-                            ? formatCurrency(c.totalRevenue)
-                            : "$0"}
+                          {formatCurrency(c.totalRevenue, currency)}
                         </td>
                         <td
                           style={{

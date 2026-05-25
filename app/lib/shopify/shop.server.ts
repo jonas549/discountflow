@@ -21,7 +21,7 @@ export async function getOrCreateShop({
 
 const SYNC_INTERVAL_MS = 15 * 60 * 1000; // 15 min
 
-/** Query Shopify for the current app subscription and update DB if stale. */
+/** Query Shopify for the current app subscription + currency and update DB if stale. */
 export async function syncShopPlanIfStale(
   admin: AdminClient,
   shop: { id: string; lastSyncAt: Date | null; plan: string }
@@ -43,6 +43,9 @@ export async function syncShopPlanIfStale(
             status
           }
         }
+        shop {
+          currencyCode
+        }
       }
     `);
     const json = (await res.json()) as {
@@ -53,16 +56,18 @@ export async function syncShopPlanIfStale(
             status: string;
           } | null;
         };
+        shop?: { currencyCode?: string };
       };
     };
 
     const sub = json.data?.appInstallation?.activeSubscription;
+    const currency = json.data?.shop?.currencyCode ?? "USD";
 
     // FROZEN = shop paused by Shopify — keep current plan, just update sync time
     if (sub?.status === "FROZEN") {
       return prisma.shop.update({
         where: { id: shop.id },
-        data: { lastSyncAt: now },
+        data: { lastSyncAt: now, currency },
       });
     }
 
@@ -76,6 +81,7 @@ export async function syncShopPlanIfStale(
       where: { id: shop.id },
       data: {
         plan: newPlan,
+        currency,
         lastSyncAt: now,
         ...(newPlan !== shop.plan ? { planActivatedAt: now } : {}),
       },

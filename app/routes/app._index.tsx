@@ -61,6 +61,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     productsOnDiscount,
     ingresosAtribuidos,
     pedidosMes,
+    currency: shop.currency ?? "USD",
     plan: {
       key: currentPlan,
       label: planLimits.label,
@@ -140,7 +141,7 @@ const ESTADO_COLORS: Record<string, { bg: string; text: string }> = {
 };
 
 export default function Dashboard() {
-  const { activeCampaigns, productsOnDiscount, ingresosAtribuidos, pedidosMes, recentCampaigns, plan } =
+  const { activeCampaigns, productsOnDiscount, ingresosAtribuidos, pedidosMes, recentCampaigns, plan, currency } =
     useLoaderData<typeof loader>();
 
   const estadoStyle = (status: string) =>
@@ -170,7 +171,7 @@ export default function Dashboard() {
           />
           <KpiCard
             icon={<DollarSign size={18} />}
-            value={ingresosAtribuidos > 0 ? formatCurrency(ingresosAtribuidos) : "$0"}
+            value={formatCurrency(ingresosAtribuidos, currency)}
             label={es.dashboard.kpi.ingresosAtribuidos}
             sublabel={ingresosAtribuidos === 0 ? "Sin pedidos atribuidos aún" : undefined}
           />

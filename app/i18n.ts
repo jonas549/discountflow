@@ -433,10 +433,11 @@ export function formatDate(date: Date | string | null): string {
   });
 }
 
-export function formatCurrency(amount: number): string {
-  if (amount === 0) return "$0";
-  return `$${amount.toLocaleString("en-US", {
+export function formatCurrency(amount: number, currency: string = "USD"): string {
+  return new Intl.NumberFormat("es-MX", {
+    style: "currency",
+    currency,
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  })}`;
+  }).format(amount);
 }

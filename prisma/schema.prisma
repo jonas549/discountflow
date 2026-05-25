@@ -37,6 +37,7 @@ model Shop {
   domain          String     @unique
   accessToken     String
   scopes          String?
+  currency        String     @default("USD")
   installedAt     DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
   // Billing / plan
@@ -121,6 +122,8 @@ model OrderAttribution {
 
   @@unique([campaignId, shopifyOrderId])
   @@index([campaignId])
+  @@index([createdAt])
+  @@index([campaignId, createdAt])
 }
 
 // ─── Raw analytics events ─────────────────────────────────────────────────────
