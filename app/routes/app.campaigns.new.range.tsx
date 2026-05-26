@@ -115,6 +115,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     scopes: session.scope,
   });
 
+  const campaignStartsAt = startsAt ? new Date(startsAt) : null;
+  const campaignEndsAt = endsAt ? new Date(endsAt) : null;
+  const isScheduled = campaignStartsAt !== null && campaignStartsAt > new Date();
+  const shouldActivate = intent === "activate" && !isScheduled;
+
   // Plan enforcement — only when activating (drafts are always allowed)
   if (shouldActivate) {
     const plan = (shop.plan as Plan) || "FREE";
@@ -127,11 +132,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       );
     }
   }
-
-  const campaignStartsAt = startsAt ? new Date(startsAt) : null;
-  const campaignEndsAt = endsAt ? new Date(endsAt) : null;
-  const isScheduled = campaignStartsAt !== null && campaignStartsAt > new Date();
-  const shouldActivate = intent === "activate" && !isScheduled;
 
   let excluded: SelectedProductInput[] = [];
   try { excluded = JSON.parse(excludedProductsJson); } catch { /* noop */ }
