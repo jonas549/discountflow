@@ -34,7 +34,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   const shopName = session.shop.replace(".myshopify.com", "");
   // eslint-disable-next-line no-undef
-  const appHandle = process.env.SHOPIFY_APP_HANDLE || "discountflow";
+  const appHandle = process.env.SHOPIFY_APP_HANDLE || "discountflow-1";
 
   return {
     currentPlan: syncedShop.plan as Plan,

@@ -22,6 +22,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       where: { shopId: shopRecord.id, status: "ACTIVE" },
       data: { status: "PAUSED" },
     });
+    await prisma.shop.update({
+      where: { id: shopRecord.id },
+      data: { plan: "FREE", lastSyncAt: null },
+    });
   }
 
   return new Response(null, { status: 200 });
