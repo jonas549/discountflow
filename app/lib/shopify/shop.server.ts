@@ -45,10 +45,20 @@ export async function syncShopPlanIfStale(
   try {
     const res = await admin.graphql(`#graphql
       query {
-        appInstallation {
-          activeSubscription {
+        currentAppInstallation {
+          activeSubscriptions {
             name
             status
+            lineItems {
+              plan {
+                pricingDetails {
+                  __typename
+                  ... on AppRecurringPricing {
+                    planHandle
+                  }
+                }
+              }
+            }
           }
         }
         shop {
@@ -58,26 +68,44 @@ export async function syncShopPlanIfStale(
     `);
     const json = (await res.json()) as {
       data?: {
-        appInstallation?: {
-          activeSubscription?: {
+        currentAppInstallation?: {
+          activeSubscriptions?: Array<{
             name: string;
             status: string;
-          } | null;
+            lineItems?: Array<{
+              plan?: {
+                pricingDetails?: {
+                  __typename?: string;
+                  planHandle?: string | null;
+                };
+              };
+            }>;
+          }>;
         };
         shop?: { currencyCode?: string };
       };
+      errors?: unknown;
     };
 
-    const sub = json.data?.appInstallation?.activeSubscription;
+    const subs = json.data?.currentAppInstallation?.activeSubscriptions ?? [];
     const currency = json.data?.shop?.currencyCode ?? "USD";
+    const gqlErrors = json.errors;
     console.log(
-      `[plan-sync] api shop=${shop.id} sub=${JSON.stringify(sub)} currency=${currency} errors=${JSON.stringify(
-        (json as { errors?: unknown }).errors ?? null
+      `[plan-sync] api shop=${shop.id} subs=${JSON.stringify(subs)} currency=${currency} errors=${JSON.stringify(
+        gqlErrors ?? null
       )}`
     );
 
-    // FROZEN = shop paused by Shopify — keep current plan, just update sync time
-    if (sub?.status === "FROZEN") {
+    // Safeguard: GraphQL returned errors → don't touch plan, retry on next load.
+    if (gqlErrors && (!Array.isArray(gqlErrors) || gqlErrors.length > 0)) {
+      console.warn(
+        `[plan-sync] GraphQL errors present shop=${shop.id} — keeping plan=${shop.plan}, lastSyncAt unchanged`
+      );
+      return shop;
+    }
+
+    // FROZEN = on hold for non-payment — keep current plan, just update sync time.
+    if (subs.some((s) => s.status === "FROZEN")) {
       console.log(`[plan-sync] FROZEN shop=${shop.id} keeping plan=${shop.plan}`);
       return prisma.shop.update({
         where: { id: shop.id },
@@ -85,17 +113,41 @@ export async function syncShopPlanIfStale(
       });
     }
 
-    let newPlan = "FREE";
-
-    if (sub && (sub.status === "ACTIVE" || sub.status === "PENDING")) {
-      newPlan = handleToPlan(sub.name);
+    // Find the active/pending paid subscription and read its stable planHandle
+    // (name is localized per store language, so it can't be matched reliably).
+    const active = subs.find((s) => s.status === "ACTIVE" || s.status === "PENDING");
+    let planHandle: string | null = null;
+    if (active?.lineItems) {
+      for (const li of active.lineItems) {
+        const pd = li.plan?.pricingDetails;
+        if (pd?.__typename === "AppRecurringPricing" && pd.planHandle) {
+          planHandle = pd.planHandle;
+          break;
+        }
+      }
     }
+    const mapped = planHandle ? handleToPlan(planHandle) : null;
 
     console.log(
-      `[plan-sync] resolved shop=${shop.id} sub.name=${sub?.name ?? "none"} status=${
-        sub?.status ?? "none"
-      } currentPlan=${shop.plan} newPlan=${newPlan}`
+      `[plan-sync] resolved shop=${shop.id} activeStatus=${active?.status ?? "none"} name=${
+        active?.name ?? "none"
+      } planHandle=${planHandle ?? "none"} mapped=${mapped ?? "none"} currentPlan=${shop.plan}`
     );
+
+    // Never degrade to FREE on ambiguity: only change plan when we positively
+    // recognize an active/pending paid plan. Otherwise keep the current plan.
+    let newPlan = shop.plan;
+    if (active && mapped && mapped !== "FREE") {
+      newPlan = mapped;
+    } else if (active) {
+      console.warn(
+        `[plan-sync] active sub but unrecognized handle shop=${shop.id} planHandle=${planHandle} name=${active.name} — keeping plan=${shop.plan}`
+      );
+    } else {
+      console.warn(
+        `[plan-sync] no active/pending sub shop=${shop.id} (subs=${subs.length}) — keeping plan=${shop.plan}, not degrading`
+      );
+    }
 
     return prisma.shop.update({
       where: { id: shop.id },
