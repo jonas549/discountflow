@@ -42,6 +42,19 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   });
   if (!campaign) throw new Response("Not found", { status: 404 });
 
+  const config = campaign.config as {
+    discountPercent: number;
+    showCompareAtPrice?: boolean;
+    selectionMode?: string;
+    collectionId?: string;     // legacy
+    collectionIds?: string[];  // new
+    selectedTags?: string[];
+    selectedVendors?: string[];
+    selectedProductTypes?: string[];
+    excludedProductIds?: string[];
+    enableExclusions?: boolean;
+  };
+
   const uniqueProducts = await prisma.campaignProduct.groupBy({
     by: ["shopifyProductId"],
     where: { campaignId: campaign.id },
@@ -59,19 +72,6 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       ? getProductsByIds(admin, config.excludedProductIds!)
       : Promise.resolve([]),
   ]);
-
-  const config = campaign.config as {
-    discountPercent: number;
-    showCompareAtPrice?: boolean;
-    selectionMode?: string;
-    collectionId?: string;     // legacy
-    collectionIds?: string[];  // new
-    selectedTags?: string[];
-    selectedVendors?: string[];
-    selectedProductTypes?: string[];
-    excludedProductIds?: string[];
-    enableExclusions?: boolean;
-  };
 
   // Resolve prefilledCollections from IDs stored in config
   const prefilledCollectionIds =
