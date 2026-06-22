@@ -27,10 +27,18 @@ export async function syncShopPlanIfStale(
   shop: { id: string; lastSyncAt: Date | null; plan: string }
 ) {
   const now = new Date();
+  console.log(
+    `[plan-sync] enter shop=${shop.id} plan=${shop.plan} lastSyncAt=${
+      shop.lastSyncAt ? shop.lastSyncAt.toISOString() : "null"
+    }`
+  );
   if (
     shop.lastSyncAt &&
     now.getTime() - shop.lastSyncAt.getTime() < SYNC_INTERVAL_MS
   ) {
+    console.log(
+      `[plan-sync] skip (fresh, <15min) shop=${shop.id} plan=${shop.plan}`
+    );
     return shop;
   }
 
@@ -62,9 +70,15 @@ export async function syncShopPlanIfStale(
 
     const sub = json.data?.appInstallation?.activeSubscription;
     const currency = json.data?.shop?.currencyCode ?? "USD";
+    console.log(
+      `[plan-sync] api shop=${shop.id} sub=${JSON.stringify(sub)} currency=${currency} errors=${JSON.stringify(
+        (json as { errors?: unknown }).errors ?? null
+      )}`
+    );
 
     // FROZEN = shop paused by Shopify — keep current plan, just update sync time
     if (sub?.status === "FROZEN") {
+      console.log(`[plan-sync] FROZEN shop=${shop.id} keeping plan=${shop.plan}`);
       return prisma.shop.update({
         where: { id: shop.id },
         data: { lastSyncAt: now, currency },
@@ -77,6 +91,12 @@ export async function syncShopPlanIfStale(
       newPlan = handleToPlan(sub.name);
     }
 
+    console.log(
+      `[plan-sync] resolved shop=${shop.id} sub.name=${sub?.name ?? "none"} status=${
+        sub?.status ?? "none"
+      } currentPlan=${shop.plan} newPlan=${newPlan}`
+    );
+
     return prisma.shop.update({
       where: { id: shop.id },
       data: {
@@ -86,8 +106,9 @@ export async function syncShopPlanIfStale(
         ...(newPlan !== shop.plan ? { planActivatedAt: now } : {}),
       },
     });
-  } catch {
+  } catch (err) {
     // Network error or API hiccup — don't crash the app, just skip sync
+    console.error(`[plan-sync] THREW shop=${shop.id} (lastSyncAt stays unchanged):`, err);
     return shop;
   }
 }
