@@ -19,7 +19,8 @@
       },
       "discount": {
         "discountClasses": ["PRODUCT"],
-        "metafield": null
+        "config": null,
+        "configFallback": null
       }
     },
     "output": {

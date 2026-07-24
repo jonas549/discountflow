@@ -39,7 +39,8 @@
       },
       "discount": {
         "discountClasses": ["PRODUCT"],
-        "metafield": {
+        "configFallback": null,
+        "config": {
           "jsonValue": {
             "mode": "INCREMENTAL",
             "tiers": [

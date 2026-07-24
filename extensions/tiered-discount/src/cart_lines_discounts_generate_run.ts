@@ -105,7 +105,9 @@ export function cartLinesDiscountsGenerateRun(
 
 /** Lee y valida mínimamente el metafield. Devuelve null si no es usable. */
 function readConfig(input: CartInput): TieredFunctionConfig | null {
-  const raw = input.discount.metafield?.jsonValue as
+  // Se acepta el namespace reservado de la app o el plano, el que exista.
+  const raw = (input.discount.config?.jsonValue ??
+    input.discount.configFallback?.jsonValue) as
     | TieredFunctionConfig
     | undefined;
 

@@ -29,7 +29,8 @@
       },
       "discount": {
         "discountClasses": ["PRODUCT"],
-        "metafield": {
+        "configFallback": null,
+        "config": {
           "jsonValue": {
             "mode": "UNIFORM",
             "tiers": [

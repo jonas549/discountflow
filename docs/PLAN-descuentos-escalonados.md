@@ -417,7 +417,28 @@ Generada con `shopify app generate extension --template discount --flavor typesc
 
 > ⚠️ Pendiente de verificar **solo** en tienda real: que el namespace `$app:discountflow` del metafield resuelva igual desde el lado del Admin API. Si no resolviera, el síntoma sería "no aplica descuento" (nunca un error), y se arregla cambiando el namespace en los dos lados.
 
-### Siguiente: FASE 3 — migración Prisma (enum TIERED)
+### FASE 3 — Migración Prisma ✅ COMPLETADA
+`20260724195620_add_tiered_campaign_type` — una línea de SQL:
+```sql
+ALTER TYPE "CampaignType" ADD VALUE 'TIERED';
+```
+Generada con `migrate dev --create-only` para poder revisar el SQL antes de aplicarlo, y aplicada al branch dev con `migrate deploy`. Cero filas tocadas. Producción la recibirá cuando `dev` se mergee a `main` y Vercel corra `prisma migrate deploy` en el build.
+
+> ⚠️ `prisma generate` falló con `EPERM` porque el `shopify app dev` de Jonas tenía bloqueado `query_engine-windows.dll.node`. **Hay que rearrancar el dev server** (cosa que hay que hacer igualmente para que cargue la Function nueva). Ver instrucciones de prueba al final.
+
+### FASE 4 — Capa de servicio ✅ COMPLETADA
+- `app/lib/discounts/tiered-client.ts` (client-safe): tipo `TieredCampaignConfig`, `DEFAULT_TIERS`, `tieredDiscountLabel()` para el listado y `toFunctionConfig()`, que recorta la config a lo único que la Function necesita leer.
+- `app/lib/discounts/tiered.ts` (servidor):
+  - `getTieredFunctionId()` — localiza la Function por `handle` vía `shopifyFunctions`. **No se hardcodea el ID**: la app dev y la de producción tienen IDs distintos.
+  - `resolveTieredProductIds()` — traduce la selección del merchant a product IDs explícitos. `"all"` devuelve **lista vacía** a propósito: para la Function vacío = toda la tienda, así que no hay que enumerar el catálogo (esto evita el problema de los 541 productos de Greta).
+  - `createTieredDiscount()` / `updateTieredDiscount()` — `discountAutomaticAppCreate` / `Update` con `discountClasses: [PRODUCT]`, `combinesWith` todo en false y la config en un metafield `json`.
+  - `deactivate/activate/deleteTieredDiscount()` — las mutaciones genéricas de descuento automático.
+
+**Dos decisiones tomadas aquí:**
+1. **Namespace del metafield: `discountflow` (plano), no `$app:discountflow`.** `MetafieldInput.namespace` documenta que solo admite alfanuméricos, guiones y guiones bajos, así que el reservado podría ser rechazado al escribir. La Function lee **los dos** (alias `config` y `configFallback` en su input query), así que funciona con cualquiera de ellos y la migración futura es indolora.
+2. **No se refactorizó `bxgy.ts`.** El plan proponía extraer `activate/deactivate/delete` a un `automatic.ts` común; se descartó por ahora: esa ruta está en producción con clientes reales y no hay razón para tocarla hoy. Las tres mutaciones se duplican en `tiered.ts`, con el comentario que lo explica.
+
+### Siguiente: FASE 5 — rutas y UI
 
 ---
 

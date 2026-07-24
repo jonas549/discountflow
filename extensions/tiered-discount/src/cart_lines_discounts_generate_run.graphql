@@ -21,7 +21,14 @@ query CartInput {
   }
   discount {
     discountClasses
-    metafield(namespace: "$app:discountflow", key: "tiered-config") {
+    # Se leen los DOS namespaces posibles a propósito: el reservado de la app
+    # ($app:...) y uno plano. MetafieldInput documenta que el namespace solo
+    # admite alfanuméricos, guiones y guiones bajos, así que la app escribe en
+    # el plano; el reservado queda como respaldo por si algún día se migra.
+    config: metafield(namespace: "$app:discountflow", key: "tiered-config") {
+      jsonValue
+    }
+    configFallback: metafield(namespace: "discountflow", key: "tiered-config") {
       jsonValue
     }
   }
