@@ -1,0 +1,84 @@
+{
+  "payload": {
+    "export": "cart-lines-discounts-generate-run",
+    "target": "cart.lines.discounts.generate.run",
+    "input": {
+      "cart": {
+        "lines": [
+          {
+            "id": "gid://shopify/CartLine/cara",
+            "quantity": 1,
+            "cost": { "amountPerQuantity": { "amount": "200.0" } },
+            "merchandise": {
+              "__typename": "ProductVariant",
+              "id": "gid://shopify/ProductVariant/1",
+              "product": { "id": "gid://shopify/Product/1" }
+            }
+          },
+          {
+            "id": "gid://shopify/CartLine/media",
+            "quantity": 1,
+            "cost": { "amountPerQuantity": { "amount": "100.0" } },
+            "merchandise": {
+              "__typename": "ProductVariant",
+              "id": "gid://shopify/ProductVariant/2",
+              "product": { "id": "gid://shopify/Product/2" }
+            }
+          },
+          {
+            "id": "gid://shopify/CartLine/barata",
+            "quantity": 1,
+            "cost": { "amountPerQuantity": { "amount": "50.0" } },
+            "merchandise": {
+              "__typename": "ProductVariant",
+              "id": "gid://shopify/ProductVariant/3",
+              "product": { "id": "gid://shopify/Product/3" }
+            }
+          }
+        ]
+      },
+      "discount": {
+        "discountClasses": ["PRODUCT"],
+        "metafield": {
+          "jsonValue": {
+            "mode": "INCREMENTAL",
+            "tiers": [
+              { "minQty": 1, "percent": 10 },
+              { "minQty": 2, "percent": 15 },
+              { "minQty": 3, "percent": 20 }
+            ],
+            "productIds": [],
+            "excludeProductIds": [],
+            "message": "Descuento por cantidad"
+          }
+        }
+      }
+    },
+    "output": {
+      "operations": [
+        {
+          "productDiscountsAdd": {
+            "candidates": [
+              {
+                "message": "Descuento por cantidad",
+                "targets": [{ "cartLine": { "id": "gid://shopify/CartLine/cara" } }],
+                "value": { "fixedAmount": { "amount": 20 } }
+              },
+              {
+                "message": "Descuento por cantidad",
+                "targets": [{ "cartLine": { "id": "gid://shopify/CartLine/media" } }],
+                "value": { "fixedAmount": { "amount": 15 } }
+              },
+              {
+                "message": "Descuento por cantidad",
+                "targets": [{ "cartLine": { "id": "gid://shopify/CartLine/barata" } }],
+                "value": { "fixedAmount": { "amount": 10 } }
+              }
+            ],
+            "selectionStrategy": "FIRST"
+          }
+        }
+      ]
+    }
+  }
+}

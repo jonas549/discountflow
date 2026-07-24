@@ -396,8 +396,28 @@ feat(tiered): calculadora pura de descuentos escalonados + tests
 
 > Nota de entorno descubierta en esta fase: `npm run typecheck` **ya venía en rojo** en el repo (14 archivos, por conflicto de versiones duplicadas de `@shopify/shopify-api` entre `@shopify/shopify-app-react-router` y la raíz). No es consecuencia de este trabajo, pero conviene arreglarlo algún día porque tapa errores reales.
 
-### Siguiente: FASE 2 — extensión Shopify Function
-Ver Paso 2 de la §3. Es la fase con la curva de aprendizaje; se prueba con `shopify app function run` y fixtures locales antes de tocar la dev store.
+### FASE 2 — Extensión Shopify Function ✅ COMPLETADA
+Generada con `shopify app generate extension --template discount --flavor typescript` (el CLI **sí** aceptó los flags de forma no interactiva, a diferencia de `config link`).
+
+- `extensions/tiered-discount/src/cart_lines_discounts_generate_run.graphql` — input query propio: `quantity`, `cost.amountPerQuantity`, `merchandise.product.id` y `discount.metafield(namespace:"$app:discountflow", key:"tiered-config")`.
+- `extensions/tiered-discount/src/cart_lines_discounts_generate_run.ts` — **no contiene lógica de cálculo**: importa `computeTiered` desde `app/lib/discounts/tiered-calc.ts` (import cruzado que el bundler de `shopify app function build` resuelve sin problema — verificado). Solo filtra líneas aplicables y traduce el resultado a `productDiscountsAdd`.
+- **Se eliminó el target de envío** (`cart.delivery-options.discounts.generate.run`) y su código de ejemplo. Menos superficie que pueda afectar al checkout de un merchant.
+- Regla de oro implementada: la Function **nunca lanza**. Config ausente, corrupta o modo desconocido → `{operations: []}`.
+
+**Verificación con el Wasm real** — 6 fixtures, todas en verde vía `npx vitest run` dentro de la extensión. El harness compila a Wasm, valida el input query contra el schema y ejecuta la función de verdad:
+
+| Fixture | Comprueba |
+|---|---|
+| `uniform-3-units` | 3×$100 → `percentage 20` sobre la línea |
+| `incremental-3-units` | 3×$100 → `fixedAmount 45` (paga $255) |
+| `incremental-cheapest-gets-highest` | $200/$100/$50 → 20/15/10 → la barata se lleva el 20% |
+| `product-not-in-campaign` | 5 unidades de un producto ajeno **no** cuentan para el nivel |
+| `below-first-tier` | sin operaciones |
+| `no-config-metafield` | metafield nulo → sin operaciones |
+
+> ⚠️ Pendiente de verificar **solo** en tienda real: que el namespace `$app:discountflow` del metafield resuelva igual desde el lado del Admin API. Si no resolviera, el síntoma sería "no aplica descuento" (nunca un error), y se arregla cambiando el namespace en los dos lados.
+
+### Siguiente: FASE 3 — migración Prisma (enum TIERED)
 
 ---
 

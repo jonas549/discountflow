@@ -1,0 +1,21 @@
+api_version = "2026-04"
+
+[[extensions]]
+name = "t:name"
+handle = "tiered-discount"
+type = "function"
+uid = "4099471b-46b5-d5b4-a975-2269a5424228c32aed17"
+description = "t:description"
+
+  # Solo el target de líneas de carrito: esta Function emite descuentos de
+  # producto (clase PRODUCT). El target de envío que generaba la plantilla se
+  # eliminó a propósito para reducir la superficie de lo que puede afectar al
+  # checkout de un merchant.
+  [[extensions.targeting]]
+  target = "cart.lines.discounts.generate.run"
+  input_query = "src/cart_lines_discounts_generate_run.graphql"
+  export = "cart-lines-discounts-generate-run"
+
+  [extensions.build]
+  command = ""
+  path = "dist/function.wasm"

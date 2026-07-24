@@ -1,0 +1,117 @@
+// Function de descuentos escalonados (campañas TIERED de DiscountFlow).
+//
+// La lógica de cálculo NO vive aquí: vive en app/lib/discounts/tiered-calc.ts,
+// que es el mismo módulo que usa el preview del admin. Este archivo solo hace
+// tres cosas: leer la configuración del metafield, filtrar las líneas
+// aplicables y traducir el resultado al formato de la Discount Function API.
+//
+// Regla de oro: NUNCA lanzar. Una Function que revienta puede romper el
+// checkout del merchant. Ante cualquier duda se devuelve `{operations: []}`,
+// que simplemente significa "no hay descuento".
+
+import {
+  DiscountClass,
+  ProductDiscountSelectionStrategy,
+  CartInput,
+  CartLinesDiscountsGenerateRunResult,
+  ProductDiscountCandidate,
+} from '../generated/api';
+
+import {
+  computeTiered,
+  type TierMode,
+  type Tier,
+  type ApplicableLine,
+} from '../../../app/lib/discounts/tiered-calc';
+
+/** Config que la app escribe en el metafield del descuento al activar la campaña. */
+type TieredFunctionConfig = {
+  mode: TierMode;
+  tiers: Tier[];
+  /** Productos a los que aplica. Lista VACÍA = toda la tienda. */
+  productIds?: string[];
+  excludeProductIds?: string[];
+  /** Texto que ve el cliente en el carrito. */
+  message?: string;
+};
+
+const NO_DISCOUNT: CartLinesDiscountsGenerateRunResult = {operations: []};
+
+export function cartLinesDiscountsGenerateRun(
+  input: CartInput,
+): CartLinesDiscountsGenerateRunResult {
+  if (!input.cart.lines.length) return NO_DISCOUNT;
+
+  // Esta Function solo emite descuentos de producto.
+  if (!input.discount.discountClasses.includes(DiscountClass.Product))
+    return NO_DISCOUNT;
+
+  const config = readConfig(input);
+  if (!config) return NO_DISCOUNT;
+
+  const includeIds = new Set(config.productIds ?? []);
+  const excludeIds = new Set(config.excludeProductIds ?? []);
+
+  const applicable: ApplicableLine[] = [];
+  for (const line of input.cart.lines) {
+    // Las líneas que no son variantes de producto (ej. tarjetas de regalo
+    // personalizadas) no participan.
+    if (!('product' in line.merchandise)) continue;
+
+    const productId = line.merchandise.product.id;
+    if (excludeIds.has(productId)) continue;
+    // includeIds vacío = campaña de toda la tienda.
+    if (includeIds.size > 0 && !includeIds.has(productId)) continue;
+
+    const unitPrice = Number(line.cost.amountPerQuantity.amount);
+    if (!Number.isFinite(unitPrice)) continue;
+
+    applicable.push({lineId: line.id, unitPrice, quantity: line.quantity});
+  }
+
+  const outcome = computeTiered(config.mode, config.tiers, applicable);
+  if (!outcome.applies) return NO_DISCOUNT;
+
+  const message = config.message || 'Descuento por cantidad';
+
+  const candidates: ProductDiscountCandidate[] =
+    outcome.mode === 'UNIFORM'
+      ? outcome.lines.map((l) => ({
+          message,
+          targets: [{cartLine: {id: l.lineId}}],
+          value: {percentage: {value: l.percent}},
+        }))
+      : outcome.lines.map((l) => ({
+          message,
+          targets: [{cartLine: {id: l.lineId}}],
+          // El importe ya viene calculado para la línea completa, por eso
+          // appliesToEachItem se queda en false (el valor por defecto).
+          value: {fixedAmount: {amount: l.discountAmount}},
+        }));
+
+  if (!candidates.length) return NO_DISCOUNT;
+
+  return {
+    operations: [
+      {
+        productDiscountsAdd: {
+          candidates,
+          selectionStrategy: ProductDiscountSelectionStrategy.First,
+        },
+      },
+    ],
+  };
+}
+
+/** Lee y valida mínimamente el metafield. Devuelve null si no es usable. */
+function readConfig(input: CartInput): TieredFunctionConfig | null {
+  const raw = input.discount.metafield?.jsonValue as
+    | TieredFunctionConfig
+    | undefined;
+
+  if (!raw) return null;
+  if (raw.mode !== 'UNIFORM' && raw.mode !== 'INCREMENTAL') return null;
+  if (!Array.isArray(raw.tiers) || raw.tiers.length === 0) return null;
+
+  return raw;
+}
