@@ -25,6 +25,15 @@ import {
   type BxgyCampaignConfig,
 } from "../lib/discounts/bxgy-client";
 import {
+  deactivateTieredDiscount,
+  activateTieredDiscount,
+  deleteTieredDiscount,
+} from "../lib/discounts/tiered";
+import {
+  tieredDiscountLabel,
+  type TieredCampaignConfig,
+} from "../lib/discounts/tiered-client";
+import {
   revertRangeDiscount,
   reactivateRangeDiscount,
   type RangeCampaignConfig,
@@ -55,6 +64,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   if (!campaign) return Response.json({ error: "Campaña no encontrada" }, { status: 404 });
 
   const bxgyId = (campaign.config as BxgyCampaignConfig).shopifyDiscountId;
+  // TIERED guarda su descuento automático en el mismo campo del config.
+  const tieredId = (campaign.config as TieredCampaignConfig).shopifyDiscountId;
 
   try {
     if (actionType === "pause" && campaign.status === "ACTIVE") {
@@ -64,6 +75,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         await revertRangeDiscount(admin, campaignId);
       } else if (campaign.type === "BXGY" && bxgyId) {
         await deactivateBxgyDiscount(admin, bxgyId);
+      } else if (campaign.type === "TIERED" && tieredId) {
+        await deactivateTieredDiscount(admin, tieredId);
       }
       await prisma.campaign.update({ where: { id: campaignId }, data: { status: "PAUSED" } });
     } else if (actionType === "activate" && campaign.status === "PAUSED") {
@@ -85,6 +98,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         await reactivateRangeDiscount(admin, campaignId);
       } else if (campaign.type === "BXGY" && bxgyId) {
         await activateBxgyDiscount(admin, bxgyId);
+      } else if (campaign.type === "TIERED" && tieredId) {
+        await activateTieredDiscount(admin, tieredId);
       }
       await prisma.campaign.update({ where: { id: campaignId }, data: { status: "ACTIVE" } });
     } else if (actionType === "delete") {
@@ -95,6 +110,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           await revertRangeDiscount(admin, campaignId);
         } else if (campaign.type === "BXGY" && bxgyId) {
           try { await deleteBxgyDiscount(admin, bxgyId); } catch { /* discount may already be gone */ }
+        } else if (campaign.type === "TIERED" && tieredId) {
+          try { await deleteTieredDiscount(admin, tieredId); } catch { /* discount may already be gone */ }
         }
       }
       await prisma.campaign.delete({ where: { id: campaignId } });
@@ -276,6 +293,64 @@ function MockupBxGy() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function MockupEscalonado() {
+  const niveles = [
+    { uds: "1", pct: "10%" },
+    { uds: "2", pct: "15%" },
+    { uds: "3", pct: "20%" },
+  ];
+  return (
+    <div
+      style={{
+        background: "#f8fafb",
+        border: "1px solid #e1e3e5",
+        borderRadius: "8px",
+        padding: "12px 14px",
+        marginBottom: "16px",
+      }}
+    >
+      {niveles.map((n, i) => (
+        <div
+          key={n.uds}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "3px 0",
+            borderBottom: i < niveles.length - 1 ? "1px solid #edeef0" : "none",
+          }}
+        >
+          <div style={{ display: "flex", gap: "3px", alignItems: "center" }}>
+            {Array.from({ length: i + 1 }).map((_, k) => (
+              <div
+                key={k}
+                style={{
+                  background: "#e1e3e5",
+                  borderRadius: "3px",
+                  width: "14px",
+                  height: "14px",
+                }}
+              />
+            ))}
+          </div>
+          <span
+            style={{
+              background: "#e8f5e9",
+              color: "#2e7d32",
+              fontSize: "9px",
+              fontWeight: "700",
+              padding: "1px 6px",
+              borderRadius: "8px",
+            }}
+          >
+            {n.pct}
+          </span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -600,6 +675,13 @@ export default function Campaigns() {
             ejemplo={es.campanas.bxgy.ejemplo}
             href="/app/campaigns/new/bxgy"
           />
+          <CampaignCard
+            mockup={<MockupEscalonado />}
+            title={es.campanas.escalonado.titulo}
+            description={es.campanas.escalonado.descripcion}
+            ejemplo={es.campanas.escalonado.ejemplo}
+            href="/app/campaigns/new/tiered"
+          />
         </div>
       </s-section>
 
@@ -664,12 +746,16 @@ export default function Campaigns() {
                       ? rangeConfig.mode === "fixedPrice"
                         ? `Precio fijo $${rangeConfig.value}`
                         : `$${rangeConfig.value} de descuento`
+                      : c.type === "TIERED"
+                      ? tieredDiscountLabel(c.config as TieredCampaignConfig)
                       : "—";
                   const editHref =
                     c.type === "BXGY"
                       ? `/app/campaigns/${c.id}/edit/bxgy`
                       : c.type === "RANGE"
                       ? `/app/campaigns/${c.id}/edit/range`
+                      : c.type === "TIERED"
+                      ? `/app/campaigns/${c.id}/edit/tiered`
                       : `/app/campaigns/${c.id}/edit`;
                   return (
                     <tr key={c.id} style={{ borderBottom: "1px solid #f1f2f3" }}>

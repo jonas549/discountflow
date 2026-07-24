@@ -54,6 +54,12 @@ export const es = {
         "Ofrece productos gratis o con descuento cuando el cliente compre cierta cantidad.",
       ejemplo: "Compra 2 camisas, lleva una gorra gratis",
     },
+    escalonado: {
+      titulo: "Descuentos escalonados",
+      descripcion:
+        "Mientras más unidades lleve el cliente, mayor es el descuento. El descuento se aplica en el carrito.",
+      ejemplo: "1 unidad 10%, 2 unidades 15%, 3 unidades 20%",
+    },
     tabla: {
       nombre: "Nombre",
       tipo: "Tipo",
@@ -386,6 +392,72 @@ export const es = {
       "¿Cómo pausar o eliminar una campaña?",
     ],
   },
+
+  nuevaTiered: {
+    titulo: "Nueva campaña escalonada",
+    volver: "← Volver a campañas",
+
+    secInfoGeneral: "1 · Información general",
+    nombreLabel: "Nombre de la campaña",
+    nombreHelper: "Solo lo ves tú, para identificarla en tu lista.",
+    nombrePlaceholder: "Ej. Escalonado Murad diciembre",
+
+    secAplicabilidad: "2 · ¿A qué productos aplica?",
+    modoLabel: "Aplicar a",
+    msgTodaTienda: "El descuento aplicará a todos los productos de la tienda.",
+
+    secModo: "3 · Modo de aplicación",
+    modoUniforme: "Uniforme",
+    modoIncremental: "Incremental",
+    modoUniformeDesc: "Al alcanzar el nivel, TODAS las unidades reciben ese descuento.",
+    modoIncrementalDesc: "Cada unidad tiene su propio descuento según su posición.",
+
+    secNiveles: "4 · Niveles de descuento",
+    nivelesHelper:
+      "Define desde cuántas unidades aplica cada descuento. Las unidades por encima del último nivel conservan ese mismo porcentaje.",
+    nivelDesde: "Desde",
+    nivelUnidades: "unidades",
+    nivelDescuento: "Descuento",
+    btnAgregarNivel: "+ Agregar nivel",
+    btnQuitarNivel: "Quitar nivel",
+
+    secProgramacion: "5 · Programar campaña",
+    fechaInicioLabel: "Fecha de inicio",
+    fechaInicioHelper: "Vacío = empieza de inmediato.",
+    fechaFinLabel: "Fecha de fin",
+    fechaFinHelper: "Vacío = sin fecha de fin.",
+
+    previewTitulo: "Vista previa",
+    previewHelper: (precio: string) => `Ejemplo con un producto de ${precio}`,
+    previewCantidad: "Cant.",
+    previewDescuento: "Desc.",
+    previewPaga: "Paga",
+    resumenTitulo: "Resumen",
+    resumenNombre: "Nombre",
+    resumenTipo: "Tipo",
+    resumenTipoTiered: "Escalonado",
+    resumenModo: "Modo",
+    resumenAplica: "Aplica a",
+    resumenNiveles: "Niveles",
+    resumenMaximo: "Descuento máximo",
+    resumenInicio: "Inicio",
+    resumenFin: "Fin",
+    resumenInmediato: "Inmediato",
+    resumenSinFin: "Sin fecha de fin",
+    sinDefinir: "Sin definir",
+
+    avisoCarrito:
+      "El descuento escalonado se calcula en el carrito y el checkout. El precio en la página de producto no cambia.",
+
+    btnCancelar: "Cancelar",
+    btnBorrador: "Guardar borrador",
+    btnActivar: "Activar campaña",
+    btnCargando: "Guardando…",
+
+    errNombre: "Ponle un nombre a la campaña.",
+    errSeleccion: "Elige a qué productos aplica la campaña.",
+    errFechas: "La fecha de fin debe ser posterior a la de inicio.",
+  },
 };
 
 export function estadoLabel(status: string): string {
@@ -404,6 +476,7 @@ export function tipoLabel(type: string): string {
     PERCENTAGE: "Porcentaje",
     RANGE: "Rango de precio",
     BXGY: "Compra X, obtén Y",
+    TIERED: "Escalonado",
   };
   return map[type] ?? type;
 }

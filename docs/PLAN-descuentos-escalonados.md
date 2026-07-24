@@ -438,7 +438,19 @@ Generada con `migrate dev --create-only` para poder revisar el SQL antes de apli
 1. **Namespace del metafield: `discountflow` (plano), no `$app:discountflow`.** `MetafieldInput.namespace` documenta que solo admite alfanuméricos, guiones y guiones bajos, así que el reservado podría ser rechazado al escribir. La Function lee **los dos** (alias `config` y `configFallback` en su input query), así que funciona con cualquiera de ellos y la migración futura es indolora.
 2. **No se refactorizó `bxgy.ts`.** El plan proponía extraer `activate/deactivate/delete` a un `automatic.ts` común; se descartó por ahora: esa ruta está en producción con clientes reales y no hay razón para tocarla hoy. Las tres mutaciones se duplican en `tiered.ts`, con el comentario que lo explica.
 
-### Siguiente: FASE 5 — rutas y UI
+### FASE 5 — Rutas, UI e integración ✅ COMPLETADA
+- `app/components/TieredCampaignForm.tsx` — **formulario compartido** por crear y editar. Se hizo así en vez de clonar la ruta (como hace BXGY, donde `new` y `edit` son casi el mismo archivo dos veces): ahorra ~600 líneas duplicadas y garantiza que ambas pantallas no se desincronicen.
+- `app/lib/discounts/tiered-form.ts` — parseo, validación y construcción del config, compartidos por los dos actions.
+- `app/routes/app.campaigns.new.tiered.tsx` — loader + action + rollback si Shopify falla (borra la campaña para no dejarla huérfana en ACTIVE), con el mismo control de límite de plan que BXGY.
+- `app/routes/app.campaigns.$id.edit_.tiered.tsx` — precarga productos/colecciones por ID; solo toca el descuento de Shopify si la campaña no es borrador.
+- `app/routes/app.campaigns._index.tsx` — 4ª tarjeta con mockup propio, etiqueta de descuento en la tabla, `editHref` y las tres ramas de acciones (pausar / reactivar / eliminar). **No se tocó ninguna rama de BXGY, RANGE ni PERCENTAGE**: solo se añadieron ramas nuevas.
+- `app/i18n.ts` — `es.campanas.escalonado`, `es.nuevaTiered` y `TIERED` en `tipoLabel()`.
+
+**Detalle de UX:** el selector de modo no explica la diferencia con texto genérico, sino con **los niveles reales que el merchant acaba de escribir y números concretos**: los mismos niveles muestran "paga $240" en uniforme y "paga $255" en incremental. Y el aviso de que el descuento se ve en el carrito (no en la página de producto) está en el panel de preview, donde no se puede pasar por alto.
+
+**Verificación:** `npm run build` en verde, con las dos rutas y el componente en el bundle. ESLint limpio en todos los archivos nuevos (los 6 errores de `_index.tsx` son del modal de borrado preexistente). El `typecheck` arrastra en los archivos nuevos las mismas tres clases de error que ya tiene todo el repo (`AdminApiContext` vs `AdminClient`, `string | undefined` en `session.accessToken`, `Record<string, unknown>` vs `InputJsonValue`): son las convenciones actuales del código, no fallos nuevos de otro tipo.
+
+### Siguiente: prueba end-to-end en la dev store
 
 ---
 
