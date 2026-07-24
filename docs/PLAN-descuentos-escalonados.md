@@ -458,6 +458,17 @@ Generada con `migrate dev --create-only` para poder revisar el SQL antes de apli
 
 > Lección para las fases que quedan: el schema de referencia disponible es el de la última versión, no el de 2025-10. Cualquier campo nuevo hay que verificarlo contra la tienda real.
 
+**3. Solo una línea del carrito recibía el descuento (modo uniforme)** — real y arreglado.
+Carrito con 3 líneas elegibles de 1 unidad ($36, $108, $46) y tiers 1/10, 2/15, 3/20: el tier 3 se alcanzaba bien, pero **solo el producto de $108 se descontaba**.
+
+*Root cause:* no estaba en el conteo del tier ni en los targets. La Function generaba los 3 candidates correctos, con sus 3 targets y su 20%. El fallo era `selectionStrategy: ProductDiscountSelectionStrategy.First`, cuya semántica es literalmente *"apply the FIRST discount candidate"* → Shopify aplicaba uno y descartaba los otros dos. El que sobrevivía era el de mayor reducción ($108 × 20% = $21.60). Es decir: se le mandaban 3 candidates correctos con la instrucción de usar solo uno.
+
+*Fix:* `First` → `All` (*"apply ALL the discount candidates to eligible cart lines"*), con un comentario en el código para que no se revierta por descuido.
+
+> ⚠️ **Esa línea es compartida por los dos modos.** El modo INCREMENTAL tenía el mismo bug latente, aún sin detectar porque solo se había probado con una línea: habría descontado únicamente la primera. Se decidió **no** ramificar la estrategia por modo — sería más código y dejaría un bug conocido vivo. La lógica de cálculo de INCREMENTAL no se tocó.
+
+> 🔍 **Por qué las fixtures no lo cazaron:** comparan el JSON que **devuelve** la Function, no lo que Shopify **hace** con él. El output era correcto; la instrucción sobre cómo aplicarlo, no. Se añadió `uniform-tres-lineas-una-unidad.json`, que reproduce el carrito real y fija `selectionStrategy: "ALL"` como parte del contrato esperado: si alguien vuelve a poner `FIRST`, la fixture falla. Total: **7 fixtures**.
+
 ### Siguiente: prueba end-to-end en la dev store
 
 ---

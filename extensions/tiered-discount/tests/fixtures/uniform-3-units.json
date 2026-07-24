@@ -46,7 +46,7 @@
                 "value": { "percentage": { "value": 20 } }
               }
             ],
-            "selectionStrategy": "FIRST"
+            "selectionStrategy": "ALL"
           }
         }
       ]

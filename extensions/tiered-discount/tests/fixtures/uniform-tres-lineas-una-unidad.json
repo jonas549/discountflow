@@ -1,4 +1,5 @@
 {
+  "_comment": "Regresión del bug encontrado en la dev store (2026-07-24): 3 líneas elegibles de 1 unidad cada una. Las TRES deben recibir el 20%, no solo la de mayor reducción. Con selectionStrategy FIRST solo se descontaba una.",
   "payload": {
     "export": "cart-lines-discounts-generate-run",
     "target": "cart.lines.discounts.generate.run",
@@ -6,9 +7,9 @@
       "cart": {
         "lines": [
           {
-            "id": "gid://shopify/CartLine/cara",
+            "id": "gid://shopify/CartLine/chevron",
             "quantity": 1,
-            "cost": { "amountPerQuantity": { "amount": "200.0" } },
+            "cost": { "amountPerQuantity": { "amount": "36.0" } },
             "merchandise": {
               "__typename": "ProductVariant",
               "id": "gid://shopify/ProductVariant/1",
@@ -16,9 +17,9 @@
             }
           },
           {
-            "id": "gid://shopify/CartLine/media",
+            "id": "gid://shopify/CartLine/cardigan",
             "quantity": 1,
-            "cost": { "amountPerQuantity": { "amount": "100.0" } },
+            "cost": { "amountPerQuantity": { "amount": "108.0" } },
             "merchandise": {
               "__typename": "ProductVariant",
               "id": "gid://shopify/ProductVariant/2",
@@ -26,9 +27,9 @@
             }
           },
           {
-            "id": "gid://shopify/CartLine/barata",
+            "id": "gid://shopify/CartLine/swing-shirt",
             "quantity": 1,
-            "cost": { "amountPerQuantity": { "amount": "50.0" } },
+            "cost": { "amountPerQuantity": { "amount": "46.0" } },
             "merchandise": {
               "__typename": "ProductVariant",
               "id": "gid://shopify/ProductVariant/3",
@@ -42,13 +43,17 @@
         "configFallback": null,
         "config": {
           "jsonValue": {
-            "mode": "INCREMENTAL",
+            "mode": "UNIFORM",
             "tiers": [
               { "minQty": 1, "percent": 10 },
               { "minQty": 2, "percent": 15 },
               { "minQty": 3, "percent": 20 }
             ],
-            "productIds": [],
+            "productIds": [
+              "gid://shopify/Product/1",
+              "gid://shopify/Product/2",
+              "gid://shopify/Product/3"
+            ],
             "excludeProductIds": [],
             "message": "Descuento por cantidad"
           }
@@ -62,18 +67,18 @@
             "candidates": [
               {
                 "message": "Descuento por cantidad",
-                "targets": [{ "cartLine": { "id": "gid://shopify/CartLine/cara" } }],
-                "value": { "fixedAmount": { "amount": 20 } }
+                "targets": [{ "cartLine": { "id": "gid://shopify/CartLine/chevron" } }],
+                "value": { "percentage": { "value": 20 } }
               },
               {
                 "message": "Descuento por cantidad",
-                "targets": [{ "cartLine": { "id": "gid://shopify/CartLine/media" } }],
-                "value": { "fixedAmount": { "amount": 15 } }
+                "targets": [{ "cartLine": { "id": "gid://shopify/CartLine/cardigan" } }],
+                "value": { "percentage": { "value": 20 } }
               },
               {
                 "message": "Descuento por cantidad",
-                "targets": [{ "cartLine": { "id": "gid://shopify/CartLine/barata" } }],
-                "value": { "fixedAmount": { "amount": 10 } }
+                "targets": [{ "cartLine": { "id": "gid://shopify/CartLine/swing-shirt" } }],
+                "value": { "percentage": { "value": 20 } }
               }
             ],
             "selectionStrategy": "ALL"

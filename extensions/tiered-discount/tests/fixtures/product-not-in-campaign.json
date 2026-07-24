@@ -58,7 +58,7 @@
                 "value": { "percentage": { "value": 15 } }
               }
             ],
-            "selectionStrategy": "FIRST"
+            "selectionStrategy": "ALL"
           }
         }
       ]

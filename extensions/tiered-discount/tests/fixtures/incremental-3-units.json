@@ -46,7 +46,7 @@
                 "value": { "fixedAmount": { "amount": 45 } }
               }
             ],
-            "selectionStrategy": "FIRST"
+            "selectionStrategy": "ALL"
           }
         }
       ]

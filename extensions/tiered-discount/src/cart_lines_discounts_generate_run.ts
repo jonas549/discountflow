@@ -96,7 +96,11 @@ export function cartLinesDiscountsGenerateRun(
       {
         productDiscountsAdd: {
           candidates,
-          selectionStrategy: ProductDiscountSelectionStrategy.First,
+          // ALL, no First: cada candidate apunta a UNA línea distinta y todas
+          // deben recibir su descuento. `First` aplica un solo candidate y
+          // descarta el resto — con un carrito de 3 líneas elegibles solo se
+          // descontaba una. No cambiar sin releer esto.
+          selectionStrategy: ProductDiscountSelectionStrategy.All,
         },
       },
     ],
