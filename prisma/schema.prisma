@@ -53,6 +53,7 @@ enum CampaignType {
   PERCENTAGE
   RANGE
   BXGY
+  TIERED
 }
 
 enum CampaignStatus {
@@ -67,6 +68,12 @@ enum CampaignStatus {
 //   PERCENTAGE : { discountPercent: number, showCompareAtPrice: boolean }
 //   RANGE      : { fixedPrice: number, currency: string }
 //   BXGY       : { buyQuantity: number, getQuantity: number, getDiscountPercent: number }
+//   TIERED     : { mode: "UNIFORM" | "INCREMENTAL",
+//                  tiers: Array<{ minQty: number, percent: number }>,
+//                  selectionMode, productIds, collectionIds, rawItems,
+//                  excludeProductIds,
+//                  shopifyDiscountId?, functionId?, metafieldId? }
+//                Ver app/lib/discounts/tiered-client.ts para el tipo exacto.
 model Campaign {
   id       String         @id @default(cuid())
   shopId   String
