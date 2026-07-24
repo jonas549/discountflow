@@ -450,6 +450,14 @@ Generada con `migrate dev --create-only` para poder revisar el SQL antes de apli
 
 **Verificación:** `npm run build` en verde, con las dos rutas y el componente en el bundle. ESLint limpio en todos los archivos nuevos (los 6 errores de `_index.tsx` son del modal de borrado preexistente). El `typecheck` arrastra en los archivos nuevos las mismas tres clases de error que ya tiene todo el repo (`AdminApiContext` vs `AdminClient`, `string | undefined` en `session.accessToken`, `Record<string, unknown>` vs `InputJsonValue`): son las convenciones actuales del código, no fallos nuevos de otro tipo.
 
+### Correcciones durante la prueba end-to-end
+
+**1. `Invalid value for argument type. Expected CampaignType`** — no era un fallo de código. El `shopify app dev` llevaba corriendo desde antes de la migración, así que tenía en memoria el cliente Prisma anterior al enum `TIERED`; y además era quien bloqueaba el DLL que hizo fallar el `prisma generate`. Se resuelve parando el dev server, corriendo `npx prisma generate` y arrancando de nuevo.
+
+**2. `Field 'handle' doesn't exist on type 'ShopifyFunction'`** — real y arreglado. `ShopifyFunction.handle` **no existe en la Admin API 2025-10**, que es la versión a la que está pineada la app (`ApiVersion.October25` en `shopify.server.ts`); el schema que consulté al diseñar era de una versión posterior. `getTieredFunctionId()` ahora pide solo `id`, `title` y `apiType`, y empareja de forma tolerante: primero por título (normalizado contra el handle de la extensión), luego por `apiType` que contenga "discount" si solo hay una, y por descarte si la tienda tiene una sola Function. Si aun así no la encuentra, el error ahora **lista las Functions que sí vio**, para no volver a diagnosticar a ciegas.
+
+> Lección para las fases que quedan: el schema de referencia disponible es el de la última versión, no el de 2025-10. Cualquier campo nuevo hay que verificarlo contra la tienda real.
+
 ### Siguiente: prueba end-to-end en la dev store
 
 ---

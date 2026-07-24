@@ -38,29 +38,60 @@ const METAFIELD_NAMESPACE = "discountflow";
 /**
  * Busca el ID de nuestra Function en la tienda. No se hardcodea porque la app
  * de dev y la de producción tienen IDs distintos.
+ *
+ * Solo se piden `id`, `title` y `apiType`: el campo `handle` de ShopifyFunction
+ * NO existe en la versión 2025-10 de la Admin API, que es la que usa esta app
+ * (ver ApiVersion.October25 en shopify.server.ts). El título de la Function es
+ * el `name` de extensions/tiered-discount/locales/en.default.json.
+ *
+ * El emparejamiento es tolerante a propósito: primero por título, y si no,
+ * por tipo de API o descarte cuando solo hay una Function instalada.
  */
 export async function getTieredFunctionId(admin: AdminClient): Promise<string> {
   const res = await admin.graphql(
     `#graphql
     query TieredFunctionId {
       shopifyFunctions(first: 50) {
-        nodes { id handle apiType }
+        nodes { id title apiType }
       }
     }`
   );
   const json = await res.json();
-  const nodes: Array<{ id: string; handle: string; apiType: string }> =
+
+  if (json.errors?.length)
+    throw new Error(
+      `No se pudieron listar las Functions: ${json.errors
+        .map((e: { message: string }) => e.message)
+        .join(", ")}`
+    );
+
+  const nodes: Array<{ id: string; title: string; apiType: string }> =
     json.data?.shopifyFunctions?.nodes ?? [];
 
-  const fn =
-    nodes.find((n) => n.handle === FUNCTION_HANDLE) ??
-    nodes.find((n) => n.apiType === "discount");
+  const byTitle = nodes.find(
+    (n) => (n.title ?? "").toLowerCase().replace(/[\s_]/g, "-") === FUNCTION_HANDLE
+  );
+  const byApiType = nodes.filter((n) =>
+    (n.apiType ?? "").toLowerCase().includes("discount")
+  );
 
-  if (!fn?.id)
+  const fn =
+    byTitle ??
+    (byApiType.length === 1 ? byApiType[0] : undefined) ??
+    (nodes.length === 1 ? nodes[0] : undefined);
+
+  if (!fn?.id) {
+    const encontradas = nodes.length
+      ? ` Functions encontradas: ${nodes
+          .map((n) => `"${n.title}" (${n.apiType})`)
+          .join(", ")}.`
+      : "";
     throw new Error(
       "No se encontró la Function de descuentos escalonados en esta tienda. " +
-        "¿Se desplegó la extensión con `shopify app deploy` (o está corriendo `shopify app dev`)?"
+        "¿Está corriendo `shopify app dev` (o se desplegó con `shopify app deploy`)?" +
+        encontradas
     );
+  }
 
   return fn.id;
 }
