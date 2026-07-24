@@ -487,9 +487,9 @@ Carrito con 3 líneas elegibles de 1 unidad ($36, $108, $46) y tiers 1/10, 2/15,
 
 ### Paridad con los otros 3 tipos (pre-merge)
 
-**Tarea 1 — Activar borradores.** `edit_.tiered.tsx` no tenía el bloque `shouldActivate` que sí tienen `edit.tsx`, `edit_.range.tsx` y `edit_.bxgy.tsx`. Consecuencia: **una campaña escalonada guardada como borrador no se podía activar nunca** (el listado solo reactiva campañas `PAUSED`). Replicado el patrón: chequeo de límite de plan con `getActiveCampaignCount` + `PLAN_LIMITS[plan].campaigns` cuando pasa a activa, creación del descuento en la primera activación, y reversión a `DRAFT` si Shopify falla. El botón principal dice "Activar campaña" cuando la campaña es borrador.
+**Tarea 1 — Activar borradores: IMPLEMENTADA Y DESPUÉS REVERTIDA.** Se añadió el bloque `shouldActivate` a `edit_.tiered.tsx` y se revirtió a petición de Jonas. `edit_.tiered.tsx` está byte a byte como antes del commit `d58a58c`: solo guardar, y pausar/eliminar desde el listado. **Sin bloque `shouldActivate`, sin chequeo de plan en edición, sin botón "Activar campaña".**
 
-> Una desviación deliberada de 1 línea: los otros 3 tipos hacen `status: shouldActivate ? "ACTIVE" : "DRAFT"` porque su pantalla de edición ofrece un botón "Guardar borrador". La de escalonados no lo tiene, así que copiar eso convertiría una campaña **pausada** en activa (o en borrador) sin que el merchant lo pida. Aquí: un borrador se activa, una activa sigue activa y una pausada sigue pausada.
+> 🔎 **Hueco conocido, NO implementado.** Una campaña escalonada guardada como borrador no se puede activar: el listado solo reactiva campañas `PAUSED` y la edición no cambia el estado. Los otros 3 tipos sí lo permiten desde su pantalla de edición. Queda **pendiente de decisión de Jonas**; no se toca sin petición explícita.
 
 **Límite de variantes:** fuera de alcance por decisión de Jonas. Sigue siendo decorativo en los 4 tipos (`getVariantCount` solo alimenta la UI; `es.planes.limiteVariantes` está definido y nunca se invoca).
 
