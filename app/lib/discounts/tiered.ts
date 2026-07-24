@@ -33,6 +33,46 @@ const FUNCTION_HANDLE = "tiered-discount";
  */
 const METAFIELD_NAMESPACE = "discountflow";
 
+/**
+ * Ejecuta una mutación y NO deja pasar ningún fallo en silencio.
+ *
+ * Hay tres formas distintas de fallar y hay que mirar las tres:
+ *   1. `json.errors`  → la consulta ni se ejecutó (campo o mutación que no
+ *      existe en esta versión de la API). Shopify devuelve `data: null`.
+ *   2. `json.data[root]` ausente → respuesta inesperada.
+ *   3. `userErrors`   → la consulta corrió pero Shopify rechazó los datos.
+ *
+ * Mirar solo (3) —que es lo que hacía este archivo— hace que un fallo de tipo
+ * (1) se trague sin excepción: la app redirige como si todo hubiera ido bien
+ * mientras en Shopify no ha cambiado nada.
+ */
+async function runDiscountMutation(
+  admin: AdminClient,
+  query: string,
+  variables: unknown,
+  root: string
+): Promise<Record<string, unknown>> {
+  const res = await admin.graphql(query, { variables });
+  const json = await res.json();
+
+  if (json.errors?.length)
+    throw new Error(
+      `Shopify rechazó la consulta (${root}): ${json.errors
+        .map((e: { message: string }) => e.message)
+        .join(", ")}`
+    );
+
+  const result = json.data?.[root];
+  if (!result)
+    throw new Error(`Shopify no devolvió datos para ${root}.`);
+
+  const userErrors = result.userErrors as Array<{ message: string }> | undefined;
+  if (userErrors?.length)
+    throw new Error(userErrors.map((e) => e.message).join(", "));
+
+  return result;
+}
+
 // ─── Function ID ──────────────────────────────────────────────────────────────
 
 /**
@@ -160,7 +200,8 @@ export async function createTieredDiscount(
 
   const resolved: TieredCampaignConfig = { ...config, productIds, functionId };
 
-  const res = await admin.graphql(
+  const result = await runDiscountMutation(
+    admin,
     `#graphql
     mutation CreateTiered($discount: DiscountAutomaticAppInput!) {
       discountAutomaticAppCreate(automaticAppDiscount: $discount) {
@@ -169,7 +210,6 @@ export async function createTieredDiscount(
       }
     }`,
     {
-      variables: {
         discount: {
           title: `[DiscountFlow] ${campaignName}`,
           functionId,
@@ -190,19 +230,13 @@ export async function createTieredDiscount(
             },
           ],
         },
-      },
-    }
+    },
+    "discountAutomaticAppCreate"
   );
 
-  const json = await res.json();
-  const result = json.data?.discountAutomaticAppCreate;
-  if (result?.userErrors?.length > 0) {
-    throw new Error(
-      result.userErrors.map((e: { message: string }) => e.message).join(", ")
-    );
-  }
-
-  const shopifyDiscountId: string = result?.automaticAppDiscount?.discountId;
+  const shopifyDiscountId = (
+    result.automaticAppDiscount as { discountId?: string } | undefined
+  )?.discountId;
   if (!shopifyDiscountId)
     throw new Error("Shopify no retornó un ID de descuento");
 
@@ -233,7 +267,8 @@ export async function updateTieredDiscount(
   const productIds = await resolveTieredProductIds(admin, config);
   const resolved: TieredCampaignConfig = { ...config, productIds, shopifyDiscountId };
 
-  const res = await admin.graphql(
+  const result = await runDiscountMutation(
+    admin,
     `#graphql
     mutation UpdateTiered($id: ID!, $discount: DiscountAutomaticAppInput!) {
       discountAutomaticAppUpdate(id: $id, automaticAppDiscount: $discount) {
@@ -242,29 +277,30 @@ export async function updateTieredDiscount(
       }
     }`,
     {
-      variables: {
-        id: shopifyDiscountId,
-        discount: {
-          title: `[DiscountFlow] ${campaignName}`,
-          startsAt: (startsAt ?? new Date()).toISOString(),
-          endsAt: endsAt?.toISOString() ?? null,
-          metafields: [
-            {
-              namespace: METAFIELD_NAMESPACE,
-              key: TIERED_METAFIELD_KEY,
-              type: "json",
-              value: JSON.stringify(toFunctionConfig(resolved)),
-            },
-          ],
-        },
+      id: shopifyDiscountId,
+      discount: {
+        title: `[DiscountFlow] ${campaignName}`,
+        startsAt: (startsAt ?? new Date()).toISOString(),
+        endsAt: endsAt?.toISOString() ?? null,
+        metafields: [
+          {
+            namespace: METAFIELD_NAMESPACE,
+            key: TIERED_METAFIELD_KEY,
+            type: "json",
+            value: JSON.stringify(toFunctionConfig(resolved)),
+          },
+        ],
       },
-    }
+    },
+    "discountAutomaticAppUpdate"
   );
 
-  const json = await res.json();
-  const errors = json.data?.discountAutomaticAppUpdate?.userErrors;
-  if (errors?.length > 0)
-    throw new Error(errors.map((e: { message: string }) => e.message).join(", "));
+  // Sin este guardia, una respuesta vacía volvería a pasar desapercibida.
+  if (!(result.automaticAppDiscount as { discountId?: string } | undefined)?.discountId)
+    throw new Error(
+      "Shopify aceptó la actualización pero no devolvió el descuento. " +
+        "La configuración puede no haberse guardado."
+    );
 
   await prisma.campaign.update({
     where: { id: campaignId },
@@ -282,7 +318,8 @@ export async function deactivateTieredDiscount(
   admin: AdminClient,
   shopifyDiscountId: string
 ): Promise<void> {
-  const res = await admin.graphql(
+  await runDiscountMutation(
+    admin,
     `#graphql
     mutation DeactivateTiered($id: ID!) {
       discountAutomaticDeactivate(id: $id) {
@@ -290,19 +327,17 @@ export async function deactivateTieredDiscount(
         userErrors { field message }
       }
     }`,
-    { variables: { id: shopifyDiscountId } }
+    { id: shopifyDiscountId },
+    "discountAutomaticDeactivate"
   );
-  const json = await res.json();
-  const errors = json.data?.discountAutomaticDeactivate?.userErrors;
-  if (errors?.length > 0)
-    throw new Error(errors.map((e: { message: string }) => e.message).join(", "));
 }
 
 export async function activateTieredDiscount(
   admin: AdminClient,
   shopifyDiscountId: string
 ): Promise<void> {
-  const res = await admin.graphql(
+  await runDiscountMutation(
+    admin,
     `#graphql
     mutation ActivateTiered($id: ID!) {
       discountAutomaticActivate(id: $id) {
@@ -310,19 +345,17 @@ export async function activateTieredDiscount(
         userErrors { field message }
       }
     }`,
-    { variables: { id: shopifyDiscountId } }
+    { id: shopifyDiscountId },
+    "discountAutomaticActivate"
   );
-  const json = await res.json();
-  const errors = json.data?.discountAutomaticActivate?.userErrors;
-  if (errors?.length > 0)
-    throw new Error(errors.map((e: { message: string }) => e.message).join(", "));
 }
 
 export async function deleteTieredDiscount(
   admin: AdminClient,
   shopifyDiscountId: string
 ): Promise<void> {
-  const res = await admin.graphql(
+  await runDiscountMutation(
+    admin,
     `#graphql
     mutation DeleteTiered($id: ID!) {
       discountAutomaticDelete(id: $id) {
@@ -330,10 +363,7 @@ export async function deleteTieredDiscount(
         userErrors { field message }
       }
     }`,
-    { variables: { id: shopifyDiscountId } }
+    { id: shopifyDiscountId },
+    "discountAutomaticDelete"
   );
-  const json = await res.json();
-  const errors = json.data?.discountAutomaticDelete?.userErrors;
-  if (errors?.length > 0)
-    throw new Error(errors.map((e: { message: string }) => e.message).join(", "));
 }

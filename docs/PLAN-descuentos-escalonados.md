@@ -469,6 +469,22 @@ Carrito con 3 líneas elegibles de 1 unidad ($36, $108, $46) y tiers 1/10, 2/15,
 
 > 🔍 **Por qué las fixtures no lo cazaron:** comparan el JSON que **devuelve** la Function, no lo que Shopify **hace** con él. El output era correcto; la instrucción sobre cómo aplicarlo, no. Se añadió `uniform-tres-lineas-una-unidad.json`, que reproduce el carrito real y fija `selectionStrategy: "ALL"` como parte del contrato esperado: si alguien vuelve a poner `FIRST`, la fixture falla. Total: **7 fixtures**.
 
+**4. Modo UNIFORME verificado en la dev store ✅ (2026-07-24)**
+- 3 unidades ($36 + $108 + $46) → las tres al 20% → $28.80 + $86.40 + $36.80 = **$152.00**
+- 2 unidades ($36 + $108) → ambas al 15% → $30.60 + $91.80 = **$122.40**
+
+**5. Al cambiar una campaña a INCREMENTAL, el carrito seguía comportándose como UNIFORME.**
+
+*Lo primero descartado:* el modo **no vive en el Wasm**, vive en el metafield del descuento. La Function lee `config.mode` en tiempo de ejecución, así que cambiar de modo no requiere recompilar nada.
+
+*Lo segundo descartado:* el cálculo. Ejecutando `computeTiered("INCREMENTAL", …)` con el carrito real ($36 + $108) sale exactamente lo esperado — Chevron $30.60 (15%, el mayor % al más barato) y Cardigan $97.20 (10%), subtotal **$127.80**. La lógica de INCREMENTAL está bien.
+
+*Root cause:* el manejo de errores de `tiered.ts` solo miraba `json.data?.<mutación>?.userErrors`. Cuando una mutación falla **a nivel GraphQL** (campo o mutación inexistente en 2025-10), Shopify devuelve `data: null` y el mensaje en `json.errors`, que no se leía. El `?.` hacía que la comprobación diera `false`, no se lanzaba excepción, se guardaba en la BD y se redirigía **como si hubiera funcionado**. La campaña quedaba en `INCREMENTAL` en Postgres y en `UNIFORM` en Shopify. `createTieredDiscount` se salvaba de milagro porque además exigía un `discountId`; `update` no tenía esa red.
+
+*Fix:* helper `runDiscountMutation()` que comprueba **las tres formas de fallar** — `json.errors`, ausencia de `data[root]`, y `userErrors` — usado por las cinco mutaciones del archivo (crear, actualizar, pausar, reactivar, eliminar). Más un guardia extra en `update`, que ahora exige que Shopify devuelva el descuento.
+
+> Este fix no arregla por sí mismo el modo incremental: **hace visible** el error de Shopify que lo estaba impidiendo. Sin él era imposible diagnosticar, porque el fallo era silencioso por construcción.
+
 ### Siguiente: prueba end-to-end en la dev store
 
 ---
