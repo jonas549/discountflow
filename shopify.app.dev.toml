@@ -1,0 +1,61 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# CONFIGURACIÓN DE DESARROLLO — DiscountFlow Dev
+#
+# Enlazada a la app "DiscountFlow Dev" (Client ID 4e80c45a67c8b263d8b725d4c4c2ece0).
+# ESTO NO ES PRODUCCIÓN. Producción = shopify.app.toml (client_id cca497b9...).
+#
+# Creado a mano (mismos scopes/webhooks que prod) porque el CLI no puede correr
+# `shopify app config link` de forma no interactiva en este entorno.
+# application_url y redirect_urls son placeholders: `shopify app dev` los reescribe
+# con la URL del túnel gracias a automatically_update_urls_on_dev = true.
+# ══════════════════════════════════════════════════════════════════════════════
+
+client_id = "4e80c45a67c8b263d8b725d4c4c2ece0"
+application_url = "https://discountflow-app.vercel.app"
+embedded = true
+name = "DiscountFlow Dev"
+
+[access_scopes]
+# Mismos scopes que producción
+scopes = "read_products,write_products,read_discounts,write_discounts,read_orders"
+
+[webhooks]
+api_version = "2026-07"
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app/uninstalled"
+  topics = ["app/uninstalled"]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app/scopes_update"
+  topics = ["app/scopes_update"]
+
+  # --- DEV: comentado temporalmente (requiere Protected Customer Data, no aprobado en app Dev) ---
+  # [[webhooks.subscriptions]]
+  # uri = "/webhooks/orders/create"
+  # topics = ["orders/create"]
+
+  # --- DEV: GDPR compliance comentados temporalmente (PCD no aprobado en app Dev) ---
+  # [[webhooks.subscriptions]]
+  # compliance_topics = ["customers/data_request"]
+  # uri = "/webhooks/customers/data_request"
+  #
+  # [[webhooks.subscriptions]]
+  # compliance_topics = ["customers/redact"]
+  # uri = "/webhooks/customers/redact"
+  #
+  # [[webhooks.subscriptions]]
+  # compliance_topics = ["shop/redact"]
+  # uri = "/webhooks/shop/redact"
+
+[auth]
+redirect_urls = [
+  "https://discountflow-app.vercel.app/auth/callback",
+  "https://discountflow-app.vercel.app/auth/shopify/callback",
+  "https://discountflow-app.vercel.app/api/auth/callback",
+  "http://localhost:3000/auth/callback",
+  "http://localhost:3000/auth/shopify/callback"
+]
+
+[build]
+automatically_update_urls_on_dev = true
