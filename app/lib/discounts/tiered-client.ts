@@ -38,6 +38,33 @@ export type TieredCampaignConfig = {
 export const TIERED_METAFIELD_NAMESPACE = "$app:discountflow";
 export const TIERED_METAFIELD_KEY = "tiered-config";
 
+/**
+ * Título con el que se crea el descuento en Shopify.
+ *
+ * ⚠️ PUNTO ÚNICO DE AJUSTE. La atribución de pedidos (webhooks/orders.create)
+ * cruza `discount_applications[].title` contra esto para saber a qué campaña
+ * pertenece un descuento. Si Shopify resultara mandar otra cosa en ese campo
+ * —por ejemplo el `message` de la Function en vez del título del descuento—,
+ * se ajusta AQUÍ y en `matchesTieredDiscountTitle`, y no hay que tocar nada más.
+ *
+ * (El bug de atribución de BXGY existe justamente porque este formato está
+ * escrito a mano en dos archivos distintos que no coinciden.)
+ */
+export const TIERED_TITLE_PREFIX = "[DiscountFlow] ";
+
+export function tieredDiscountTitle(campaignName: string): string {
+  return `${TIERED_TITLE_PREFIX}${campaignName}`;
+}
+
+/** ¿Este título de `discount_applications` corresponde a esta campaña? */
+export function matchesTieredDiscountTitle(
+  discountApplicationTitle: string | undefined | null,
+  campaignName: string
+): boolean {
+  if (!discountApplicationTitle) return false;
+  return discountApplicationTitle.trim() === tieredDiscountTitle(campaignName).trim();
+}
+
 export const DEFAULT_TIERS: Tier[] = [
   { minQty: 1, percent: 10 },
   { minQty: 2, percent: 15 },

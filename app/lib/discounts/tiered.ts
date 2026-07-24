@@ -16,6 +16,7 @@ import {
 import {
   type TieredCampaignConfig,
   toFunctionConfig,
+  tieredDiscountTitle,
   TIERED_METAFIELD_KEY,
 } from "./tiered-client";
 
@@ -211,7 +212,7 @@ export async function createTieredDiscount(
     }`,
     {
         discount: {
-          title: `[DiscountFlow] ${campaignName}`,
+          title: tieredDiscountTitle(campaignName),
           functionId,
           startsAt: (startsAt ?? new Date()).toISOString(),
           endsAt: endsAt?.toISOString() ?? null,
@@ -279,7 +280,7 @@ export async function updateTieredDiscount(
     {
       id: shopifyDiscountId,
       discount: {
-        title: `[DiscountFlow] ${campaignName}`,
+        title: tieredDiscountTitle(campaignName),
         startsAt: (startsAt ?? new Date()).toISOString(),
         endsAt: endsAt?.toISOString() ?? null,
         metafields: [

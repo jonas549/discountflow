@@ -1,6 +1,7 @@
 import type { ActionFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 import { prisma } from "../lib/db";
+import { matchesTieredDiscountTitle } from "../lib/discounts/tiered-client";
 
 // Campos del payload orders/create que necesitamos (sin PII de cliente).
 // Level 1 Protected Customer Data — aprobado 2026-05.
@@ -139,6 +140,85 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         },
         update: {},
       });
+    }
+  }
+
+  // ── 3. Campañas TIERED (descuentos escalonados) ──────────────────────────
+  // Los descuentos de Shopify Functions llegan en discount_applications igual
+  // que los automáticos nativos. Dos diferencias deliberadas con el bloque de
+  // arriba, y ninguna toca a BXGY:
+  //
+  //   1. El cruce usa el TÍTULO REAL del descuento —"[DiscountFlow] <nombre>"—
+  //      a través de matchesTieredDiscountTitle(), en vez del nombre pelado.
+  //   2. El importe sale de las discount_allocations de cada línea, no de
+  //      total_price / total_discounts, que atribuirían el pedido entero y
+  //      todos los descuentos ajenos a esta campaña.
+
+  const automaticApps = (order.discount_applications ?? [])
+    // El índice se calcula ANTES de filtrar: discount_application_index apunta
+    // a la posición en el array original.
+    .map((da, index) => ({ ...da, index }))
+    .filter((da) => da.type === "automatic" && da.title);
+
+  if (automaticApps.length > 0) {
+    const tieredCampaigns = await prisma.campaign.findMany({
+      where: { shopId: shopRecord.id, status: "ACTIVE", type: "TIERED" },
+    });
+
+    if (tieredCampaigns.length > 0) {
+      // TEMPORAL — verificación con el primer pedido real en producción.
+      // Todavía no está confirmado si Shopify manda aquí el título del
+      // descuento o el `message` de la Function. Este log lo resuelve de un
+      // vistazo; quitar una vez validado.
+      console.log(
+        "[tiered-attribution] títulos recibidos:",
+        JSON.stringify(automaticApps.map((d) => d.title)),
+        "| campañas activas:",
+        JSON.stringify(tieredCampaigns.map((c) => c.name))
+      );
+
+      for (const campaign of tieredCampaigns) {
+        const app = automaticApps.find((da) =>
+          matchesTieredDiscountTitle(da.title, campaign.name)
+        );
+        if (!app) continue;
+
+        // Solo las líneas que recibieron una asignación de ESTE descuento.
+        let orderAmountForCampaign = 0;
+        let discountAmountForCampaign = 0;
+
+        for (const lineItem of order.line_items) {
+          const allocations = (lineItem.discount_allocations ?? []).filter(
+            (a) => a.discount_application_index === app.index
+          );
+          if (allocations.length === 0) continue;
+
+          orderAmountForCampaign += Number(lineItem.price) * lineItem.quantity;
+          discountAmountForCampaign += allocations.reduce(
+            (sum, a) => sum + Number(a.amount),
+            0
+          );
+        }
+
+        if (orderAmountForCampaign <= 0) continue;
+
+        await prisma.orderAttribution.upsert({
+          where: {
+            campaignId_shopifyOrderId: {
+              campaignId: campaign.id,
+              shopifyOrderId: orderId,
+            },
+          },
+          create: {
+            campaignId: campaign.id,
+            shopifyOrderId: orderId,
+            orderAmount: orderAmountForCampaign,
+            discountAmount: discountAmountForCampaign,
+            currency: order.currency ?? "USD",
+          },
+          update: {},
+        });
+      }
     }
   }
 

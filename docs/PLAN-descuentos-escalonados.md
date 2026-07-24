@@ -485,6 +485,22 @@ Carrito con 3 líneas elegibles de 1 unidad ($36, $108, $46) y tiers 1/10, 2/15,
 
 > Este fix no arregla por sí mismo el modo incremental: **hace visible** el error de Shopify que lo estaba impidiendo. Sin él era imposible diagnosticar, porque el fallo era silencioso por construcción.
 
+### Paridad con los otros 3 tipos (pre-merge)
+
+**Tarea 1 — Activar borradores.** `edit_.tiered.tsx` no tenía el bloque `shouldActivate` que sí tienen `edit.tsx`, `edit_.range.tsx` y `edit_.bxgy.tsx`. Consecuencia: **una campaña escalonada guardada como borrador no se podía activar nunca** (el listado solo reactiva campañas `PAUSED`). Replicado el patrón: chequeo de límite de plan con `getActiveCampaignCount` + `PLAN_LIMITS[plan].campaigns` cuando pasa a activa, creación del descuento en la primera activación, y reversión a `DRAFT` si Shopify falla. El botón principal dice "Activar campaña" cuando la campaña es borrador.
+
+> Una desviación deliberada de 1 línea: los otros 3 tipos hacen `status: shouldActivate ? "ACTIVE" : "DRAFT"` porque su pantalla de edición ofrece un botón "Guardar borrador". La de escalonados no lo tiene, así que copiar eso convertiría una campaña **pausada** en activa (o en borrador) sin que el merchant lo pida. Aquí: un borrador se activa, una activa sigue activa y una pausada sigue pausada.
+
+**Límite de variantes:** fuera de alcance por decisión de Jonas. Sigue siendo decorativo en los 4 tipos (`getVariantCount` solo alimenta la UI; `es.planes.limiteVariantes` está definido y nunca se invoca).
+
+**Tarea 2 — Atribución en Analytics (Opción A).** Bloque nuevo en `webhooks.orders.create.tsx`, **+80 / −0 líneas: aditivo puro**, sin tocar los bloques de PERCENTAGE/RANGE ni el de BXGY. Dos diferencias deliberadas con el de BXGY:
+1. Cruza por el **título real** del descuento vía `matchesTieredDiscountTitle()`, no por el nombre pelado de la campaña (que es el bug de BXGY).
+2. El importe sale de las **`discount_allocations`** de cada línea filtradas por `discount_application_index`, no de `total_price` / `total_discounts` — que atribuirían el pedido entero y todos los descuentos ajenos, inflando el ROI.
+
+El formato del título vive ahora en **un único sitio**, `tiered-client.ts`: `TIERED_TITLE_PREFIX` + `tieredDiscountTitle()` + `matchesTieredDiscountTitle()`, y `tiered.ts` lo usa en sus dos mutaciones. Si Shopify resultara mandar el `message` de la Function en vez del título, se ajusta ahí y en ningún otro lado. *(La duplicación de ese literal en dos archivos es exactamente lo que rompió la atribución de BXGY.)*
+
+> ⚠️ **Sin verificar todavía.** `orders/create` está comentado en `shopify.app.dev.toml` (la app Dev no tiene PCD), así que este bloque llega a producción sin ejecutarse nunca. Por eso se dejó un `console.log("[tiered-attribution] …")` que imprime los títulos recibidos y las campañas activas: con el primer pedido real se ve de un vistazo si el cruce acierta. **Quitar ese log una vez validado.**
+
 ### Siguiente: prueba end-to-end en la dev store
 
 ---

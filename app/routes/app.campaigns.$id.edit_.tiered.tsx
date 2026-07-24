@@ -23,6 +23,8 @@ import {
   validateTieredForm,
   buildTieredConfig,
 } from "../lib/discounts/tiered-form";
+import { type Plan, PLAN_LIMITS } from "../lib/billing/plan-limits";
+import { getActiveCampaignCount } from "../lib/billing/plan-limits.server";
 import { es } from "../i18n";
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
@@ -94,6 +96,24 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   const previous = existing.config as TieredCampaignConfig;
   const campaignStartsAt = f.startsAt ? new Date(f.startsAt) : null;
   const campaignEndsAt = f.endsAt ? new Date(f.endsAt) : null;
+  const isScheduled = campaignStartsAt !== null && campaignStartsAt > new Date();
+  const shouldActivate = f.intent === "activate" && !isScheduled;
+
+  // Mismo control de límite de plan que edit.tsx / edit_.range.tsx / edit_.bxgy.tsx:
+  // solo se comprueba cuando la campaña pasa a activa, no en cada guardado.
+  if (shouldActivate && existing.status !== "ACTIVE") {
+    const plan = (shop.plan as Plan) || "FREE";
+    const activeCount = await getActiveCampaignCount(shop.id);
+    if (activeCount >= PLAN_LIMITS[plan].campaigns) {
+      return Response.json(
+        {
+          errors: { general: es.planes.limiteCampanas(activeCount, PLAN_LIMITS[plan].campaigns) },
+          limitExceeded: true,
+        },
+        { status: 422 }
+      );
+    }
+  }
 
   const config: TieredCampaignConfig = {
     ...buildTieredConfig(f),
@@ -101,18 +121,26 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     functionId: previous.functionId,
   };
 
+  // Un borrador se activa al guardar con "Activar campaña". Una campaña ya
+  // activa sigue activa, y una pausada sigue pausada: para reactivarla está el
+  // botón del listado. (Los otros 3 tipos ponen DRAFT cuando no se activa,
+  // porque su pantalla de edición sí ofrece un botón "Guardar borrador".)
+  const nextStatus =
+    shouldActivate && existing.status === "DRAFT" ? "ACTIVE" : existing.status;
+
   await prisma.campaign.update({
     where: { id: campaignId },
     data: {
       name: f.name,
+      status: nextStatus,
       config: config as unknown as Record<string, unknown>,
       startsAt: campaignStartsAt,
       endsAt: campaignEndsAt,
     },
   });
 
-  // El descuento en Shopify solo se toca si la campaña no es un borrador.
-  if (existing.status === "ACTIVE" || existing.status === "PAUSED") {
+  // El descuento en Shopify solo existe si la campaña no es un borrador.
+  if (nextStatus === "ACTIVE" || nextStatus === "PAUSED") {
     try {
       if (previous.shopifyDiscountId) {
         await updateTieredDiscount(
@@ -125,7 +153,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
           campaignEndsAt
         );
       } else {
-        // Campaña activa sin descuento asociado (no debería pasar): se recrea.
+        // Primera activación de un borrador: aquí nace el descuento.
         await createTieredDiscount(
           admin,
           campaignId,
@@ -136,8 +164,22 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
         );
       }
     } catch (err) {
+      // Si veníamos de borrador y la activación falla, no dejamos la campaña
+      // marcada como activa sin descuento detrás (igual que hace BXGY).
+      if (existing.status === "DRAFT")
+        await prisma.campaign.update({
+          where: { id: campaignId },
+          data: { status: "DRAFT" },
+        });
+
       return Response.json(
-        { errors: { general: `Error al actualizar el descuento en Shopify: ${String(err)}` } },
+        {
+          errors: {
+            general: `Error al ${
+              existing.status === "DRAFT" ? "activar" : "actualizar"
+            } el descuento en Shopify: ${String(err)}`,
+          },
+        },
         { status: 500 }
       );
     }
@@ -197,7 +239,9 @@ export default function EditTieredCampaign() {
         limitExceeded={actionData?.limitExceeded}
         isSubmitting={navigation.state === "submitting"}
         showDraftButton={false}
-        primaryLabel="Guardar cambios"
+        primaryLabel={
+          campaign.status === "DRAFT" ? es.nuevaTiered.btnActivar : "Guardar cambios"
+        }
       />
     </s-page>
   );
