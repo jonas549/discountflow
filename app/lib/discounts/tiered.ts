@@ -74,6 +74,88 @@ async function runDiscountMutation(
   return result;
 }
 
+/**
+ * TEMPORAL [tiered-debug] — lee de Shopify cómo quedó realmente el descuento:
+ * estado, fechas, combinesWith y si el metafield de configuración existe.
+ *
+ * Envuelto en try/catch a propósito: es diagnóstico, y bajo ningún concepto
+ * puede romper el guardado de una campaña si algún campo no existe en esta
+ * versión de la API.
+ */
+async function logTieredDiscountState(
+  admin: AdminClient,
+  shopifyDiscountId: string,
+  contexto: string
+): Promise<void> {
+  try {
+    const res = await admin.graphql(
+      `#graphql
+      query TieredDiscountState($id: ID!) {
+        discountNode(id: $id) {
+          id
+          discount {
+            ... on DiscountAutomaticApp {
+              title
+              status
+              startsAt
+              endsAt
+              combinesWith {
+                orderDiscounts
+                productDiscounts
+                shippingDiscounts
+              }
+              appDiscountType { functionId }
+            }
+          }
+          metafield(namespace: "discountflow", key: "tiered-config") {
+            value
+          }
+        }
+      }`,
+      { variables: { id: shopifyDiscountId } }
+    );
+    const json = await res.json();
+
+    if (json.errors?.length) {
+      console.log(
+        `[tiered-debug] estado/${contexto} ERROR-GRAPHQL`,
+        JSON.stringify(json.errors.map((e: { message: string }) => e.message))
+      );
+      return;
+    }
+
+    const node = json.data?.discountNode;
+    const raw: string | undefined = node?.metafield?.value;
+    let parsed: { productIds?: string[]; mode?: string; tiers?: unknown[] } | null = null;
+    try {
+      parsed = raw ? JSON.parse(raw) : null;
+    } catch {
+      parsed = null;
+    }
+
+    console.log(
+      `[tiered-debug] estado/${contexto}`,
+      JSON.stringify({
+        encontrado: !!node,
+        title: node?.discount?.title ?? null,
+        status: node?.discount?.status ?? null,
+        startsAt: node?.discount?.startsAt ?? null,
+        endsAt: node?.discount?.endsAt ?? null,
+        combinesWith: node?.discount?.combinesWith ?? null,
+        functionId: node?.discount?.appDiscountType?.functionId ?? null,
+        metafieldExiste: !!raw,
+        metafieldBytes: raw?.length ?? 0,
+        configModo: parsed?.mode ?? null,
+        configTiers: parsed?.tiers?.length ?? 0,
+        configProductIds: parsed?.productIds?.length ?? null,
+        configMuestraIds: parsed?.productIds?.slice(0, 3) ?? null,
+      })
+    );
+  } catch (err) {
+    console.log(`[tiered-debug] estado/${contexto} EXCEPCION`, String(err));
+  }
+}
+
 // ─── Function ID ──────────────────────────────────────────────────────────────
 
 /**
@@ -200,6 +282,28 @@ export async function createTieredDiscount(
   const productIds = await resolveTieredProductIds(admin, config);
 
   const resolved: TieredCampaignConfig = { ...config, productIds, functionId };
+  const functionConfig = toFunctionConfig(resolved);
+
+  // TEMPORAL [tiered-debug] — instrumentación para diagnosticar SkinUp.
+  // Quitar en cuanto se cierre el caso.
+  console.log(
+    "[tiered-debug] create/resolve",
+    JSON.stringify({
+      campaignId,
+      campaignName,
+      functionId,
+      selectionMode: config.selectionMode,
+      collectionIdsEntrada: config.collectionIds?.length ?? 0,
+      rawItemsEntrada: config.rawItems?.length ?? 0,
+      productIdsEntrada: config.productIds?.length ?? 0,
+      productIdsResueltos: productIds.length,
+      muestraIds: productIds.slice(0, 3),
+      tiers: functionConfig.tiers,
+      metafieldBytes: JSON.stringify(functionConfig).length,
+      startsAt: (startsAt ?? new Date()).toISOString(),
+      endsAt: endsAt?.toISOString() ?? null,
+    })
+  );
 
   const result = await runDiscountMutation(
     admin,
@@ -227,7 +331,7 @@ export async function createTieredDiscount(
               namespace: METAFIELD_NAMESPACE,
               key: TIERED_METAFIELD_KEY,
               type: "json",
-              value: JSON.stringify(toFunctionConfig(resolved)),
+              value: JSON.stringify(functionConfig),
             },
           ],
         },
@@ -238,8 +342,29 @@ export async function createTieredDiscount(
   const shopifyDiscountId = (
     result.automaticAppDiscount as { discountId?: string } | undefined
   )?.discountId;
+
+  // TEMPORAL [tiered-debug]
+  console.log(
+    "[tiered-debug] create/resultado",
+    JSON.stringify({
+      campaignId,
+      shopifyDiscountId: shopifyDiscountId ?? null,
+      metafieldNamespace: METAFIELD_NAMESPACE,
+      metafieldKey: TIERED_METAFIELD_KEY,
+      combinesWithEnviado: {
+        orderDiscounts: false,
+        productDiscounts: false,
+        shippingDiscounts: false,
+      },
+      discountClassesEnviado: ["PRODUCT"],
+    })
+  );
+
   if (!shopifyDiscountId)
     throw new Error("Shopify no retornó un ID de descuento");
+
+  // TEMPORAL [tiered-debug] — verificación contra Shopify de lo que quedó.
+  await logTieredDiscountState(admin, shopifyDiscountId, "tras-crear");
 
   await prisma.campaign.update({
     where: { id: campaignId },
@@ -267,6 +392,23 @@ export async function updateTieredDiscount(
 ): Promise<void> {
   const productIds = await resolveTieredProductIds(admin, config);
   const resolved: TieredCampaignConfig = { ...config, productIds, shopifyDiscountId };
+
+  // TEMPORAL [tiered-debug]
+  console.log(
+    "[tiered-debug] update/resolve",
+    JSON.stringify({
+      campaignId,
+      campaignName,
+      shopifyDiscountId,
+      selectionMode: config.selectionMode,
+      collectionIdsEntrada: config.collectionIds?.length ?? 0,
+      rawItemsEntrada: config.rawItems?.length ?? 0,
+      productIdsEntrada: config.productIds?.length ?? 0,
+      productIdsResueltos: productIds.length,
+      muestraIds: productIds.slice(0, 3),
+      metafieldBytes: JSON.stringify(toFunctionConfig(resolved)).length,
+    })
+  );
 
   const result = await runDiscountMutation(
     admin,
@@ -307,6 +449,9 @@ export async function updateTieredDiscount(
     where: { id: campaignId },
     data: { config: resolved as unknown as Record<string, unknown> },
   });
+
+  // TEMPORAL [tiered-debug]
+  await logTieredDiscountState(admin, shopifyDiscountId, "tras-actualizar");
 }
 
 // ─── Pausar / reactivar / eliminar ────────────────────────────────────────────

@@ -47,7 +47,20 @@ export function cartLinesDiscountsGenerateRun(
     return NO_DISCOUNT;
 
   const config = readConfig(input);
-  if (!config) return NO_DISCOUNT;
+  if (!config) {
+    // TEMPORAL [tiered-debug] — el caso "no hay config" es el que explica que
+    // el descuento no se aplique a NADA (config vacía aplicaría a TODO).
+    console.log(
+      '[tiered-debug] fn SIN-CONFIG',
+      JSON.stringify({
+        lineasCarrito: input.cart.lines.length,
+        discountClasses: input.discount.discountClasses,
+        metafieldAppNamespace: !!input.discount.config,
+        metafieldNamespacePlano: !!input.discount.configFallback,
+      })
+    );
+    return NO_DISCOUNT;
+  }
 
   const includeIds = new Set(config.productIds ?? []);
   const excludeIds = new Set(config.excludeProductIds ?? []);
@@ -70,6 +83,27 @@ export function cartLinesDiscountsGenerateRun(
   }
 
   const outcome = computeTiered(config.mode, config.tiers, applicable);
+
+  // TEMPORAL [tiered-debug] — estos logs NO llegan a Vercel: la Function corre
+  // en Shopify. Se leen con `shopify app logs` o en el Partner Dashboard.
+  console.log(
+    '[tiered-debug] fn',
+    JSON.stringify({
+      lineasCarrito: input.cart.lines.length,
+      discountClasses: input.discount.discountClasses,
+      configLeida: true,
+      modo: config.mode,
+      tiers: config.tiers?.length ?? 0,
+      includeIds: includeIds.size,
+      excludeIds: excludeIds.size,
+      lineasAplicables: applicable.length,
+      productIdsDelCarrito: input.cart.lines
+        .map((l) => ('product' in l.merchandise ? l.merchandise.product.id : null))
+        .filter(Boolean),
+      resultado: outcome.applies ? outcome.mode : `SIN-DESCUENTO:${outcome.reason}`,
+    })
+  );
+
   if (!outcome.applies) return NO_DISCOUNT;
 
   const message = config.message || 'Descuento por cantidad';
