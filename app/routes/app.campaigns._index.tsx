@@ -31,6 +31,7 @@ import {
 } from "../lib/discounts/tiered";
 import {
   tieredDiscountLabel,
+  tieredProductsLabel,
   type TieredCampaignConfig,
 } from "../lib/discounts/tiered-client";
 import {
@@ -805,7 +806,11 @@ export default function Campaigns() {
                       </td>
                       <td style={{ padding: "12px", color: "#6d7175" }}>{discount}</td>
                       <td style={{ padding: "12px", color: "#6d7175" }}>
-                        {c.productsCount}
+                        {/* TIERED no crea filas en CampaignProduct: su conteo
+                            sale del config. El resto de tipos no se toca. */}
+                        {c.type === "TIERED"
+                          ? tieredProductsLabel(c.config as TieredCampaignConfig)
+                          : c.productsCount}
                       </td>
                       <td
                         style={{

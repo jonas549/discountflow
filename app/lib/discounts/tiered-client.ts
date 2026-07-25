@@ -81,6 +81,32 @@ export function tieredDiscountLabel(config: TieredCampaignConfig): string {
 }
 
 /**
+ * Texto de la columna "Productos" del listado de campañas.
+ *
+ * TIERED no crea filas en `CampaignProduct` —igual que BXGY—, porque no edita
+ * precios de variantes: el descuento lo calcula la Function en el carrito. Por
+ * eso el `_count.products` del listado siempre da 0 y el conteo real hay que
+ * sacarlo del propio config.
+ *
+ * ⚠️ `selectionMode === "all"` guarda `productIds` VACÍO a propósito (vacío =
+ * toda la tienda para la Function), así que ahí un "0" sería justo el
+ * malentendido que este helper viene a evitar.
+ */
+export function tieredProductsLabel(config: TieredCampaignConfig): string {
+  if (config?.selectionMode === "all") return "Toda la tienda";
+
+  const count = config?.productIds?.length ?? 0;
+
+  // Los modos por colección / tag / vendor / tipo resuelven sus productos al
+  // ACTIVAR la campaña. Un borrador todavía no los tiene: "0" haría pensar que
+  // no aplica a nada, cuando en realidad aún no se ha resuelto.
+  if (count === 0 && config?.selectionMode && config.selectionMode !== "products")
+    return "—";
+
+  return String(count);
+}
+
+/**
  * Recorta la config a lo que la Function necesita leer del metafield.
  * Todo lo demás (colecciones, tags…) se queda solo en la base de datos.
  */
