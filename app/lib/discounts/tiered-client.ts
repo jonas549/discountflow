@@ -39,16 +39,15 @@ export const TIERED_METAFIELD_NAMESPACE = "$app:discountflow";
 export const TIERED_METAFIELD_KEY = "tiered-config";
 
 /**
- * Título con el que se crea el descuento en Shopify.
+ * Título con el que se crea el descuento en el admin de Shopify.
  *
- * ⚠️ PUNTO ÚNICO DE AJUSTE. La atribución de pedidos (webhooks/orders.create)
- * cruza `discount_applications[].title` contra esto para saber a qué campaña
- * pertenece un descuento. Si Shopify resultara mandar otra cosa en ese campo
- * —por ejemplo el `message` de la Function en vez del título del descuento—,
- * se ajusta AQUÍ y en `matchesTieredDiscountTitle`, y no hay que tocar nada más.
+ * ⚠️ NO SIRVE PARA ATRIBUIR PEDIDOS. Comprobado con un pedido real
+ * (2026-07-25): en `discount_applications[].title` Shopify NO publica este
+ * título, sino el `message` de la Function —el texto que ve el comprador—,
+ * que además es IDÉNTICO en todas las campañas escalonadas. La atribución
+ * (webhooks/orders.create) asigna por PRODUCTOS; ver `tieredAppliesToProduct`.
  *
- * (El bug de atribución de BXGY existe justamente porque este formato está
- * escrito a mano en dos archivos distintos que no coinciden.)
+ * Este título sigue siendo el que el merchant ve en su lista de descuentos.
  */
 export const TIERED_TITLE_PREFIX = "[DiscountFlow] ";
 
@@ -56,13 +55,35 @@ export function tieredDiscountTitle(campaignName: string): string {
   return `${TIERED_TITLE_PREFIX}${campaignName}`;
 }
 
-/** ¿Este título de `discount_applications` corresponde a esta campaña? */
-export function matchesTieredDiscountTitle(
-  discountApplicationTitle: string | undefined | null,
-  campaignName: string
+/**
+ * Texto que ve el comprador y que Shopify publica como `title` de la
+ * `discount_application`. El default debe seguir al de la Function
+ * (`cart_lines_discounts_generate_run.ts`) o la atribución dejaría de cruzar.
+ */
+export const TIERED_DEFAULT_MESSAGE = "Descuento por cantidad";
+
+export function tieredDiscountMessage(config: TieredCampaignConfig): string {
+  return config?.message || TIERED_DEFAULT_MESSAGE;
+}
+
+/**
+ * ¿Pudo esta campaña haber descontado una línea con este producto?
+ *
+ * Replica EXACTAMENTE la regla de elegibilidad de la Function: lista de
+ * inclusión VACÍA = toda la tienda. No mira `selectionMode` a propósito — lo
+ * que decide en el checkout es el contenido de `productIds`, no lo que dijera
+ * el formulario. Así la atribución coincide con lo que de verdad pasó.
+ *
+ * @param productGid formato `gid://shopify/Product/123`. El webhook manda el
+ *        id numérico: hay que normalizarlo antes de llamar aquí.
+ */
+export function tieredAppliesToProduct(
+  config: TieredCampaignConfig,
+  productGid: string
 ): boolean {
-  if (!discountApplicationTitle) return false;
-  return discountApplicationTitle.trim() === tieredDiscountTitle(campaignName).trim();
+  if ((config?.excludeProductIds ?? []).includes(productGid)) return false;
+  const included = config?.productIds ?? [];
+  return included.length === 0 || included.includes(productGid);
 }
 
 export const DEFAULT_TIERS: Tier[] = [

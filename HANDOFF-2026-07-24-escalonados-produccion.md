@@ -66,9 +66,13 @@ El repo de GitHub **se puso PÚBLICO** para que Vercel desplegara.
 
 ## ═══ PENDIENTE PARA MAÑANA — 2 ajustes ═══
 
-### AJUSTE 1 · UX — el contador "0 productos" (no bloqueante)
+### AJUSTE 1 · UX — el contador "0 productos" — ✅ **HECHO Y EN PRODUCCIÓN (2026-07-25, commit `94b19a6`)**
 
-**Qué pasa:** el listado muestra **"0 productos"** para TIERED **siempre**, en los tres modos, incluso cuando el descuento funciona perfectamente.
+> Resuelto **solo en el listado de Campañas**. El **dashboard de Inicio sigue con el conteo viejo** — ver Deuda técnica nº 3.
+> Implementación: helper `tieredProductsLabel()` en `tiered-client.ts`, usado solo para TIERED en `app.campaigns._index.tsx`.
+> Casos: modo "all" → "Toda la tienda" · borrador por colección/tag/vendor/tipo → "—" (los productos se resuelven al ACTIVAR) · resto → número real.
+
+**Qué pasaba:** el listado mostraba **"0 productos"** para TIERED **siempre**, en los tres modos, incluso cuando el descuento funciona perfectamente.
 
 **Por qué:** `app/routes/app.campaigns._index.tsx` líneas ~138 y ~149 usan `_count.products`, que cuenta filas de **`CampaignProduct`** — la tabla donde PERCENTAGE y RANGE guardan los precios originales de cada variante que modifican. **TIERED no crea ninguna fila ahí, por diseño, igual que BxGy** (no edita precios; el descuento lo calcula Shopify en el carrito).
 
@@ -99,7 +103,52 @@ El repo de GitHub **se puso PÚBLICO** para que Vercel desplegara.
   - `app/lib/discounts/tiered.ts` — `create/resolve`, `create/resultado`, `update/resolve`, y la función `logTieredDiscountState()` completa
   - `extensions/tiered-discount/src/cart_lines_discounts_generate_run.ts` — `fn` y `fn SIN-CONFIG`
 - [ ] **Quitar el `console.log("[tiered-attribution] …")`** de `app/routes/webhooks.orders.create.tsx` cuando se valide la atribución.
-- [ ] **Validar la atribución en Analytics con un pedido real.** Quedó implementada (Opción A: cruce por título real + importe desde `discount_allocations`) pero **sin validar**. Falta hacer un pedido con un escalonado aplicado y confirmar en el log el formato del título. Si no llega `[DiscountFlow] <nombre>`, el ajuste es **una línea** en `matchesTieredDiscountTitle()` (`app/lib/discounts/tiered-client.ts`), único sitio donde vive ese formato.
+- [x] ~~Validar el formato del título~~ → **VALIDADO 2026-07-25 con pedido real. El resultado invalidó el diseño original** (ver Deuda técnica nº 4): Shopify NO manda `[DiscountFlow] <nombre>`, manda el `message` de la Function. La atribución se rehízo por cruce de productos y `matchesTieredDiscountTitle()` se eliminó.
+- [ ] **Validar la atribución NUEVA con un pedido real en producción.** Debe atribuir el importe **completo** (un pedido de 3 líneas trae 3 `discount_applications`; la versión anterior contaba solo 1 → importe a ⅓) y reflejarse en el ROI/revenue de Analytics.
+
+---
+
+## ═══ 🧨 DEUDA TÉCNICA Y TRAMPAS (leer antes de tocar escalonados) ═══
+
+> Actualizado 2026-07-25. Cada punto dice **dónde** está y **qué pasa si se ignora**.
+
+### 1. ⚠️ `"Descuento por cantidad"` está DUPLICADO en 3 sitios — deben ser idénticos
+
+| Sitio | Rol |
+|---|---|
+| `app/lib/discounts/tiered-form.ts:74` | lo escribe en el config al crear/editar la campaña |
+| `extensions/tiered-discount/src/cart_lines_discounts_generate_run.ts:109` | *fallback* de la Function si el config no trae `message` |
+| `TIERED_DEFAULT_MESSAGE` en `app/lib/discounts/tiered-client.ts` | lo espera la atribución del webhook |
+
+**Si alguien cambia uno solo, la atribución deja de cruzar y Analytics vuelve a marcar $0**, en silencio y sin error. No se unificó porque el tercero vive dentro de la Function y tocarlo obliga a `shopify app deploy` + release a todos los merchants. **Unificar el día que se toque la Function por otro motivo.**
+
+### 2. ⚠️ Bug latente: colección VACÍA descuenta TODO el catálogo
+
+Para la Function, **lista de productos vacía = toda la tienda** (`cart_lines_discounts_generate_run.ts:77`, `includeIds.size > 0`). Y `resolveTieredProductIds()` devuelve lista vacía si la colección elegida no tiene productos. Resultado: **una campaña escalonada sobre una colección vacía aplica el descuento a la tienda entera.**
+
+No está arreglado. Riesgo real en cuanto un merchant cree un escalonado sobre una colección recién creada o ya vaciada. El arreglo natural es distinguir "vacío porque es modo *all*" de "vacío porque no resolvió nada" — hoy el config no lo distingue.
+
+### 3. Dashboard de Inicio: el contador viejo sigue ahí
+
+El fix del contador (commit `94b19a6`) **solo tocó el listado de Campañas**. En `app/routes/app._index.tsx` quedan dos sitios mostrando 0 para TIERED:
+
+- **Tabla de campañas recientes** (línea ~465): usa `c.productsCount`. El fix aplica igual, con un paso extra: el loader (líneas ~74-81) **no devuelve `config`**, hay que añadirlo para que `tieredProductsLabel()` pueda leerlo.
+- **KPI "Productos en descuento"** (líneas ~41-43): es un `prisma.campaignProduct.count()` sobre todas las campañas activas → **TIERED y BXGY aportan 0 al total**. Este **no** es calco del anterior: `CampaignProduct` guarda una fila por **variante** y `config.productIds` son **productos**; sumarlos mezclaría unidades. Necesita decisión propia antes de tocarlo.
+
+### 4. Cómo funciona HOY la atribución de TIERED (diseño vigente)
+
+El diseño original —cruzar `discount_applications[].title` contra `[DiscountFlow] <nombre>`— **era incorrecto**. Confirmado con pedido real: Shopify publica ahí el **`message` de la Function**, que es idéntico en todas las campañas escalonadas. Lo que hay ahora en `app/routes/webhooks.orders.create.tsx`, bloque 3:
+
+1. **El título solo DESCARTA, nunca elige.** Se consideran únicamente las applications `automatic` cuyo `title` coincida con el `message` de alguna campaña TIERED activa → deja fuera los descuentos del merchant o de otras apps, que si no inflarían el revenue.
+2. **Quien ASIGNA la campaña es el cruce por PRODUCTOS**: `tieredAppliesToProduct()` replica la regla exacta de la Function (lista vacía = toda la tienda, y respeta `excludeProductIds`). El webhook manda el `product_id` **numérico** y el config guarda **GIDs**: hay que normalizar a `gid://shopify/Product/N` o no cruza nada.
+3. **Se suman TODAS las allocations de la campaña.** La Function emite un candidate **por línea**, así que un pedido de 3 líneas trae 3 applications de la misma campaña. La versión anterior cogía solo la primera (`find`) → importe a ⅓. El `orderAmount` lleva un `Set` de líneas para no contarlas dos veces.
+4. **Ante ambigüedad no se atribuye.** Si dos campañas activas pueden explicar el mismo descuento (productos solapados, o una en modo "toda la tienda"), no se asigna a ninguna y queda en el log. Decisión explícita: **mejor un hueco visible que dinero en la campaña equivocada**.
+
+> El payload REST de `orders/create` **no trae el ID del descuento**, así que no se puede cruzar contra `shopifyDiscountId`. Por eso no hay una vía exacta y hay que convivir con la ambigüedad.
+
+### 5. Logs temporales todavía activos
+
+`[tiered-debug]` y `[tiered-attribution]` siguen puestos. **Quitar en cuanto la atribución quede validada en producción** — ver la lista de Limpieza pendiente arriba, que detalla los archivos exactos.
 
 ---
 

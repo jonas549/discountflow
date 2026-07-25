@@ -1,7 +1,11 @@
 import type { ActionFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 import { prisma } from "../lib/db";
-import { matchesTieredDiscountTitle } from "../lib/discounts/tiered-client";
+import {
+  tieredAppliesToProduct,
+  tieredDiscountMessage,
+  type TieredCampaignConfig,
+} from "../lib/discounts/tiered-client";
 
 // Campos del payload orders/create que necesitamos (sin PII de cliente).
 // Level 1 Protected Customer Data — aprobado 2026-05.
@@ -145,75 +149,124 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   // ── 3. Campañas TIERED (descuentos escalonados) ──────────────────────────
   // Los descuentos de Shopify Functions llegan en discount_applications igual
-  // que los automáticos nativos. Dos diferencias deliberadas con el bloque de
-  // arriba, y ninguna toca a BXGY:
+  // que los automáticos nativos, pero NO se pueden identificar por título.
+  // Verificado con un pedido real (2026-07-25): Shopify publica ahí el
+  // `message` de la Function ("Descuento por cantidad"), que es idéntico en
+  // todas las campañas escalonadas. Tres consecuencias, ninguna toca a BXGY:
   //
-  //   1. El cruce usa el TÍTULO REAL del descuento —"[DiscountFlow] <nombre>"—
-  //      a través de matchesTieredDiscountTitle(), en vez del nombre pelado.
-  //   2. El importe sale de las discount_allocations de cada línea, no de
-  //      total_price / total_discounts, que atribuirían el pedido entero y
-  //      todos los descuentos ajenos a esta campaña.
+  //   1. Quien ASIGNA la campaña es el cruce por PRODUCTOS
+  //      (tieredAppliesToProduct). El título solo DESCARTA los descuentos
+  //      automáticos ajenos —del merchant u otras apps—, nunca elige.
+  //   2. La Function emite un candidate POR LÍNEA, así que un mismo pedido
+  //      trae VARIAS applications de la misma campaña: hay que sumarlas todas.
+  //      Contar solo la primera daba el importe a una fracción del real.
+  //   3. Si dos campañas activas pueden explicar el mismo descuento, no se
+  //      atribuye a ninguna y queda registrado en el log.
+  //
+  // El importe sale de las discount_allocations de cada línea, no de
+  // total_price / total_discounts, que atribuirían el pedido entero.
 
-  const automaticApps = (order.discount_applications ?? [])
-    // El índice se calcula ANTES de filtrar: discount_application_index apunta
-    // a la posición en el array original.
-    .map((da, index) => ({ ...da, index }))
-    .filter((da) => da.type === "automatic" && da.title);
+  const applications = order.discount_applications ?? [];
 
-  if (automaticApps.length > 0) {
+  if (applications.length > 0) {
     const tieredCampaigns = await prisma.campaign.findMany({
       where: { shopId: shopRecord.id, status: "ACTIVE", type: "TIERED" },
     });
 
     if (tieredCampaigns.length > 0) {
-      // TEMPORAL — verificación con el primer pedido real en producción.
-      // Todavía no está confirmado si Shopify manda aquí el título del
-      // descuento o el `message` de la Function. Este log lo resuelve de un
-      // vistazo; quitar una vez validado.
+      const configOf = (c: { config: unknown }) =>
+        c.config as TieredCampaignConfig;
+
+      // Acumulado por campaña. `lines` evita sumar dos veces el importe de una
+      // línea que recibiera más de una asignación de la MISMA campaña.
+      const totals = new Map<
+        string,
+        { orderAmount: number; discountAmount: number; lines: Set<number> }
+      >();
+      const ambiguas: Array<{ producto: number; entre: string[] }> = [];
+
+      for (const [lineIndex, lineItem] of order.line_items.entries()) {
+        if (lineItem.product_id == null) continue;
+        // El webhook manda el id numérico; el config guarda GIDs.
+        const productGid = `gid://shopify/Product/${lineItem.product_id}`;
+
+        for (const allocation of lineItem.discount_allocations ?? []) {
+          // El índice apunta a la posición en el array ORIGINAL de
+          // discount_applications, sin filtrar.
+          const app = applications[allocation.discount_application_index];
+          if (!app || app.type !== "automatic") continue;
+
+          // (a) Descarte por título: deja fuera los descuentos automáticos
+          //     ajenos (del merchant u otras apps). NO elige campaña — el
+          //     título es idéntico en todas las escalonadas.
+          const propias = tieredCampaigns.filter(
+            (c) => app.title === tieredDiscountMessage(configOf(c))
+          );
+          if (propias.length === 0) continue;
+
+          // (b) Asignación real: por productos.
+          const candidatas = propias.filter((c) =>
+            tieredAppliesToProduct(configOf(c), productGid)
+          );
+          if (candidatas.length === 0) continue;
+          if (candidatas.length > 1) {
+            // Sin certeza no se atribuye: mejor un hueco visible en Analytics
+            // que dinero asignado a la campaña equivocada.
+            ambiguas.push({
+              producto: lineItem.product_id,
+              entre: candidatas.map((c) => c.name),
+            });
+            continue;
+          }
+
+          const campaign = candidatas[0];
+          const acc = totals.get(campaign.id) ?? {
+            orderAmount: 0,
+            discountAmount: 0,
+            lines: new Set<number>(),
+          };
+          if (!acc.lines.has(lineIndex)) {
+            acc.lines.add(lineIndex);
+            acc.orderAmount += Number(lineItem.price) * lineItem.quantity;
+          }
+          acc.discountAmount += Number(allocation.amount);
+          totals.set(campaign.id, acc);
+        }
+      }
+
+      // TEMPORAL [tiered-attribution] — quitar tras validar con un pedido real.
       console.log(
-        "[tiered-attribution] títulos recibidos:",
-        JSON.stringify(automaticApps.map((d) => d.title)),
-        "| campañas activas:",
-        JSON.stringify(tieredCampaigns.map((c) => c.name))
+        "[tiered-attribution]",
+        JSON.stringify({
+          titulosAutomaticos: applications
+            .filter((a) => a.type === "automatic")
+            .map((a) => a.title),
+          campanasActivas: tieredCampaigns.map((c) => c.name),
+          atribuido: [...totals.entries()].map(([id, acc]) => ({
+            campana: tieredCampaigns.find((c) => c.id === id)?.name,
+            lineas: acc.lines.size,
+            orderAmount: acc.orderAmount,
+            discountAmount: acc.discountAmount,
+          })),
+          ambiguasSinAtribuir: ambiguas,
+        })
       );
 
-      for (const campaign of tieredCampaigns) {
-        const app = automaticApps.find((da) =>
-          matchesTieredDiscountTitle(da.title, campaign.name)
-        );
-        if (!app) continue;
-
-        // Solo las líneas que recibieron una asignación de ESTE descuento.
-        let orderAmountForCampaign = 0;
-        let discountAmountForCampaign = 0;
-
-        for (const lineItem of order.line_items) {
-          const allocations = (lineItem.discount_allocations ?? []).filter(
-            (a) => a.discount_application_index === app.index
-          );
-          if (allocations.length === 0) continue;
-
-          orderAmountForCampaign += Number(lineItem.price) * lineItem.quantity;
-          discountAmountForCampaign += allocations.reduce(
-            (sum, a) => sum + Number(a.amount),
-            0
-          );
-        }
-
-        if (orderAmountForCampaign <= 0) continue;
+      for (const [campaignId, acc] of totals) {
+        if (acc.orderAmount <= 0) continue;
 
         await prisma.orderAttribution.upsert({
           where: {
             campaignId_shopifyOrderId: {
-              campaignId: campaign.id,
+              campaignId,
               shopifyOrderId: orderId,
             },
           },
           create: {
-            campaignId: campaign.id,
+            campaignId,
             shopifyOrderId: orderId,
-            orderAmount: orderAmountForCampaign,
-            discountAmount: discountAmountForCampaign,
+            orderAmount: acc.orderAmount,
+            discountAmount: acc.discountAmount,
             currency: order.currency ?? "USD",
           },
           update: {},
