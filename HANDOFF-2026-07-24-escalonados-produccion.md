@@ -1,6 +1,9 @@
 # 🚀 HANDOFF — Descuentos Escalonados en producción (2026-07-24, cierre de jornada)
 
-> **Este es el handoff vigente.** El anterior (`HANDOFF-2026-07-24.md`) cubre solo el montaje del ambiente dev y quedó obsoleto a media jornada.
+> # 📍 EL HANDOFF VIGENTE ES [`HANDOFF-2026-07-25-atribucion-y-contador.md`](HANDOFF-2026-07-25-atribucion-y-contador.md)
+> Empieza por ahí. **Este archivo NO está obsoleto:** su sección **🧨 DEUDA TÉCNICA Y TRAMPAS** es la referencia a nivel de código de las trampas que siguen vivas, y el diagnóstico del incidente de `combinesWith` sigue vigente. Lo que sí quedó superado es el estado de producción: hoy es `9822f30`, no `0d138a2`.
+
+> El handoff que este archivo superó (`HANDOFF-2026-07-24.md`) cubre solo el montaje del ambiente dev y quedó obsoleto a media jornada del 24.
 > Registro completo de la sesión: [`docs/sesiones/2026-07-24-escalonados-y-deploy-produccion.md`](docs/sesiones/2026-07-24-escalonados-y-deploy-produccion.md)
 > Análisis técnico y decisiones de la feature: [`docs/PLAN-descuentos-escalonados.md`](docs/PLAN-descuentos-escalonados.md)
 
