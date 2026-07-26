@@ -30,8 +30,11 @@ import {
   type BxgyYMode,
 } from "../lib/discounts/bxgy";
 import type { SelectionMode } from "../lib/discounts/percentage";
-import { type Plan, PLAN_LIMITS } from "../lib/billing/plan-limits";
-import { getActiveCampaignCount } from "../lib/billing/plan-limits.server";
+import { type Plan, PLAN_LIMITS, getTypeCampaignLimit } from "../lib/billing/plan-limits";
+import {
+  getActiveCampaignCount,
+  getActiveCampaignCountByType,
+} from "../lib/billing/plan-limits.server";
 import { es } from "../i18n";
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
@@ -175,6 +178,21 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         { errors: { general: es.planes.limiteCampanas(activeCount, limits.campaigns) }, limitExceeded: true },
         { status: 422 }
       );
+    }
+
+    // Sublímite por tipo: máximo de BxGy ACTIVOS simultáneos. null = sin tope.
+    const typeLimit = getTypeCampaignLimit(plan, "BXGY");
+    if (typeLimit !== null) {
+      const activeBxgy = await getActiveCampaignCountByType(shop.id, "BXGY");
+      if (activeBxgy >= typeLimit) {
+        return Response.json(
+          {
+            errors: { general: es.planes.limiteCampanasTipo("BxGy", activeBxgy, typeLimit) },
+            limitExceeded: true,
+          },
+          { status: 422 }
+        );
+      }
     }
   }
 

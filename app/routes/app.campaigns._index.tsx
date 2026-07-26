@@ -41,8 +41,13 @@ import {
 } from "../lib/discounts/range";
 import { es, estadoLabel, tipoLabel, formatDate } from "../i18n";
 import { Btn, LinkBtn } from "../components/Btn";
-import { PLAN_LIMITS, type Plan } from "../lib/billing/plan-limits";
-import { getActiveCampaignCount } from "../lib/billing/plan-limits.server";
+import { PLAN_LIMITS, type Plan, getTypeCampaignLimit } from "../lib/billing/plan-limits";
+import {
+  getActiveCampaignCount,
+  getVariantCount,
+  getCampaignVariantCount,
+  getActiveCampaignCountByType,
+} from "../lib/billing/plan-limits.server";
 import { useSearchParams } from "react-router";
 
 // ─── Action ───────────────────────────────────────────────────────────────────
@@ -92,6 +97,50 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           },
           { status: 422 }
         );
+      }
+
+      // Límite de variantes. Solo PERCENTAGE y RANGE: son los únicos tipos que
+      // crean filas en CampaignProduct (BXGY y TIERED no editan precios de
+      // variantes, así que aportan 0 y quedan fuera de este check).
+      //
+      // La campaña está PAUSED aquí, de modo que getVariantCount —que solo
+      // cuenta campañas ACTIVE— NO la incluye: hay que sumarla para saber el
+      // total con el que quedaría la tienda tras reactivar.
+      if (campaign.type === "PERCENTAGE" || campaign.type === "RANGE") {
+        const variantsAfter =
+          (await getVariantCount(shop.id)) + (await getCampaignVariantCount(campaignId));
+        if (variantsAfter > PLAN_LIMITS[plan].variants) {
+          return Response.json(
+            {
+              error: es.planes.limiteVariantes(variantsAfter, PLAN_LIMITS[plan].variants),
+              limitExceeded: true,
+            },
+            { status: 422 }
+          );
+        }
+      }
+
+      // BXGY y TIERED se topan por CANTIDAD de campañas activas de su tipo, no
+      // por variantes (no crean filas en CampaignProduct). La campaña está
+      // PAUSED aquí, así que no se cuenta a sí misma.
+      if (campaign.type === "BXGY" || campaign.type === "TIERED") {
+        const typeLimit = getTypeCampaignLimit(plan, campaign.type);
+        if (typeLimit !== null) {
+          const activeOfType = await getActiveCampaignCountByType(shop.id, campaign.type);
+          if (activeOfType >= typeLimit) {
+            return Response.json(
+              {
+                error: es.planes.limiteCampanasTipo(
+                  campaign.type === "BXGY" ? "BxGy" : "escalonadas",
+                  activeOfType,
+                  typeLimit
+                ),
+                limitExceeded: true,
+              },
+              { status: 422 }
+            );
+          }
+        }
       }
       if (campaign.type === "PERCENTAGE") {
         await reactivatePercentageDiscount(admin, campaignId);

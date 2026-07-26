@@ -24,7 +24,12 @@ import {
 } from "../lib/discounts/percentage";
 import { getCollections, getProductMetadata, getProductsByIds } from "../lib/shopify/admin-api";
 import { PLAN_LIMITS, type Plan } from "../lib/billing/plan-limits";
-import { getActiveCampaignCount } from "../lib/billing/plan-limits.server";
+import {
+  getActiveCampaignCount,
+  getVariantCount,
+  getCampaignVariantCount,
+} from "../lib/billing/plan-limits.server";
+import { isPlanLimitError } from "../lib/billing/plan-limit-error";
 import { es } from "../i18n";
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
@@ -206,15 +211,44 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
       ? new Set(excluded.flatMap((p) => (p.variants ?? []).map((v) => v.id)))
       : undefined;
 
-  // Plan enforcement — only when transitioning to ACTIVE from a non-active state
-  if (shouldActivate && existing.status !== "ACTIVE") {
+  // Plan enforcement — only when transitioning to ACTIVE from a non-active state.
+  // CRÍTICO: este bloque debe quedar ANTES del revert de precios de más abajo.
+  // Por debajo de ese punto los precios ya están revertidos en Shopify y los
+  // originales de CampaignProduct se borran, así que abortar ahí dejaría la
+  // campaña en un estado irrecuperable.
+  let otherVariants = 0;
+  let variantLimit = 0;
+  let remainingVariants: number | undefined;
+  if (shouldActivate) {
     const plan = (shop.plan as Plan) || "FREE";
-    const activeCount = await getActiveCampaignCount(shop.id);
-    if (activeCount >= PLAN_LIMITS[plan].campaigns) {
-      return Response.json(
-        { errors: { general: es.planes.limiteCampanas(activeCount, PLAN_LIMITS[plan].campaigns) }, limitExceeded: true },
-        { status: 422 }
-      );
+    variantLimit = PLAN_LIMITS[plan].variants;
+
+    // Variantes de las OTRAS campañas activas. Si esta ya está ACTIVE, sus
+    // propias filas están dentro de getVariantCount y hay que descontarlas: se
+    // van a reemplazar, no a sumar.
+    const own = await getCampaignVariantCount(campaignId);
+    otherVariants =
+      (await getVariantCount(shop.id)) - (existing.status === "ACTIVE" ? own : 0);
+    remainingVariants = variantLimit - otherVariants;
+
+    if (existing.status !== "ACTIVE") {
+      const activeCount = await getActiveCampaignCount(shop.id);
+      if (activeCount >= PLAN_LIMITS[plan].campaigns) {
+        return Response.json(
+          { errors: { general: es.planes.limiteCampanas(activeCount, PLAN_LIMITS[plan].campaigns) }, limitExceeded: true },
+          { status: 422 }
+        );
+      }
+
+      // Camino "sin selección nueva": más abajo se reactivan las filas ya
+      // guardadas y NO se pasa por applyPercentageDiscount, así que el límite
+      // hay que comprobarlo aquí sobre esas filas.
+      if (otherVariants + own > variantLimit) {
+        return Response.json(
+          { errors: { general: es.planes.limiteVariantes(otherVariants + own, variantLimit) }, limitExceeded: true },
+          { status: 422 }
+        );
+      }
     }
   }
 
@@ -268,12 +302,24 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
           selectedVendors: selectionMode === "vendors" ? selectedVendors : undefined,
           selectedProductTypes: selectionMode === "productTypes" ? selectedProductTypes : undefined,
           excludedVariantIds,
+          maxVariants: remainingVariants,
         });
       } catch (err) {
         await prisma.campaign.update({
           where: { id: campaignId },
           data: { status: "DRAFT" },
         });
+        if (isPlanLimitError(err)) {
+          return Response.json(
+            {
+              errors: {
+                general: es.planes.limiteVariantes(otherVariants + err.requested, variantLimit),
+              },
+              limitExceeded: true,
+            },
+            { status: 422 }
+          );
+        }
         return Response.json(
           { errors: { general: `Error al aplicar el descuento: ${String(err)}` } },
           { status: 500 }

@@ -41,7 +41,12 @@ import {
 } from "../lib/shopify/admin-api";
 import { es } from "../i18n";
 import { PLAN_LIMITS, type Plan } from "../lib/billing/plan-limits";
-import { getActiveCampaignCount } from "../lib/billing/plan-limits.server";
+import {
+  getActiveCampaignCount,
+  getVariantCount,
+  getCampaignVariantCount,
+} from "../lib/billing/plan-limits.server";
+import { isPlanLimitError } from "../lib/billing/plan-limit-error";
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
@@ -188,14 +193,42 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   const isScheduled = campaignStartsAt !== null && campaignStartsAt > new Date();
   const shouldActivate = intent === "activate" && !isScheduled;
 
-  if (shouldActivate && existing.status !== "ACTIVE") {
+  // CRÍTICO: este bloque debe quedar ANTES del revert de precios de más abajo.
+  // Por debajo de ese punto los precios ya están revertidos en Shopify y los
+  // originales de CampaignProduct se borran, así que abortar ahí dejaría la
+  // campaña en un estado irrecuperable.
+  let otherVariants = 0;
+  let variantLimit = 0;
+  let remainingVariants: number | undefined;
+  if (shouldActivate) {
     const plan = (shop.plan as Plan) || "FREE";
-    const activeCount = await getActiveCampaignCount(shop.id);
-    if (activeCount >= PLAN_LIMITS[plan].campaigns) {
-      return Response.json(
-        { errors: { general: es.planes.limiteCampanas(activeCount, PLAN_LIMITS[plan].campaigns) }, limitExceeded: true },
-        { status: 422 }
-      );
+    variantLimit = PLAN_LIMITS[plan].variants;
+
+    // Variantes de las OTRAS campañas activas. Si esta ya está ACTIVE, sus
+    // filas están dentro de getVariantCount y hay que descontarlas: se van a
+    // reemplazar, no a sumar.
+    const own = await getCampaignVariantCount(campaignId);
+    otherVariants =
+      (await getVariantCount(shop.id)) - (existing.status === "ACTIVE" ? own : 0);
+    remainingVariants = variantLimit - otherVariants;
+
+    if (existing.status !== "ACTIVE") {
+      const activeCount = await getActiveCampaignCount(shop.id);
+      if (activeCount >= PLAN_LIMITS[plan].campaigns) {
+        return Response.json(
+          { errors: { general: es.planes.limiteCampanas(activeCount, PLAN_LIMITS[plan].campaigns) }, limitExceeded: true },
+          { status: 422 }
+        );
+      }
+
+      // Camino "sin selección nueva": abajo se reactivan las filas guardadas
+      // sin pasar por applyRangeDiscount, así que el límite se comprueba aquí.
+      if (otherVariants + own > variantLimit) {
+        return Response.json(
+          { errors: { general: es.planes.limiteVariantes(otherVariants + own, variantLimit) }, limitExceeded: true },
+          { status: 422 }
+        );
+      }
     }
   }
 
@@ -254,10 +287,22 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
           selectedVendors: selectionMode === "vendors" ? selectedVendors : undefined,
           selectedProductTypes: selectionMode === "productTypes" ? selectedProductTypes : undefined,
           excludedVariantIds,
+          maxVariants: remainingVariants,
         });
         skipped = result.skipped;
       } catch (err) {
         await prisma.campaign.update({ where: { id: campaignId }, data: { status: "DRAFT" } });
+        if (isPlanLimitError(err)) {
+          return Response.json(
+            {
+              errors: {
+                general: es.planes.limiteVariantes(otherVariants + err.requested, variantLimit),
+              },
+              limitExceeded: true,
+            },
+            { status: 422 }
+          );
+        }
         return Response.json(
           { errors: { general: `Error al aplicar el descuento: ${String(err)}` } },
           { status: 500 }

@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
 import { bulkUpdateVariantPrices } from "../shopify/admin-api";
+import { PlanLimitError } from "../billing/plan-limit-error";
 import {
   resolveVariants,
   type SelectionMode,
@@ -37,6 +38,12 @@ export type RangeCampaignOptions = {
   selectedVendors?: string[];
   selectedProductTypes?: string[];
   excludedVariantIds?: Set<string>;
+  /**
+   * Cuota de variantes que aún cabe en el plan. Si se pasa y la selección
+   * resuelve más, se lanza PlanLimitError ANTES de escribir nada. Omitirlo
+   * desactiva la comprobación (comportamiento anterior).
+   */
+  maxVariants?: number;
 };
 
 const MIN_PRICE = 1.0;
@@ -60,6 +67,23 @@ export async function applyRangeDiscount(
   };
 
   const variantBatches = await resolveVariants(admin, resolveOpts);
+
+  // ENFORCEMENT DE PLAN — después de resolver y ANTES del bucle, que es donde
+  // empiezan los upsert y las escrituras de precios. Lanzar aquí no deja rastro.
+  //
+  // Cuenta las variantes RESUELTAS (menos las excluidas). En modo rango algunas
+  // se descartan luego dentro del bucle porque el precio no supondría descuento,
+  // así que esto es una cota superior: puede bloquear un pelín antes de lo
+  // estricto, nunca de más. Se prefiere así a duplicar aquí la lógica de precios,
+  // que acabaría divergiendo del bucle real.
+  if (opts.maxVariants !== undefined) {
+    const total = variantBatches.reduce(
+      (n, b) => n + b.variants.filter((v) => !opts.excludedVariantIds?.has(v.id)).length,
+      0
+    );
+    if (total > opts.maxVariants) throw new PlanLimitError(total, opts.maxVariants);
+  }
+
   const errors: string[] = [];
   let applied = 0;
   let skipped = 0;

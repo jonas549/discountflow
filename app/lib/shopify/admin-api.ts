@@ -112,34 +112,107 @@ export async function getAllProductVariants(
   return results;
 }
 
-// Apply bulk variant price update for a single product.
-// Returns user errors if any; throws on network/API failure.
+// ─── Bulk variant price update ────────────────────────────────────────────────
+
+/** Reintentos ante THROTTLED. El bucket de Shopify recupera 50 pts/s y una
+ *  mutación cuesta ~10, así que medio segundo suele bastar; el backoff
+ *  exponencial cubre las ráfagas largas (cientos de productos seguidos). */
+const THROTTLE_MAX_RETRIES = 4;
+const THROTTLE_BASE_DELAY_MS = 500;
+
+type GraphqlError = { message?: string; extensions?: { code?: string } };
+
+function isThrottled(errors: GraphqlError[] | undefined): boolean {
+  if (!errors?.length) return false;
+  return errors.some(
+    (e) => e?.extensions?.code === "THROTTLED" || /throttl/i.test(e?.message ?? "")
+  );
+}
+
+function delay(ms: number): Promise<void> {
+  // eslint-disable-next-line no-undef
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Aplica precios a las variantes de UN producto.
+ *
+ * LANZA ante cualquier forma de fallo. Antes devolvía `json.data?.… ?? []`, lo
+ * que se tragaba en silencio los errores de GraphQL y los `userErrors`: el
+ * llamador sumaba las variantes como aplicadas/revertidas aunque Shopify no
+ * hubiera cambiado nada. Es el mismo patrón de error tragado que ocultó el bug
+ * del modo INCREMENTAL, y aquí es más grave: un revert que miente deja precios
+ * rebajados vivos mientras la campaña figura como pausada.
+ *
+ * Las tres formas de fallar (igual que runDiscountMutation en tiered.ts):
+ *   1. json.errors            → la consulta ni se ejecutó
+ *   2. data[root] ausente     → respuesta inesperada
+ *   3. userErrors             → Shopify rechazó los datos
+ *
+ * THROTTLED se trata aparte: no es un fallo, es "espera y reintenta".
+ */
 export async function bulkUpdateVariantPrices(
   admin: { graphql: (q: string, o?: { variables: unknown }) => Promise<Response> },
   productId: string,
   variants: VariantUpdate[]
-): Promise<{ id: string; userErrors: { field: string; message: string }[] }[]> {
-  const res = await admin.graphql(
-    `#graphql
+): Promise<Array<{ id: string; price: string; compareAtPrice: string | null }>> {
+  const query = `#graphql
     mutation BulkUpdateVariants($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
       productVariantsBulkUpdate(productId: $productId, variants: $variants) {
         productVariants { id price compareAtPrice }
         userErrors { field message }
       }
-    }`,
-    {
-      variables: {
-        productId,
-        variants: variants.map((v) => ({
-          id: v.id,
-          price: v.price,
-          compareAtPrice: v.compareAtPrice,
-        })),
-      },
+    }`;
+  const graphqlVariables = {
+    productId,
+    variants: variants.map((v) => ({
+      id: v.id,
+      price: v.price,
+      compareAtPrice: v.compareAtPrice,
+    })),
+  };
+
+  for (let attempt = 0; ; attempt++) {
+    const res = await admin.graphql(query, { variables: graphqlVariables });
+    const json = await res.json();
+    const errors: GraphqlError[] | undefined = json.errors;
+
+    if (isThrottled(errors)) {
+      if (attempt >= THROTTLE_MAX_RETRIES)
+        throw new Error(
+          `Shopify sigue limitando la petición (THROTTLED) tras ${
+            THROTTLE_MAX_RETRIES + 1
+          } intentos en el producto ${productId}.`
+        );
+      await delay(THROTTLE_BASE_DELAY_MS * 2 ** attempt);
+      continue;
     }
-  );
-  const json = await res.json();
-  return json.data?.productVariantsBulkUpdate ?? [];
+
+    if (errors?.length)
+      throw new Error(
+        `Shopify rechazó la consulta (productVariantsBulkUpdate, producto ${productId}): ${errors
+          .map((e) => e.message ?? "error sin mensaje")
+          .join(", ")}`
+      );
+
+    const payload = json.data?.productVariantsBulkUpdate;
+    if (!payload)
+      throw new Error(
+        `Shopify no devolvió datos para productVariantsBulkUpdate (producto ${productId}).`
+      );
+
+    const userErrors = payload.userErrors as
+      | Array<{ field?: string; message: string }>
+      | undefined;
+    if (userErrors?.length)
+      throw new Error(
+        `Shopify rechazó los precios del producto ${productId}: ${userErrors
+          .map((e) => e.message)
+          .join(", ")}`
+      );
+
+    return payload.productVariants ?? [];
+  }
 }
 
 // Get unique tags, vendors, and product types from the store (up to 250 products).

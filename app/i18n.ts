@@ -363,6 +363,8 @@ export const es = {
       `Límite alcanzado: tienes ${current} de ${limit} campañas disponibles en tu plan. Actualiza para crear más.`,
     limiteVariantes: (current: number, limit: number) =>
       `Límite alcanzado: tienes ${current.toLocaleString("en-US")} de ${limit.toLocaleString("en-US")} variantes en uso. Actualiza para incluir más productos.`,
+    limiteCampanasTipo: (tipo: string, current: number, limit: number) =>
+      `Tienes ${current} de ${limit} campañas ${tipo} activas en tu plan. Pausa una para activar esta, o actualiza tu plan.`,
     verPlanes: "Ver planes",
     dashCard: {
       titulo: "Tu plan actual",

@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../db";
+import { PlanLimitError } from "../billing/plan-limit-error";
 import {
   getProductVariants,
   getCollectionProductVariants,
@@ -37,6 +38,12 @@ export type PercentageCampaignOptions = {
   selectedVendors?: string[];
   selectedProductTypes?: string[];
   excludedVariantIds?: Set<string>;
+  /**
+   * Cuota de variantes que aún cabe en el plan. Si se pasa y la selección
+   * resuelve más, se lanza PlanLimitError ANTES de escribir nada. Omitirlo
+   * desactiva la comprobación (comportamiento anterior).
+   */
+  maxVariants?: number;
 };
 
 // Resolve all affected variants based on selection mode.
@@ -99,6 +106,19 @@ export async function applyPercentageDiscount(
   opts: PercentageCampaignOptions
 ): Promise<{ applied: number; errors: string[] }> {
   const variantBatches = await resolveVariants(admin, opts);
+
+  // ENFORCEMENT DE PLAN — va aquí a propósito: después de resolver (es la
+  // primera vez que se sabe cuántas variantes son) y ANTES del bucle, que es
+  // donde empiezan los upsert a la BD y las escrituras de precios en Shopify.
+  // Lanzar en este punto deja cero efectos secundarios.
+  if (opts.maxVariants !== undefined) {
+    const total = variantBatches.reduce(
+      (n, b) => n + b.variants.filter((v) => !opts.excludedVariantIds?.has(v.id)).length,
+      0
+    );
+    if (total > opts.maxVariants) throw new PlanLimitError(total, opts.maxVariants);
+  }
+
   const errors: string[] = [];
   let applied = 0;
 

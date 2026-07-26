@@ -29,7 +29,8 @@ import { applyRangeDiscount, type RangeMode } from "../lib/discounts/range";
 import type { SelectedProductInput, SelectionMode } from "../lib/shopify/resolve-variants";
 import { getCollections, getProductMetadata } from "../lib/shopify/admin-api";
 import { type Plan, PLAN_LIMITS } from "../lib/billing/plan-limits";
-import { getActiveCampaignCount } from "../lib/billing/plan-limits.server";
+import { getActiveCampaignCount, getVariantCount } from "../lib/billing/plan-limits.server";
+import { isPlanLimitError } from "../lib/billing/plan-limit-error";
 import { es } from "../i18n";
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
@@ -121,6 +122,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const shouldActivate = intent === "activate" && !isScheduled;
 
   // Plan enforcement — only when activating (drafts are always allowed)
+  let usedVariants = 0;
+  let variantLimit = 0;
+  let remainingVariants: number | undefined;
   if (shouldActivate) {
     const plan = (shop.plan as Plan) || "FREE";
     const limits = PLAN_LIMITS[plan];
@@ -131,6 +135,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         { status: 422 }
       );
     }
+
+    // Cuota libre de variantes. El número real no se conoce hasta resolver
+    // contra Shopify → la comprobación viaja a applyRangeDiscount, que lanza
+    // antes de escribir nada.
+    usedVariants = await getVariantCount(shop.id);
+    variantLimit = limits.variants;
+    remainingVariants = variantLimit - usedVariants;
   }
 
   let excluded: SelectedProductInput[] = [];
@@ -175,10 +186,24 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         selectedVendors: selectionMode === "vendors" ? selectedVendors : undefined,
         selectedProductTypes: selectionMode === "productTypes" ? selectedProductTypes : undefined,
         excludedVariantIds,
+        maxVariants: remainingVariants,
       });
       skipped = result.skipped;
     } catch (err) {
+      // Se borra igual: el límite se lanza ANTES de escribir en Shopify, así
+      // que no queda ningún precio tocado ni fila de CampaignProduct.
       await prisma.campaign.delete({ where: { id: campaign.id } });
+      if (isPlanLimitError(err)) {
+        return Response.json(
+          {
+            errors: {
+              general: es.planes.limiteVariantes(usedVariants + err.requested, variantLimit),
+            },
+            limitExceeded: true,
+          },
+          { status: 422 }
+        );
+      }
       return Response.json(
         { errors: { general: `Error al aplicar el descuento: ${String(err)}` } },
         { status: 500 }

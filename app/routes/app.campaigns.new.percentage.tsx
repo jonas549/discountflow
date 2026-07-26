@@ -22,7 +22,8 @@ import {
 } from "../lib/discounts/percentage";
 import { getCollections, getProductMetadata } from "../lib/shopify/admin-api";
 import { type Plan, PLAN_LIMITS } from "../lib/billing/plan-limits";
-import { getActiveCampaignCount } from "../lib/billing/plan-limits.server";
+import { getActiveCampaignCount, getVariantCount } from "../lib/billing/plan-limits.server";
+import { isPlanLimitError } from "../lib/billing/plan-limit-error";
 import { es } from "../i18n";
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
@@ -122,6 +123,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       : undefined;
 
   // Plan enforcement — only when activating (drafts are always allowed)
+  let usedVariants = 0;
+  let variantLimit = 0;
+  let remainingVariants: number | undefined;
   if (shouldActivate) {
     const plan = (shop.plan as Plan) || "FREE";
     const limits = PLAN_LIMITS[plan];
@@ -132,6 +136,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         { status: 422 }
       );
     }
+
+    // Cuota de variantes que queda libre. El número real de esta campaña no se
+    // conoce hasta resolver contra Shopify, así que la comprobación viaja a
+    // applyPercentageDiscount, que lanza antes de escribir nada.
+    usedVariants = await getVariantCount(shop.id);
+    variantLimit = limits.variants;
+    remainingVariants = variantLimit - usedVariants;
   }
 
   const campaign = await prisma.campaign.create({
@@ -168,9 +179,23 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         selectedVendors: selectionMode === "vendors" ? selectedVendors : undefined,
         selectedProductTypes: selectionMode === "productTypes" ? selectedProductTypes : undefined,
         excludedVariantIds,
+        maxVariants: remainingVariants,
       });
     } catch (err) {
+      // La campaña se borra igual: al lanzarse el límite ANTES de escribir en
+      // Shopify, no queda ni un precio tocado ni una fila de CampaignProduct.
       await prisma.campaign.delete({ where: { id: campaign.id } });
+      if (isPlanLimitError(err)) {
+        return Response.json(
+          {
+            errors: {
+              general: es.planes.limiteVariantes(usedVariants + err.requested, variantLimit),
+            },
+            limitExceeded: true,
+          },
+          { status: 422 }
+        );
+      }
       return Response.json(
         { errors: { general: `Error al aplicar el descuento: ${String(err)}` } },
         { status: 500 }

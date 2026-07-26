@@ -16,8 +16,11 @@ import {
   validateTieredForm,
   buildTieredConfig,
 } from "../lib/discounts/tiered-form";
-import { type Plan, PLAN_LIMITS } from "../lib/billing/plan-limits";
-import { getActiveCampaignCount } from "../lib/billing/plan-limits.server";
+import { type Plan, PLAN_LIMITS, getTypeCampaignLimit } from "../lib/billing/plan-limits";
+import {
+  getActiveCampaignCount,
+  getActiveCampaignCountByType,
+} from "../lib/billing/plan-limits.server";
 import { es } from "../i18n";
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
@@ -70,6 +73,23 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         },
         { status: 422 }
       );
+    }
+
+    // Sublímite por tipo: máximo de escalonados ACTIVOS simultáneos.
+    const typeLimit = getTypeCampaignLimit(plan, "TIERED");
+    if (typeLimit !== null) {
+      const activeTiered = await getActiveCampaignCountByType(shop.id, "TIERED");
+      if (activeTiered >= typeLimit) {
+        return Response.json(
+          {
+            errors: {
+              general: es.planes.limiteCampanasTipo("escalonadas", activeTiered, typeLimit),
+            },
+            limitExceeded: true,
+          },
+          { status: 422 }
+        );
+      }
     }
   }
 
