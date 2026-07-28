@@ -1,4 +1,13 @@
 {
+  "_comentario": [
+    "El 0% funciona en CUALQUIER escalón, no solo en el primero.",
+    "tiers [{1,10%},{2,0%},{3,20%}] con 3 unidades a 100.0",
+    "  1ª -> 10% = 10.0",
+    "  2ª ->  0% =  0.0   <-- precio normal, NO hereda el 10% del nivel de 1",
+    "  3ª -> 20% = 20.0",
+    "Total 30.0.  Con el descarte silencioso del 0 daban 40.0 (la 2ª heredaba",
+    "el 10%), que es justo el bug que este caso protege."
+  ],
   "payload": {
     "export": "cart-lines-discounts-generate-run",
     "target": "cart.lines.discounts.generate.run",
@@ -22,10 +31,10 @@
         "configFallback": null,
         "config": {
           "jsonValue": {
-            "mode": "UNIFORM",
+            "mode": "INCREMENTAL",
             "tiers": [
               { "minQty": 1, "percent": 10 },
-              { "minQty": 2, "percent": 15 },
+              { "minQty": 2, "percent": 0 },
               { "minQty": 3, "percent": 20 }
             ],
             "scope": "all",
@@ -44,7 +53,7 @@
               {
                 "message": "Descuento por cantidad",
                 "targets": [{ "cartLine": { "id": "gid://shopify/CartLine/0" } }],
-                "value": { "percentage": { "value": 20 } }
+                "value": { "fixedAmount": { "amount": 30.0 } }
               }
             ],
             "selectionStrategy": "ALL"

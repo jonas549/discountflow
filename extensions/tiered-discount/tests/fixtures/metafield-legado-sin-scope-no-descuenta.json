@@ -1,4 +1,12 @@
 {
+  "_comentario": [
+    "COMPATIBILIDAD HACIA ATRÁS, resuelta a favor de la seguridad.",
+    "Metafield escrito antes de que existiera 'scope', con la lista vacía.",
+    "No hay forma de saber si el merchant pidió 'toda la tienda' o si su",
+    "resolución falló, así que la Function NO descuenta: un descuento que deja",
+    "de aplicarse se ve y se reporta; uno que aplica de más cuesta dinero en",
+    "silencio. La app reescribe el metafield con 'scope' al guardar la campaña."
+  ],
   "payload": {
     "export": "cart-lines-discounts-generate-run",
     "target": "cart.lines.discounts.generate.run",
@@ -7,8 +15,8 @@
         "lines": [
           {
             "id": "gid://shopify/CartLine/0",
-            "quantity": 3,
-            "cost": { "amountPerQuantity": { "amount": "100.0" } },
+            "quantity": 4,
+            "cost": { "amountPerQuantity": { "amount": "50.0" } },
             "merchandise": {
               "__typename": "ProductVariant",
               "id": "gid://shopify/ProductVariant/1",
@@ -28,7 +36,6 @@
               { "minQty": 2, "percent": 15 },
               { "minQty": 3, "percent": 20 }
             ],
-            "scope": "all",
             "productIds": [],
             "excludeProductIds": [],
             "message": "Descuento por cantidad"
@@ -37,20 +44,7 @@
       }
     },
     "output": {
-      "operations": [
-        {
-          "productDiscountsAdd": {
-            "candidates": [
-              {
-                "message": "Descuento por cantidad",
-                "targets": [{ "cartLine": { "id": "gid://shopify/CartLine/0" } }],
-                "value": { "percentage": { "value": 20 } }
-              }
-            ],
-            "selectionStrategy": "ALL"
-          }
-        }
-      ]
+      "operations": []
     }
   }
 }

@@ -28,6 +28,7 @@ import {
   deactivateTieredDiscount,
   activateTieredDiscount,
   deleteTieredDiscount,
+  updateTieredDiscount,
 } from "../lib/discounts/tiered";
 import {
   tieredDiscountLabel,
@@ -149,6 +150,29 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       } else if (campaign.type === "BXGY" && bxgyId) {
         await activateBxgyDiscount(admin, bxgyId);
       } else if (campaign.type === "TIERED" && tieredId) {
+        // Se REESCRIBE la configuración antes de activar, en vez de solo
+        // activar el descuento existente. Dos motivos:
+        //
+        //  1. Migra los metafields escritos antes de que existiera el campo
+        //     `scope`. Sin esto, una campaña pausada de "toda la tienda" se
+        //     reactivaría con el formato viejo y la puerta de seguridad de la
+        //     Function la dejaría sin descontar nada, en silencio.
+        //  2. Una campaña por colección/tag pudo pasar semanas pausada: sus
+        //     productos se re-resuelven para que refleje la colección de HOY,
+        //     que es justo lo que el merchant espera de ese tipo de campaña.
+        //
+        // Si la selección ya no resuelve ningún producto, esto lanza y la
+        // reactivación falla con un mensaje claro — mejor que activar una
+        // campaña que no descuenta (o que descontaría de más).
+        await updateTieredDiscount(
+          admin,
+          tieredId,
+          campaignId,
+          campaign.name,
+          campaign.config as TieredCampaignConfig,
+          campaign.startsAt,
+          campaign.endsAt
+        );
         await activateTieredDiscount(admin, tieredId);
       }
       await prisma.campaign.update({ where: { id: campaignId }, data: { status: "ACTIVE" } });

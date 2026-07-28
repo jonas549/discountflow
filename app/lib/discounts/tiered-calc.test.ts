@@ -219,7 +219,7 @@ test("normalizeTiers ordena, limpia y colapsa duplicados", () => {
     { minQty: 3, percent: 20 },
     { minQty: 1, percent: 10 },
     { minQty: 0, percent: 50 }, // inválido: minQty < 1
-    { minQty: 2, percent: 0 }, // inválido: percent = 0
+    { minQty: 4, percent: -5 }, // inválido: porcentaje negativo
     { minQty: 1, percent: 12 }, // duplicado: gana el último
   ]);
   assert.deepEqual(out, [
@@ -228,11 +228,128 @@ test("normalizeTiers ordena, limpia y colapsa duplicados", () => {
   ]);
 });
 
+test("normalizeTiers CONSERVA los niveles al 0% (son 'sin descuento', no basura)", () => {
+  // Si el 0 se descartara, sus unidades heredarían el % del nivel anterior y
+  // el "precio normal" que pidió el merchant se convertiría en un descuento.
+  const out = normalizeTiers([
+    { minQty: 1, percent: 0 },
+    { minQty: 2, percent: 10 },
+    { minQty: 3, percent: 15 },
+  ]);
+  assert.deepEqual(out, [
+    { minQty: 1, percent: 0 },
+    { minQty: 2, percent: 10 },
+    { minQty: 3, percent: 15 },
+  ]);
+});
+
 test("resolveTier devuelve el nivel de mayor minQty alcanzado", () => {
   assert.equal(resolveTier(TIERS, 0), null);
   assert.equal(resolveTier(TIERS, 1)?.percent, 10);
   assert.equal(resolveTier(TIERS, 2)?.percent, 15);
   assert.equal(resolveTier(TIERS, 99)?.percent, 20);
+});
+
+// ─── Niveles al 0% — "desde esta cantidad, precio normal" ─────────────────────
+
+const TIERS_PRIMERA_GRATIS = [
+  { minQty: 1, percent: 0 }, // 1ª unidad a precio normal
+  { minQty: 2, percent: 10 },
+  { minQty: 3, percent: 15 },
+  { minQty: 4, percent: 20 },
+];
+
+test("0% en el PRIMER nivel: la 1ª unidad va a precio normal", () => {
+  // 4 × $100 → 0% + 10% + 15% + 20% = $45 de descuento
+  const out = asIncremental(
+    computeTiered("INCREMENTAL", TIERS_PRIMERA_GRATIS, [line("a", 100, 4)])
+  );
+  assert.equal(out.totalDiscount, 45);
+});
+
+test("0% en el PRIMER nivel: comprar 1 sola unidad no genera descuento", () => {
+  const out = asNoDiscount(
+    computeTiered("INCREMENTAL", TIERS_PRIMERA_GRATIS, [line("a", 100, 1)])
+  );
+  assert.equal(out.reason, "zero-discount");
+});
+
+test("0% en un nivel INTERMEDIO: esa unidad no hereda el % del nivel anterior", () => {
+  // Es el caso que el descarte silencioso rompía: sin conservar el 0, la 2ª
+  // unidad heredaba el 10% del nivel de 1.
+  // 3 × $100 → 10% + 0% + 20% = $30
+  const tiers = [
+    { minQty: 1, percent: 10 },
+    { minQty: 2, percent: 0 },
+    { minQty: 3, percent: 20 },
+  ];
+  const out = asIncremental(computeTiered("INCREMENTAL", tiers, [line("a", 100, 3)]));
+  assert.equal(out.totalDiscount, 30);
+});
+
+test("0% en el ÚLTIMO nivel: corta el descuento a partir de esa cantidad", () => {
+  // 5 × $100 → 10% + 15% + 0% + 0% + 0% = $25
+  const tiers = [
+    { minQty: 1, percent: 10 },
+    { minQty: 2, percent: 15 },
+    { minQty: 3, percent: 0 },
+  ];
+  const out = asIncremental(computeTiered("INCREMENTAL", tiers, [line("a", 100, 5)]));
+  assert.equal(out.totalDiscount, 25);
+});
+
+test("0% con el reparto multilínea: la unidad sin descuento es la MÁS CARA", () => {
+  // 2 × $100 y 2 × $50 → orden desc 100,100,50,50 → percents [0,10,15,20]
+  //   línea cara:   0% + 10%  → $10.00
+  //   línea barata: 15% + 20% → $17.50
+  const out = computeTiered("INCREMENTAL", TIERS_PRIMERA_GRATIS, [
+    line("cara", 100, 2),
+    line("barata", 50, 2),
+  ]);
+  assert.equal(amountFor(out, "cara"), 10);
+  assert.equal(amountFor(out, "barata"), 17.5);
+});
+
+test("UNIFORME con el nivel vigente al 0% → sin descuento (no emite un 0%)", () => {
+  // Sin este corte se emitiría un descuento de valor 0 y el comprador vería
+  // una línea de "-$0.00" en el carrito.
+  const tiers = [
+    { minQty: 1, percent: 0 },
+    { minQty: 3, percent: 20 },
+  ];
+  const out = asNoDiscount(computeTiered("UNIFORM", tiers, [line("a", 100, 2)]));
+  assert.equal(out.reason, "zero-discount");
+});
+
+test("UNIFORME por encima del nivel al 0% sí descuenta", () => {
+  const tiers = [
+    { minQty: 1, percent: 0 },
+    { minQty: 3, percent: 20 },
+  ];
+  const out = asUniform(computeTiered("UNIFORM", tiers, [line("a", 100, 3)]));
+  assert.equal(out.tier.percent, 20);
+});
+
+test("todos los niveles al 0% → sin descuento", () => {
+  const tiers = [
+    { minQty: 1, percent: 0 },
+    { minQty: 2, percent: 0 },
+  ];
+  assert.equal(
+    asNoDiscount(computeTiered("INCREMENTAL", tiers, [line("a", 100, 5)])).reason,
+    "zero-discount"
+  );
+  assert.equal(
+    asNoDiscount(computeTiered("UNIFORM", tiers, [line("a", 100, 5)])).reason,
+    "zero-discount"
+  );
+});
+
+test("campaña existente sin ceros: el comportamiento no cambia", () => {
+  // Regresión explícita por Mudrad 2 (SkinUp), 3 niveles INCREMENTAL sin ceros.
+  const out = asIncremental(computeTiered("INCREMENTAL", TIERS, [line("a", 100, 3)]));
+  assert.equal(out.totalDiscount, 45);
+  assert.deepEqual(normalizeTiers(TIERS), TIERS);
 });
 
 // ─── validateTiers ────────────────────────────────────────────────────────────
@@ -248,7 +365,29 @@ test("validateTiers detecta cantidades duplicadas y % fuera de rango", () => {
     { minQty: 2, percent: 150 },
   ]);
   assert.ok(v.errors.some((e) => e.includes("misma cantidad")));
-  assert.ok(v.errors.some((e) => e.includes("entre 1% y 99%")));
+  assert.ok(v.errors.some((e) => e.includes("entre 0% y 99%")));
+});
+
+test("validateTiers ACEPTA un nivel al 0% junto a niveles con descuento", () => {
+  const v = validateTiers([
+    { minQty: 1, percent: 0 },
+    { minQty: 2, percent: 10 },
+    { minQty: 3, percent: 15 },
+  ]);
+  assert.equal(v.errors.length, 0);
+});
+
+test("validateTiers rechaza una campaña con TODOS los niveles al 0%", () => {
+  const v = validateTiers([
+    { minQty: 1, percent: 0 },
+    { minQty: 2, percent: 0 },
+  ]);
+  assert.ok(v.errors.some((e) => e.includes("mayor que 0%")));
+});
+
+test("validateTiers acepta un porcentaje negativo como fuera de rango", () => {
+  const v = validateTiers([{ minQty: 1, percent: -1 }]);
+  assert.ok(v.errors.some((e) => e.includes("entre 0% y 99%")));
 });
 
 test("validateTiers avisa (sin bloquear) si un nivel posterior descuenta menos", () => {

@@ -38,6 +38,7 @@
               { "minQty": 2, "percent": 15 },
               { "minQty": 3, "percent": 20 }
             ],
+            "scope": "selected",
             "productIds": ["gid://shopify/Product/1"],
             "excludeProductIds": [],
             "message": "Descuento por cantidad"

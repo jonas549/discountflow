@@ -1,4 +1,11 @@
 {
+  "_comentario": [
+    "Caso de negocio de SkinUp: la 1ª unidad a precio normal y el descuento",
+    "empezando desde la 2ª.  tiers [{1,0%},{2,10%},{3,15%},{4,20%}]",
+    "4 unidades a 100.0 -> 0 + 10 + 15 + 20 = 45.0",
+    "El nivel al 0% debe SOBREVIVIR a normalizeTiers: si se descartara, la 1ª",
+    "unidad heredaría un porcentaje y dejaría de estar a precio normal."
+  ],
   "payload": {
     "export": "cart-lines-discounts-generate-run",
     "target": "cart.lines.discounts.generate.run",
@@ -7,7 +14,7 @@
         "lines": [
           {
             "id": "gid://shopify/CartLine/0",
-            "quantity": 3,
+            "quantity": 4,
             "cost": { "amountPerQuantity": { "amount": "100.0" } },
             "merchandise": {
               "__typename": "ProductVariant",
@@ -22,11 +29,12 @@
         "configFallback": null,
         "config": {
           "jsonValue": {
-            "mode": "UNIFORM",
+            "mode": "INCREMENTAL",
             "tiers": [
-              { "minQty": 1, "percent": 10 },
-              { "minQty": 2, "percent": 15 },
-              { "minQty": 3, "percent": 20 }
+              { "minQty": 1, "percent": 0 },
+              { "minQty": 2, "percent": 10 },
+              { "minQty": 3, "percent": 15 },
+              { "minQty": 4, "percent": 20 }
             ],
             "scope": "all",
             "productIds": [],
@@ -44,7 +52,7 @@
               {
                 "message": "Descuento por cantidad",
                 "targets": [{ "cartLine": { "id": "gid://shopify/CartLine/0" } }],
-                "value": { "percentage": { "value": 20 } }
+                "value": { "fixedAmount": { "amount": 45.0 } }
               }
             ],
             "selectionStrategy": "ALL"

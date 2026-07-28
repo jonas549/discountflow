@@ -28,7 +28,21 @@ import {
 type TieredFunctionConfig = {
   mode: TierMode;
   tiers: Tier[];
-  /** Productos a los que aplica. Lista VACÍA = toda la tienda. */
+  /**
+   * Alcance EXPLÍCITO de la campaña. Es el único campo que autoriza descontar
+   * todo el catálogo.
+   *
+   *   "all"      → toda la tienda; `productIds` se ignora.
+   *   "selected" → solo los `productIds` listados.
+   *
+   * Antes no existía y "toda la tienda" se INFERÍA de que `productIds` viniera
+   * vacío. Esa inferencia es peligrosa porque una lista vacía tiene dos
+   * orígenes indistinguibles: el merchant eligió "toda la tienda", o la
+   * resolución de su colección/tag falló y devolvió cero. El segundo caso
+   * convertía un fallo silencioso en un descuento a TODO el catálogo.
+   */
+  scope?: 'all' | 'selected';
+  /** Productos a los que aplica cuando `scope` es "selected". */
   productIds?: string[];
   excludeProductIds?: string[];
   /** Texto que ve el cliente en el carrito. */
@@ -65,6 +79,36 @@ export function cartLinesDiscountsGenerateRun(
   const includeIds = new Set(config.productIds ?? []);
   const excludeIds = new Set(config.excludeProductIds ?? []);
 
+  // ── Puerta de seguridad: descontar TODO el catálogo exige permiso explícito ──
+  //
+  // Solo `scope: "all"` autoriza aplicar a toda la tienda. Cualquier otro caso
+  // con la lista de inclusión vacía se trata como "no hay nada que descontar",
+  // NO como "descuéntalo todo".
+  //
+  // Esto cubre las tres formas de llegar aquí con la lista vacía:
+  //   1. La colección del merchant está vacía o se quedó sin productos.
+  //   2. La resolución contra la Admin API falló y devolvió cero productos.
+  //   3. Un metafield antiguo, escrito antes de que existiera `scope`.
+  //
+  // El caso (3) merece una nota: una campaña de "toda la tienda" creada con el
+  // formato viejo deja de aplicar hasta que la app reescriba su metafield (lo
+  // hace al guardar la campaña). Es deliberado. Dejar de descontar es un fallo
+  // que el merchant ve y reporta; descontar el catálogo entero por error le
+  // cuesta dinero en silencio. Ante la duda, se elige el fallo visible.
+  const aplicaATodaLaTienda = config.scope === 'all';
+  if (!aplicaATodaLaTienda && includeIds.size === 0) {
+    console.log(
+      '[tiered-debug] fn SIN-PRODUCTOS-ELEGIBLES',
+      JSON.stringify({
+        motivo:
+          'lista de inclusion vacia sin scope "all" — no se descuenta nada (proteccion)',
+        scope: config.scope ?? null,
+        lineasCarrito: input.cart.lines.length,
+      })
+    );
+    return NO_DISCOUNT;
+  }
+
   const applicable: ApplicableLine[] = [];
   for (const line of input.cart.lines) {
     // Las líneas que no son variantes de producto (ej. tarjetas de regalo
@@ -73,8 +117,8 @@ export function cartLinesDiscountsGenerateRun(
 
     const productId = line.merchandise.product.id;
     if (excludeIds.has(productId)) continue;
-    // includeIds vacío = campaña de toda la tienda.
-    if (includeIds.size > 0 && !includeIds.has(productId)) continue;
+    // Con scope "all" no hay lista que consultar: participan todas las líneas.
+    if (!aplicaATodaLaTienda && !includeIds.has(productId)) continue;
 
     const unitPrice = Number(line.cost.amountPerQuantity.amount);
     if (!Number.isFinite(unitPrice)) continue;
@@ -94,6 +138,8 @@ export function cartLinesDiscountsGenerateRun(
       configLeida: true,
       modo: config.mode,
       tiers: config.tiers?.length ?? 0,
+      scope: config.scope ?? null,
+      aplicaATodaLaTienda,
       includeIds: includeIds.size,
       excludeIds: excludeIds.size,
       lineasAplicables: applicable.length,

@@ -56,7 +56,12 @@ export type TieredOutcome =
       lines: IncrementalLineResult[];
     };
 
-export const MIN_TIER_PERCENT = 1;
+/**
+ * 0 es un valor VÁLIDO y significativo: "desde esta cantidad, sin descuento".
+ * Sirve para dejar la primera unidad a precio normal (1ª 0%, 2ª 10%…) y para
+ * cortar el descuento a partir de cierta cantidad.
+ */
+export const MIN_TIER_PERCENT = 0;
 export const MAX_TIER_PERCENT = 99;
 
 // ─── Helpers de dinero ────────────────────────────────────────────────────────
@@ -74,6 +79,15 @@ function fromCents(cents: number): number {
 /**
  * Deja los tiers en forma canónica: descarta basura, ordena ascendente por
  * minQty y colapsa duplicados (gana el último declarado).
+ *
+ * ⚠️ Un nivel al 0% SE CONSERVA. Antes se descartaba junto con la basura
+ * (`percent <= 0`), y ese descarte no era neutral: al desaparecer el nivel, las
+ * unidades que le correspondían HEREDABAN el porcentaje del nivel anterior. Un
+ * "desde 3 unidades, 0%" acababa descontando lo mismo que el nivel de 2.
+ *
+ * El 0 es un interruptor con significado propio —"desde aquí, precio normal"—
+ * y solo funciona si sobrevive hasta `percentsByUnitIndex`. Lo que sí se
+ * descarta es lo que no es un porcentaje: negativos y valores no finitos.
  */
 export function normalizeTiers(tiers: Tier[] | null | undefined): Tier[] {
   const byQty = new Map<number, Tier>();
@@ -81,7 +95,7 @@ export function normalizeTiers(tiers: Tier[] | null | undefined): Tier[] {
     if (!t) continue;
     if (!Number.isFinite(t.minQty) || !Number.isFinite(t.percent)) continue;
     const minQty = Math.floor(t.minQty);
-    if (minQty < 1 || t.percent <= 0) continue;
+    if (minQty < 1 || t.percent < 0) continue;
     byQty.set(minQty, { minQty, percent: t.percent });
   }
   return [...byQty.values()].sort((a, b) => a.minQty - b.minQty);
@@ -169,6 +183,12 @@ function computeUniform(
 ): TieredOutcome {
   const tier = resolveTierSorted(sorted, totalQuantity);
   if (!tier) return { applies: false, reason: "below-first-tier" };
+
+  // Un nivel al 0% significa "sin descuento", así que no hay nada que emitir.
+  // Sin este corte se generaría un descuento de valor 0 y el comprador vería
+  // una línea de "-$0.00" en su carrito. El modo INCREMENTAL ya se protege por
+  // su cuenta (descarta las unidades al 0% y aborta si el total queda a cero).
+  if (tier.percent <= 0) return { applies: false, reason: "zero-discount" };
 
   return {
     applies: true,
@@ -285,10 +305,20 @@ export function validateTiers(tiers: Tier[] | null | undefined): TierValidation 
   }
 
   const sorted = normalizeTiers(list);
+
+  // Todos los niveles al 0% = una campaña que no descuenta nada. Se bloquea
+  // aquí porque es una línea y evita una campaña activa y muda; un 0% suelto
+  // entre niveles con descuento es legítimo y no se toca.
+  if (sorted.length > 0 && sorted.every((t) => t.percent === 0)) {
+    errors.push("Al menos un nivel debe tener un descuento mayor que 0%.");
+  }
+
   for (let i = 1; i < sorted.length; i++) {
     if (sorted[i].percent < sorted[i - 1].percent) {
       warnings.push(
-        `El nivel de ${sorted[i].minQty} unidades descuenta menos que el de ${sorted[i - 1].minQty}. ¿Es intencional?`
+        sorted[i].percent === 0
+          ? `Desde ${sorted[i].minQty} unidades no se aplica descuento. ¿Es intencional?`
+          : `El nivel de ${sorted[i].minQty} unidades descuenta menos que el de ${sorted[i - 1].minQty}. ¿Es intencional?`
       );
     }
   }

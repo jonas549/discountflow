@@ -1,4 +1,11 @@
 {
+  "_comentario": [
+    "PUERTA DE SEGURIDAD. Campaña por colección/tag cuya resolución acabó en cero",
+    "productos (colección vacía, filtro que no casa, o fallo de la Admin API).",
+    "Con scope 'selected' y lista vacía la Function NO debe descontar nada.",
+    "Antes de este contrato, la lista vacía se leía como 'toda la tienda' y",
+    "descontaba el catálogo entero del merchant en silencio."
+  ],
   "payload": {
     "export": "cart-lines-discounts-generate-run",
     "target": "cart.lines.discounts.generate.run",
@@ -7,12 +14,22 @@
         "lines": [
           {
             "id": "gid://shopify/CartLine/0",
-            "quantity": 3,
+            "quantity": 5,
             "cost": { "amountPerQuantity": { "amount": "100.0" } },
             "merchandise": {
               "__typename": "ProductVariant",
               "id": "gid://shopify/ProductVariant/1",
               "product": { "id": "gid://shopify/Product/1" }
+            }
+          },
+          {
+            "id": "gid://shopify/CartLine/1",
+            "quantity": 3,
+            "cost": { "amountPerQuantity": { "amount": "80.0" } },
+            "merchandise": {
+              "__typename": "ProductVariant",
+              "id": "gid://shopify/ProductVariant/2",
+              "product": { "id": "gid://shopify/Product/2" }
             }
           }
         ]
@@ -22,13 +39,13 @@
         "configFallback": null,
         "config": {
           "jsonValue": {
-            "mode": "UNIFORM",
+            "mode": "INCREMENTAL",
             "tiers": [
               { "minQty": 1, "percent": 10 },
               { "minQty": 2, "percent": 15 },
               { "minQty": 3, "percent": 20 }
             ],
-            "scope": "all",
+            "scope": "selected",
             "productIds": [],
             "excludeProductIds": [],
             "message": "Descuento por cantidad"
@@ -37,20 +54,7 @@
       }
     },
     "output": {
-      "operations": [
-        {
-          "productDiscountsAdd": {
-            "candidates": [
-              {
-                "message": "Descuento por cantidad",
-                "targets": [{ "cartLine": { "id": "gid://shopify/CartLine/0" } }],
-                "value": { "percentage": { "value": 20 } }
-              }
-            ],
-            "selectionStrategy": "ALL"
-          }
-        }
-      ]
+      "operations": []
     }
   }
 }

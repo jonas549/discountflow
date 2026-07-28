@@ -22,6 +22,8 @@ import {
   buildPreviewRows,
   normalizeTiers,
   validateTiers,
+  MIN_TIER_PERCENT,
+  MAX_TIER_PERCENT,
   type Tier,
   type TierMode,
 } from "../lib/discounts/tiered-calc";
@@ -429,11 +431,17 @@ export function TieredCampaignForm({
                   <div style={{ display: "flex" }}>
                     <input
                       type="number"
-                      min={1}
-                      max={99}
+                      min={MIN_TIER_PERCENT}
+                      max={MAX_TIER_PERCENT}
                       value={tier.percent}
                       onChange={(e) =>
-                        updateTier(i, { percent: Math.max(1, Math.min(99, Number(e.target.value))) })
+                        updateTier(i, {
+                          // 0 es válido: "desde esta cantidad, precio normal".
+                          percent: Math.max(
+                            MIN_TIER_PERCENT,
+                            Math.min(MAX_TIER_PERCENT, Number(e.target.value))
+                          ),
+                        })
                       }
                       style={{ ...inputStyle, borderRadius: "6px 0 0 6px", flex: 1, minWidth: 0 }}
                     />
@@ -635,7 +643,9 @@ function TieredPreview({
   // El preview NO replica la lógica: ejecuta la misma función que la Function.
   const rows = buildPreviewRows(mode, tiers, PRECIO_EJEMPLO);
   const sorted = normalizeTiers(tiers);
-  const maxPercent = sorted.length ? sorted[sorted.length - 1].percent : 0;
+  // El máximo, no el último: con un nivel al 0% al final, el último ya no es
+  // el que más descuenta y el resumen diría "máximo 0%".
+  const maxPercent = sorted.reduce((max, t) => (t.percent > max ? t.percent : max), 0);
 
   const aplicaDesc =
     selectionMode === "all"

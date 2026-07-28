@@ -225,8 +225,15 @@ export async function getTieredFunctionId(admin: AdminClient): Promise<string> {
  * Convierte la selección del merchant en una lista explícita de product IDs,
  * que es lo único que la Function sabe interpretar.
  *
- * "all" devuelve lista VACÍA a propósito: para la Function, vacío significa
- * "toda la tienda", así que no hay que enumerar el catálogo entero.
+ * "all" devuelve lista VACÍA a propósito: la Function lo distingue por el campo
+ * `scope` del metafield, no por el tamaño de la lista.
+ *
+ * 🔴 Para el resto de modos, resolver a CERO productos es un error y se lanza.
+ * Una campaña por colección/tag/vendor que no abarca ningún producto no tiene
+ * ningún uso legítimo: o la colección está vacía, o el filtro no casa con nada,
+ * o la API falló. Guardarla en silencio es lo que creaba una campaña activa,
+ * visible y sin efecto — y, antes de la puerta de seguridad de la Function,
+ * una que descontaba el catálogo entero.
  */
 export async function resolveTieredProductIds(
   admin: AdminClient,
@@ -235,37 +242,80 @@ export async function resolveTieredProductIds(
   const mode = config.selectionMode;
 
   if (mode === "all") return [];
-  if (mode === "products") return config.productIds ?? [];
+
+  if (mode === "products") {
+    const ids = config.productIds ?? [];
+    if (ids.length === 0)
+      throw new Error(
+        "La campaña no tiene ningún producto seleccionado. Elige al menos uno."
+      );
+    return ids;
+  }
 
   if (mode === "collections") {
     const ids = config.collectionIds ?? [];
+    if (ids.length === 0)
+      throw new Error(
+        "La campaña no tiene ninguna colección seleccionada. Elige al menos una."
+      );
+
     const seen = new Set<string>();
     for (const collectionId of ids) {
       for (const pv of await getCollectionProductVariants(admin, collectionId)) {
         seen.add(pv.productId);
       }
     }
+
+    if (seen.size === 0)
+      throw new Error(
+        ids.length === 1
+          ? "La colección seleccionada no contiene ningún producto. Añade productos a la colección o elige otra."
+          : "Las colecciones seleccionadas no contienen ningún producto. Añade productos o elige otras."
+      );
+
     return [...seen];
   }
 
   const rawItems = config.rawItems ?? [];
-  if (rawItems.length === 0) return [];
+  const etiqueta =
+    mode === "tags" ? "etiqueta" : mode === "vendors" ? "proveedor" : "tipo de producto";
+  if (rawItems.length === 0)
+    throw new Error(
+      `La campaña no tiene ningún ${etiqueta} seleccionado. Elige al menos uno.`
+    );
 
   const field =
     mode === "tags" ? "tag" : mode === "vendors" ? "vendor" : "product_type";
   const query = rawItems.map((v) => `${field}:"${v}"`).join(" OR ");
   const products = await getProductsByFilter(admin, query);
-  return [...new Set(products.map((p) => p.productId))];
+  const resolved = [...new Set(products.map((p) => p.productId))];
+
+  if (resolved.length === 0)
+    throw new Error(
+      `Ningún producto coincide con el ${etiqueta} seleccionado. Revisa la selección.`
+    );
+
+  return resolved;
 }
 
-/** Cuántos productos abarca la campaña (solo informativo, para la UI). */
+/**
+ * Cuántos productos abarca la campaña (solo informativo, para la UI).
+ *
+ * Devuelve 0 en vez de propagar: `resolveTieredProductIds` lanza cuando la
+ * selección no resuelve nada, y eso es correcto al guardar una campaña, pero
+ * un contador de una pantalla no puede tumbar la pantalla entera.
+ */
 export async function countTieredProducts(
   admin: AdminClient,
   config: TieredCampaignConfig
 ): Promise<number> {
-  if (config.selectionMode === "all")
-    return (await getAllProductVariants(admin)).length;
-  return (await resolveTieredProductIds(admin, config)).length;
+  try {
+    if (config.selectionMode === "all")
+      return (await getAllProductVariants(admin)).length;
+    return (await resolveTieredProductIds(admin, config)).length;
+  } catch {
+    return 0;
+  }
 }
 
 // ─── Crear ────────────────────────────────────────────────────────────────────

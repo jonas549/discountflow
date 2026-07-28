@@ -1,5 +1,41 @@
 // Admin GraphQL API helpers for product variant price management.
 
+/**
+ * Valida la respuesta de una query de lectura y devuelve el nodo pedido.
+ *
+ * Sin esto, el patrón `json.data?.algo?.nodes ?? []` convierte CUALQUIER fallo
+ * de la API —consulta rechazada, throttling, token caducado— en "no hay
+ * productos", que es indistinguible de una selección legítimamente vacía.
+ *
+ * Para las campañas escalonadas ese silencio era peligroso de verdad: una
+ * resolución fallida producía una lista de productos vacía y la Function lo
+ * interpretaba como "toda la tienda". Es el mismo fallo tragado que ya se
+ * corrigió en `bulkUpdateVariantPrices` y en `runDiscountMutation`.
+ *
+ * `root` es el campo de primer nivel de la query (`collection`, `products`…).
+ * Se permite que sea `null` —una colección borrada lo es— pero NO que la
+ * consulta entera haya fallado.
+ */
+function readQueryData<T>(
+  json: { errors?: Array<{ message: string }>; data?: Record<string, unknown> },
+  root: string,
+  contexto: string
+): T | null {
+  if (json.errors?.length)
+    throw new Error(
+      `Shopify rechazó la consulta (${contexto}): ${json.errors
+        .map((e) => e.message)
+        .join(", ")}`
+    );
+
+  if (!json.data)
+    throw new Error(
+      `Shopify no devolvió datos para ${contexto}. La consulta no se pudo completar.`
+    );
+
+  return (json.data[root] ?? null) as T | null;
+}
+
 export type VariantPrice = {
   id: string;
   price: string;
@@ -68,7 +104,22 @@ export async function getCollectionProductVariants(
       { variables: { collectionId, cursor } }
     );
     const json = await res.json();
-    const products = json.data?.collection?.products;
+    const collection = readQueryData<{
+      products?: {
+        nodes?: Array<{ id: string; variants: { nodes: VariantPrice[] } }>;
+        pageInfo?: { hasNextPage: boolean; endCursor: string };
+      };
+    }>(json, "collection", `colección ${collectionId}`);
+
+    // Una colección borrada o inaccesible NO es una colección vacía: devolver
+    // cero productos aquí llevaría a una campaña que no descuenta nada, o —peor,
+    // antes de la puerta de seguridad de la Function— a una que lo descuenta todo.
+    if (!collection)
+      throw new Error(
+        `La colección ${collectionId} no existe o la app no tiene acceso a ella.`
+      );
+
+    const products = collection.products;
     for (const p of products?.nodes ?? []) {
       results.push({ productId: p.id, variants: p.variants.nodes });
     }
@@ -102,7 +153,11 @@ export async function getAllProductVariants(
       { variables: { cursor } }
     );
     const json = await res.json();
-    const products = json.data?.products;
+    const products = readQueryData<{
+      nodes?: Array<{ id: string; variants: { nodes: VariantPrice[] } }>;
+      pageInfo?: { hasNextPage: boolean; endCursor: string };
+    }>(json, "products", "catálogo completo");
+
     for (const p of products?.nodes ?? []) {
       results.push({ productId: p.id, variants: p.variants.nodes });
     }
@@ -269,7 +324,11 @@ export async function getProductsByFilter(
       { variables: { q: filterQuery, cursor } }
     );
     const json = await res.json();
-    const products = json.data?.products;
+    const products = readQueryData<{
+      nodes?: Array<{ id: string; variants: { nodes: VariantPrice[] } }>;
+      pageInfo?: { hasNextPage: boolean; endCursor: string };
+    }>(json, "products", `filtro ${filterQuery}`);
+
     for (const p of products?.nodes ?? []) {
       results.push({ productId: p.id, variants: p.variants.nodes });
     }

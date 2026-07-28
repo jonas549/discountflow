@@ -1,0 +1,111 @@
+{
+  "_comentario": [
+    "Réplica del caso SkinUp: campaña escalonada por colección con un carrito",
+    "que mezcla productos de dentro y de fuera de la colección.",
+    "Solo las dos líneas incluidas reciben descuento; las ajenas se quedan a",
+    "precio completo y NO cuentan para alcanzar los tramos.",
+    "Modo INCREMENTAL: las unidades se agrupan entre TODAS las líneas elegibles",
+    "(5 en total, las ajenas no cuentan), se ordenan de más cara a más barata y",
+    "los tramos se reparten por posición -> [10%, 15%, 20%, 20%, 20%].",
+    "  dentro-a  3 x 100.0 (posiciones 1-3) -> 10 + 15 + 20 = 45.0",
+    "  dentro-b  2 x  50.0 (posiciones 4-5) -> 10 + 10      = 20.0",
+    "Si las líneas ajenas contaran, los tramos se correrían y estos importes",
+    "cambiarían: por eso el filtro por producto se prueba con los importes."
+  ],
+  "payload": {
+    "export": "cart-lines-discounts-generate-run",
+    "target": "cart.lines.discounts.generate.run",
+    "input": {
+      "cart": {
+        "lines": [
+          {
+            "id": "gid://shopify/CartLine/dentro-a",
+            "quantity": 3,
+            "cost": { "amountPerQuantity": { "amount": "100.0" } },
+            "merchandise": {
+              "__typename": "ProductVariant",
+              "id": "gid://shopify/ProductVariant/10",
+              "product": { "id": "gid://shopify/Product/10" }
+            }
+          },
+          {
+            "id": "gid://shopify/CartLine/fuera-a",
+            "quantity": 4,
+            "cost": { "amountPerQuantity": { "amount": "200.0" } },
+            "merchandise": {
+              "__typename": "ProductVariant",
+              "id": "gid://shopify/ProductVariant/99",
+              "product": { "id": "gid://shopify/Product/99" }
+            }
+          },
+          {
+            "id": "gid://shopify/CartLine/dentro-b",
+            "quantity": 2,
+            "cost": { "amountPerQuantity": { "amount": "50.0" } },
+            "merchandise": {
+              "__typename": "ProductVariant",
+              "id": "gid://shopify/ProductVariant/11",
+              "product": { "id": "gid://shopify/Product/11" }
+            }
+          },
+          {
+            "id": "gid://shopify/CartLine/fuera-b",
+            "quantity": 6,
+            "cost": { "amountPerQuantity": { "amount": "30.0" } },
+            "merchandise": {
+              "__typename": "ProductVariant",
+              "id": "gid://shopify/ProductVariant/98",
+              "product": { "id": "gid://shopify/Product/98" }
+            }
+          }
+        ]
+      },
+      "discount": {
+        "discountClasses": ["PRODUCT"],
+        "configFallback": null,
+        "config": {
+          "jsonValue": {
+            "mode": "INCREMENTAL",
+            "tiers": [
+              { "minQty": 1, "percent": 10 },
+              { "minQty": 2, "percent": 15 },
+              { "minQty": 3, "percent": 20 }
+            ],
+            "scope": "selected",
+            "productIds": [
+              "gid://shopify/Product/10",
+              "gid://shopify/Product/11"
+            ],
+            "excludeProductIds": [],
+            "message": "Descuento por cantidad"
+          }
+        }
+      }
+    },
+    "output": {
+      "operations": [
+        {
+          "productDiscountsAdd": {
+            "candidates": [
+              {
+                "message": "Descuento por cantidad",
+                "targets": [
+                  { "cartLine": { "id": "gid://shopify/CartLine/dentro-a" } }
+                ],
+                "value": { "fixedAmount": { "amount": 45.0 } }
+              },
+              {
+                "message": "Descuento por cantidad",
+                "targets": [
+                  { "cartLine": { "id": "gid://shopify/CartLine/dentro-b" } }
+                ],
+                "value": { "fixedAmount": { "amount": 20.0 } }
+              }
+            ],
+            "selectionStrategy": "ALL"
+          }
+        }
+      ]
+    }
+  }
+}

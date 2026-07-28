@@ -13,6 +13,13 @@ export type TieredSelectionMode =
   | "productTypes"
   | "all";
 
+/**
+ * Alcance que viaja en el metafield. Es lo único que autoriza a la Function a
+ * descontar todo el catálogo; sin `"all"` explícito, una lista de productos
+ * vacía significa "no descuentes nada", nunca "descuéntalo todo".
+ */
+export type TieredScope = "all" | "selected";
+
 export type TieredCampaignConfig = {
   mode: TierMode;
   tiers: Tier[];
@@ -69,10 +76,13 @@ export function tieredDiscountMessage(config: TieredCampaignConfig): string {
 /**
  * ¿Pudo esta campaña haber descontado una línea con este producto?
  *
- * Replica EXACTAMENTE la regla de elegibilidad de la Function: lista de
- * inclusión VACÍA = toda la tienda. No mira `selectionMode` a propósito — lo
- * que decide en el checkout es el contenido de `productIds`, no lo que dijera
- * el formulario. Así la atribución coincide con lo que de verdad pasó.
+ * Replica EXACTAMENTE la regla de elegibilidad de la Function, incluida su
+ * puerta de seguridad: solo una campaña de "toda la tienda" aplica sin lista;
+ * si la lista está vacía sin serlo, la Function no descuenta nada, así que
+ * aquí tampoco se le puede atribuir nada.
+ *
+ * Mantener las dos reglas en sintonía es lo que hace que Analytics refleje lo
+ * que de verdad pasó en el checkout. Si divergen, la atribución miente.
  *
  * @param productGid formato `gid://shopify/Product/123`. El webhook manda el
  *        id numérico: hay que normalizarlo antes de llamar aquí.
@@ -82,8 +92,9 @@ export function tieredAppliesToProduct(
   productGid: string
 ): boolean {
   if ((config?.excludeProductIds ?? []).includes(productGid)) return false;
+  if (config?.selectionMode === "all") return true;
   const included = config?.productIds ?? [];
-  return included.length === 0 || included.includes(productGid);
+  return included.includes(productGid);
 }
 
 export const DEFAULT_TIERS: Tier[] = [
@@ -96,7 +107,9 @@ export const DEFAULT_TIERS: Tier[] = [
 export function tieredDiscountLabel(config: TieredCampaignConfig): string {
   const tiers = normalizeTiers(config?.tiers);
   if (tiers.length === 0) return "—";
-  const max = tiers[tiers.length - 1].percent;
+  // El mayor, no el último: un nivel al 0% (= "desde aquí, precio normal")
+  // puede ir al final, y entonces el último no es el que más descuenta.
+  const max = tiers.reduce((m, t) => (t.percent > m ? t.percent : m), 0);
   const modo = config.mode === "INCREMENTAL" ? "incremental" : "uniforme";
   return `${tiers.length} ${tiers.length === 1 ? "nivel" : "niveles"} · hasta ${max}% (${modo})`;
 }
@@ -130,12 +143,18 @@ export function tieredProductsLabel(config: TieredCampaignConfig): string {
 /**
  * Recorta la config a lo que la Function necesita leer del metafield.
  * Todo lo demás (colecciones, tags…) se queda solo en la base de datos.
+ *
+ * `scope` es el campo que autoriza descontar todo el catálogo. Va explícito
+ * justamente para que la Function NUNCA tenga que deducirlo de una lista
+ * vacía: ver el bloque de seguridad en `cart_lines_discounts_generate_run.ts`.
  */
 export function toFunctionConfig(config: TieredCampaignConfig) {
+  const scope: TieredScope = config.selectionMode === "all" ? "all" : "selected";
   return {
     mode: config.mode,
     tiers: normalizeTiers(config.tiers),
-    productIds: config.selectionMode === "all" ? [] : config.productIds,
+    scope,
+    productIds: scope === "all" ? [] : config.productIds ?? [],
     excludeProductIds: config.excludeProductIds ?? [],
     message: config.message || "Descuento por cantidad",
   };
