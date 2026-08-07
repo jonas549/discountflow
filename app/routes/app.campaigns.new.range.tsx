@@ -31,6 +31,9 @@ import { getCollections, getProductMetadata } from "../lib/shopify/admin-api";
 import { type Plan, PLAN_LIMITS } from "../lib/billing/plan-limits";
 import { getActiveCampaignCount, getVariantCount } from "../lib/billing/plan-limits.server";
 import { isPlanLimitError } from "../lib/billing/plan-limit-error";
+import { enqueueCampaignJob } from "../lib/jobs/enqueue.server";
+import { hasFeature } from "../lib/features.server";
+import { JOBS_FEATURE_FLAG } from "../lib/jobs/constants";
 import { es } from "../i18n";
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
@@ -156,7 +159,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       shopId: shop.id,
       name: name.trim(),
       type: "RANGE",
-      status: shouldActivate ? "ACTIVE" : "DRAFT",
+      // Con la barra activada nace como BORRADOR y pasa a ACTIVE en el `finalize`
+      // del job, cuando los precios ya están puestos. Ver la nota equivalente en
+      // la ruta de porcentaje.
+      status: shouldActivate && !hasFeature(shop, JOBS_FEATURE_FLAG) ? "ACTIVE" : "DRAFT",
       config: {
         mode,
         value,
@@ -175,6 +181,32 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   let skipped = 0;
   if (shouldActivate) {
+    // ── Camino con barra ──────────────────────────────────────────────────────
+    const enq = await enqueueCampaignJob({
+      request,
+      shop,
+      campaignId: campaign.id,
+      operation: "APPLY",
+      payload: {
+        maxVariants: remainingVariants,
+        excludedVariantIds: excludedVariantIds ? [...excludedVariantIds] : [],
+        selection: {
+          selectionMode,
+          selectedProducts: selectionMode === "products" ? selectedProducts : undefined,
+          collectionIds: selectionMode === "collections" ? collectionIds : undefined,
+          selectedTags: selectionMode === "tags" ? selectedTags : undefined,
+          selectedVendors: selectionMode === "vendors" ? selectedVendors : undefined,
+          selectedProductTypes:
+            selectionMode === "productTypes" ? selectedProductTypes : undefined,
+        },
+      },
+    });
+    // El aviso de "N productos omitidos" no aplica en este camino: las variantes
+    // que no dan rebaja se descartan durante la resolución y ni siquiera llegan a
+    // crear fila, así que no hay nada que contar al final.
+    if (enq.enqueued) return redirect("/app/campaigns");
+
+    // ── Camino síncrono de siempre (flag apagado) — intacto ───────────────────
     try {
       const result = await applyRangeDiscount(admin, campaign.id, {
         mode,

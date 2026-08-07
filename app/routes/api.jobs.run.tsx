@@ -15,6 +15,7 @@
 //    su propio presupuesto de 300 s. Cada eslabón es de verdad independiente.
 
 import type { ActionFunctionArgs } from "react-router";
+import { unauthenticated } from "../shopify.server";
 import {
   ChainOriginError,
   dispatchNextBatch,
@@ -41,6 +42,19 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   if (!jobId) return Response.json({ error: "Falta jobId" }, { status: 400 });
 
   const work = runJobBatch(jobId, {
+    /**
+     * ⚠️ Aquí NO hay merchant ni sesión: el worker lo invoca la cadena, no un
+     * navegador. `unauthenticated.admin` saca el token offline que la app guardó
+     * al instalarse y devuelve un cliente Admin para esa tienda.
+     *
+     * 🔴 NO sustituir por `Shop.accessToken`: esa columna es una copia que nunca
+     *    se refresca y, con `expiringOfflineAccessTokens` activo, queda muerta.
+     *    El token bueno vive en la sesión que gestiona el SDK.
+     */
+    getAdmin: async (shopDomain) => {
+      const { admin } = await unauthenticated.admin(shopDomain);
+      return admin;
+    },
     dispatchNext: async (id) => {
       try {
         await dispatchNextBatch(request, id);

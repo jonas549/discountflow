@@ -15,6 +15,7 @@ import { ItemPicker, type PickerItem } from "../components/ItemPicker";
 import { authenticate } from "../shopify.server";
 import { prisma } from "../lib/db";
 import { getOrCreateShop } from "../lib/shopify/shop.server";
+import { rejectIfCampaignBusy } from "../lib/jobs/enqueue.server";
 import {
   applyPercentageDiscount,
   revertPercentageDiscount,
@@ -133,6 +134,11 @@ type ActionErrors = {
 
 export const action = async ({ request, params }: ActionFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
+  // 🔴 Puerta cerrada si hay una operación en curso. Va aquí, en el servidor:
+  // los botones deshabilitados del listado son cortesía, esto es la garantía.
+  const ocupada = await rejectIfCampaignBusy(session.shop, params.id!);
+  if (ocupada) return ocupada;
+
   const formData = await request.formData();
   const campaignId = params.id!;
 

@@ -63,9 +63,12 @@ function formatEta(seconds: number | null): string | null {
 export function JobProgress({
   jobId,
   onFinished,
+  compact = false,
 }: {
   jobId: string;
   onFinished?: (status: string) => void;
+  /** Franja de una línea para el shell: se sigue el progreso navegando. */
+  compact?: boolean;
 }) {
   const [data, setData] = useState<JobStatusPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -141,6 +144,50 @@ export function JobProgress({
   const palette = COLORS[data.status] ?? COLORS.RUNNING;
   const indeterminate = data.percent === null && !TERMINAL.has(data.status);
   const eta = formatEta(data.etaSeconds);
+
+  // Modo compacto: una franja fina para el shell. Deja de pintarse en cuanto el
+  // job termina — en el listado ya está la tarjeta completa con el resultado.
+  if (compact) {
+    if (TERMINAL.has(data.status)) return null;
+    return (
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          padding: "6px 16px",
+          background: palette.bg,
+          borderBottom: "1px solid #e1e3e5",
+          fontSize: 13,
+          color: "#42474c",
+        }}
+      >
+        <div
+          style={{
+            flex: "0 0 120px",
+            height: 6,
+            borderRadius: 999,
+            background: "#fff",
+            border: "1px solid #e1e3e5",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            style={{
+              width: indeterminate ? "35%" : `${data.percent ?? 0}%`,
+              height: "100%",
+              background: palette.bar,
+              transition: "width 400ms ease",
+            }}
+          />
+        </div>
+        <span>
+          <strong>{data.campaignName ?? "Campaña"}</strong>
+          {data.percent !== null ? ` — ${data.percent}%` : " — preparando…"}
+        </span>
+      </div>
+    );
+  }
 
   return (
     <div style={box(palette.bg)}>

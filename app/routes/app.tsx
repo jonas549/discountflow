@@ -5,6 +5,8 @@ import { AppProvider } from "@shopify/shopify-app-react-router/react";
 
 import { authenticate } from "../shopify.server";
 import { getOrCreateShop, syncShopPlanIfStale } from "../lib/shopify/shop.server";
+import { prisma } from "../lib/db";
+import { JobProgress } from "../components/JobProgress";
 import { es } from "../i18n";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
@@ -19,15 +21,24 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   // Lazy plan sync — at most one GraphQL call per 15 min per shop
   const syncedShop = await syncShopPlanIfStale(admin, shop);
 
+  // Operación en curso, si la hay: la franja del shell permite seguir el
+  // progreso mientras el merchant navega por el resto de la app.
+  const enCurso = await prisma.campaign.findFirst({
+    where: { shopId: shop.id, activeJobId: { not: null } },
+    select: { activeJobId: true },
+    orderBy: { updatedAt: "desc" },
+  });
+
   return {
     // eslint-disable-next-line no-undef
     apiKey: process.env.SHOPIFY_API_KEY || "",
     currentPlan: syncedShop.plan as string,
+    runningJobId: enCurso?.activeJobId ?? null,
   };
 };
 
 export default function App() {
-  const { apiKey, currentPlan } = useLoaderData<typeof loader>();
+  const { apiKey, currentPlan, runningJobId } = useLoaderData<typeof loader>();
 
   return (
     <AppProvider embedded apiKey={apiKey}>
@@ -56,6 +67,7 @@ export default function App() {
         </s-link>
         <s-link href="/app/support">{es.nav.soporte}</s-link>
       </s-app-nav>
+      {runningJobId && <JobProgress jobId={runningJobId} compact />}
       <Outlet />
     </AppProvider>
   );

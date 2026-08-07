@@ -3,8 +3,8 @@ import type {
   HeadersFunction,
   LoaderFunctionArgs,
 } from "react-router";
-import { useLoaderData, useFetcher, Link } from "react-router";
-import { useState, useEffect } from "react";
+import { useLoaderData, useFetcher, Link, useRevalidator } from "react-router";
+import { useState, useEffect, Fragment } from "react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { Plus } from "lucide-react";
 import { Link } from "react-router";
@@ -40,6 +40,8 @@ import {
   reactivateRangeDiscount,
   type RangeCampaignConfig,
 } from "../lib/discounts/range";
+import { enqueueCampaignJob, sweepStalledJobs } from "../lib/jobs/enqueue.server";
+import { JobProgress } from "../components/JobProgress";
 import { es, estadoLabel, tipoLabel, formatDate } from "../i18n";
 import { Btn, LinkBtn } from "../components/Btn";
 import { PLAN_LIMITS, type Plan, getTypeCampaignLimit } from "../lib/billing/plan-limits";
@@ -50,6 +52,80 @@ import {
   getActiveCampaignCountByType,
 } from "../lib/billing/plan-limits.server";
 import { useSearchParams } from "react-router";
+
+// ─── Límites de plan al reactivar ─────────────────────────────────────────────
+
+/**
+ * Devuelve una respuesta 422 si reactivar esta campaña rompería el plan, o null
+ * si puede seguir.
+ *
+ * Se extrajo del cuerpo del action para que la comprueben LOS DOS caminos —el
+ * síncrono de siempre y el que encola un job— exactamente igual. Si cada uno
+ * llevara su copia, acabarían divergiendo y el camino nuevo se convertiría en un
+ * bypass del enforcement.
+ */
+async function comprobarLimitesAlReactivar(
+  shop: { id: string; plan: string },
+  campaign: { id: string; type: string }
+): Promise<Response | null> {
+  const plan = (shop.plan as Plan) || "FREE";
+
+  const activeCount = await getActiveCampaignCount(shop.id);
+  if (activeCount >= PLAN_LIMITS[plan].campaigns)
+    return Response.json(
+      {
+        error: es.planes.limiteCampanas(activeCount, PLAN_LIMITS[plan].campaigns),
+        limitExceeded: true,
+      },
+      { status: 422 }
+    );
+
+  // Límite de variantes. Solo PERCENTAGE y RANGE: son los únicos tipos que crean
+  // filas en CampaignProduct (BXGY y TIERED no editan precios de variantes, así
+  // que aportan 0 y quedan fuera de este check).
+  //
+  // La campaña está PAUSED aquí, de modo que getVariantCount —que solo cuenta
+  // campañas ACTIVE— NO la incluye: hay que sumarla para saber el total con el
+  // que quedaría la tienda tras reactivar.
+  if (campaign.type === "PERCENTAGE" || campaign.type === "RANGE") {
+    const variantsAfter =
+      (await getVariantCount(shop.id)) + (await getCampaignVariantCount(campaign.id));
+    if (variantsAfter > PLAN_LIMITS[plan].variants)
+      return Response.json(
+        {
+          error: es.planes.limiteVariantes(variantsAfter, PLAN_LIMITS[plan].variants),
+          limitExceeded: true,
+        },
+        { status: 422 }
+      );
+  }
+
+  // BXGY y TIERED se topan por CANTIDAD de campañas activas de su tipo, no por
+  // variantes. La campaña está PAUSED aquí, así que no se cuenta a sí misma.
+  if (campaign.type === "BXGY" || campaign.type === "TIERED") {
+    const typeLimit = getTypeCampaignLimit(plan, campaign.type);
+    if (typeLimit !== null) {
+      const activeOfType = await getActiveCampaignCountByType(
+        shop.id,
+        campaign.type as "BXGY" | "TIERED"
+      );
+      if (activeOfType >= typeLimit)
+        return Response.json(
+          {
+            error: es.planes.limiteCampanasTipo(
+              campaign.type === "BXGY" ? "BxGy" : "escalonadas",
+              activeOfType,
+              typeLimit
+            ),
+            limitExceeded: true,
+          },
+          { status: 422 }
+        );
+    }
+  }
+
+  return null;
+}
 
 // ─── Action ───────────────────────────────────────────────────────────────────
 
@@ -75,6 +151,45 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const tieredId = (campaign.config as TieredCampaignConfig).shopifyDiscountId;
 
   try {
+    // ── Camino con barra de progreso ──────────────────────────────────────────
+    // Si el flag está encendido, la operación se encola y la respuesta vuelve en
+    // milisegundos con un jobId: la UI monta la barra y el trabajo sigue en
+    // segundo plano aunque el merchant cierre la pestaña.
+    //
+    // Si está apagado, `enqueueCampaignJob` devuelve `enqueued: false` y la
+    // ejecución CAE AL CÓDIGO SÍNCRONO DE SIEMPRE, que no se ha tocado. Ese es el
+    // interruptor de emergencia: un UPDATE a Shop.features y todo vuelve atrás
+    // sin desplegar.
+    const operacion =
+      actionType === "pause" && campaign.status === "ACTIVE"
+        ? "REVERT"
+        : actionType === "activate" && campaign.status === "PAUSED"
+        ? "REACTIVATE"
+        : actionType === "delete"
+        ? "DELETE"
+        : null;
+
+    if (operacion) {
+      // Los límites de plan se comprueban ANTES de encolar, para que el merchant
+      // reciba el aviso al instante en vez de verlo fallar dentro de una barra.
+      if (operacion === "REACTIVATE") {
+        const limite = await comprobarLimitesAlReactivar(shop, campaign);
+        if (limite) return limite;
+      }
+      const enq = await enqueueCampaignJob({
+        request,
+        shop,
+        campaignId,
+        operation: operacion,
+      });
+      if (enq.enqueued)
+        return Response.json({
+          jobId: enq.jobId,
+          campaignId,
+          alreadyRunning: enq.alreadyRunning,
+        });
+    }
+
     if (actionType === "pause" && campaign.status === "ACTIVE") {
       if (campaign.type === "PERCENTAGE") {
         await revertPercentageDiscount(admin, campaignId);
@@ -87,62 +202,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       }
       await prisma.campaign.update({ where: { id: campaignId }, data: { status: "PAUSED" } });
     } else if (actionType === "activate" && campaign.status === "PAUSED") {
-      // Limit check before reactivating
-      const plan = (shop.plan as Plan) || "FREE";
-      const activeCount = await getActiveCampaignCount(shop.id);
-      if (activeCount >= PLAN_LIMITS[plan].campaigns) {
-        return Response.json(
-          {
-            error: es.planes.limiteCampanas(activeCount, PLAN_LIMITS[plan].campaigns),
-            limitExceeded: true,
-          },
-          { status: 422 }
-        );
-      }
+      const limite = await comprobarLimitesAlReactivar(shop, campaign);
+      if (limite) return limite;
 
-      // Límite de variantes. Solo PERCENTAGE y RANGE: son los únicos tipos que
-      // crean filas en CampaignProduct (BXGY y TIERED no editan precios de
-      // variantes, así que aportan 0 y quedan fuera de este check).
-      //
-      // La campaña está PAUSED aquí, de modo que getVariantCount —que solo
-      // cuenta campañas ACTIVE— NO la incluye: hay que sumarla para saber el
-      // total con el que quedaría la tienda tras reactivar.
-      if (campaign.type === "PERCENTAGE" || campaign.type === "RANGE") {
-        const variantsAfter =
-          (await getVariantCount(shop.id)) + (await getCampaignVariantCount(campaignId));
-        if (variantsAfter > PLAN_LIMITS[plan].variants) {
-          return Response.json(
-            {
-              error: es.planes.limiteVariantes(variantsAfter, PLAN_LIMITS[plan].variants),
-              limitExceeded: true,
-            },
-            { status: 422 }
-          );
-        }
-      }
-
-      // BXGY y TIERED se topan por CANTIDAD de campañas activas de su tipo, no
-      // por variantes (no crean filas en CampaignProduct). La campaña está
-      // PAUSED aquí, así que no se cuenta a sí misma.
-      if (campaign.type === "BXGY" || campaign.type === "TIERED") {
-        const typeLimit = getTypeCampaignLimit(plan, campaign.type);
-        if (typeLimit !== null) {
-          const activeOfType = await getActiveCampaignCountByType(shop.id, campaign.type);
-          if (activeOfType >= typeLimit) {
-            return Response.json(
-              {
-                error: es.planes.limiteCampanasTipo(
-                  campaign.type === "BXGY" ? "BxGy" : "escalonadas",
-                  activeOfType,
-                  typeLimit
-                ),
-                limitExceeded: true,
-              },
-              { status: 422 }
-            );
-          }
-        }
-      }
       if (campaign.type === "PERCENTAGE") {
         await reactivatePercentageDiscount(admin, campaignId);
       } else if (campaign.type === "RANGE") {
@@ -206,6 +268,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     accessToken: session.accessToken,
     scopes: session.scope,
   });
+  // Segunda capa de recuperación: al entrar aquí se despiertan los jobs de esta
+  // tienda que se hayan quedado colgados. La primera es el sondeo de la propia
+  // barra (segundos, pero solo si hay alguien mirando) y la tercera el cron
+  // diario, que es lo máximo que permite el plan Hobby de Vercel.
+  await sweepStalledJobs(request, shop.id);
+
   const campaigns = await prisma.campaign.findMany({
     where: { shopId: shop.id },
     orderBy: { createdAt: "desc" },
@@ -223,6 +291,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       productsCount: c._count.products,
       startsAt: c.startsAt?.toISOString() ?? null,
       endsAt: c.endsAt?.toISOString() ?? null,
+      /** jobId de la operación en curso, si la hay. Ancla de la barra. */
+      activeJobId: c.activeJobId,
     })),
   };
 };
@@ -645,9 +715,34 @@ export default function Campaigns() {
     type: "pause" | "activate" | "delete";
   } | null>(null);
 
+  const revalidator = useRevalidator();
+
+  // Jobs recién lanzados en ESTA pantalla. El loader ya trae `activeJobId` de
+  // cada campaña, pero al volver del action todavía no se ha revalidado: sin
+  // esto la barra tardaría un ciclo en aparecer y el merchant vería un hueco.
+  const [startedJobs, setStartedJobs] = useState<Record<string, string>>({});
+
   useEffect(() => {
     if (fetcher.state === "idle") setPendingAction(null);
   }, [fetcher.state]);
+
+  useEffect(() => {
+    const data = fetcher.data as { jobId?: string; campaignId?: string } | undefined;
+    if (data?.jobId && data.campaignId)
+      setStartedJobs((prev) => ({ ...prev, [data.campaignId!]: data.jobId! }));
+  }, [fetcher.data]);
+
+  const jobIdFor = (c: { id: string; activeJobId: string | null }) =>
+    startedJobs[c.id] ?? c.activeJobId ?? null;
+
+  const onJobFinished = (campaignId: string) => {
+    setStartedJobs((prev) => {
+      const next = { ...prev };
+      delete next[campaignId];
+      return next;
+    });
+    revalidator.revalidate();
+  };
 
   const submitAction = (campaignId: string, actionType: "pause" | "activate" | "delete") => {
     setPendingAction({ id: campaignId, type: actionType });
@@ -831,8 +926,10 @@ export default function Campaigns() {
                       : c.type === "TIERED"
                       ? `/app/campaigns/${c.id}/edit/tiered`
                       : `/app/campaigns/${c.id}/edit`;
+                  const jobId = jobIdFor(c);
                   return (
-                    <tr key={c.id} style={{ borderBottom: "1px solid #f1f2f3" }}>
+                    <Fragment key={c.id}>
+                    <tr style={{ borderBottom: jobId ? "none" : "1px solid #f1f2f3" }}>
                       <td style={{ padding: "12px", fontWeight: "500", color: "#202223" }}>
                         <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
                           {c.name}
@@ -909,21 +1006,26 @@ export default function Campaigns() {
                         <div
                           style={{ display: "flex", gap: "8px", alignItems: "center" }}
                         >
-                          {/* Editar — ruta difiere por tipo */}
-                          <LinkBtn
-                            to={editHref}
-                            variant="primary"
-                            size="sm"
-                          >
-                            {es.campanas.acciones.editar}
-                          </LinkBtn>
+                          {/* Editar — ruta difiere por tipo.
+                              Con un job en curso se bloquea: la fase de
+                              resolución ya fijó la lista de productos, y cambiar
+                              la selección por debajo corrompería el trabajo. */}
+                          {jobId ? (
+                            <Btn variant="muted" size="sm" disabled>
+                              {es.campanas.acciones.editar}
+                            </Btn>
+                          ) : (
+                            <LinkBtn to={editHref} variant="primary" size="sm">
+                              {es.campanas.acciones.editar}
+                            </LinkBtn>
+                          )}
 
                           {/* Pausar — solo cuando ACTIVE */}
                           {c.status === "ACTIVE" && (
                             <Btn
                               variant="muted"
                               size="sm"
-                              disabled={isBusy}
+                              disabled={isBusy || !!jobId}
                               onClick={() => submitAction(c.id, "pause")}
                             >
                               {pendingAction?.id === c.id && pendingAction.type === "pause"
@@ -937,7 +1039,7 @@ export default function Campaigns() {
                             <Btn
                               variant="primary"
                               size="sm"
-                              disabled={isBusy}
+                              disabled={isBusy || !!jobId}
                               onClick={() => submitAction(c.id, "activate")}
                             >
                               {pendingAction?.id === c.id && pendingAction.type === "activate"
@@ -950,7 +1052,7 @@ export default function Campaigns() {
                           <Btn
                             variant="destructive"
                             size="sm"
-                            disabled={isBusy}
+                            disabled={isBusy || !!jobId}
                             onClick={() =>
                               setDeleteCandidate({ id: c.id, name: c.name })
                             }
@@ -962,6 +1064,19 @@ export default function Campaigns() {
                         </div>
                       </td>
                     </tr>
+
+                    {/* Barra de progreso de la operación en curso */}
+                    {jobId && (
+                      <tr style={{ borderBottom: "1px solid #f1f2f3" }}>
+                        <td colSpan={8} style={{ padding: "0 12px 14px" }}>
+                          <JobProgress
+                            jobId={jobId}
+                            onFinished={() => onJobFinished(c.id)}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   );
                 })}
               </tbody>

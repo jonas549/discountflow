@@ -16,7 +16,7 @@
  * Se permite que sea `null` —una colección borrada lo es— pero NO que la
  * consulta entera haya fallado.
  */
-function readQueryData<T>(
+export function readQueryData<T>(
   json: { errors?: Array<{ message: string }>; data?: Record<string, unknown> },
   root: string,
   contexto: string

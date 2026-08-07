@@ -37,7 +37,12 @@ export type FakeBehaviour = {
 export type FakeAdminClient = {
   graphql: (q: string, o?: { variables: unknown }) => Promise<Response>;
   /** Mutaciones de precio recibidas, en orden. Para asertar en los tests. */
-  readonly mutationCalls: Array<{ productId: string; variantIds: string[] }>;
+  readonly mutationCalls: Array<{
+    productId: string;
+    variantIds: string[];
+    /** Precios enviados, para comprobar que se aplicó y se revirtió bien. */
+    prices: Array<{ id: string; price: string; compareAtPrice: string | null }>;
+  }>;
   /** Total de llamadas GraphQL (lecturas incluidas). */
   readonly callCount: number;
   reset(): void;
@@ -60,7 +65,7 @@ export function createFakeAdmin(
   const variantsPer = catalog.variantsPerProduct ?? 1;
   const basePrice = catalog.basePrice ?? 100;
 
-  const mutationCalls: Array<{ productId: string; variantIds: string[] }> = [];
+  const mutationCalls: FakeAdminClient["mutationCalls"] = [];
   let calls = 0;
   let mutations = 0;
   const throttledOnce = new Set<number>();
@@ -122,8 +127,20 @@ export function createFakeAdmin(
           return json({ errors: [{ message: "Field 'x' doesn't exist" }] });
 
         const productId = String(vars.productId ?? "");
-        const variants = (vars.variants ?? []) as Array<{ id: string; price: string }>;
-        mutationCalls.push({ productId, variantIds: variants.map((v) => v.id) });
+        const variants = (vars.variants ?? []) as Array<{
+          id: string;
+          price: string;
+          compareAtPrice: string | null;
+        }>;
+        mutationCalls.push({
+          productId,
+          variantIds: variants.map((v) => v.id),
+          prices: variants.map((v) => ({
+            id: v.id,
+            price: v.price,
+            compareAtPrice: v.compareAtPrice ?? null,
+          })),
+        });
 
         if (behaviour.userErrorAtCalls?.includes(n))
           return json({

@@ -21,6 +21,9 @@ import {
   type SelectionMode,
 } from "../lib/discounts/percentage";
 import { getCollections, getProductMetadata } from "../lib/shopify/admin-api";
+import { enqueueCampaignJob } from "../lib/jobs/enqueue.server";
+import { hasFeature } from "../lib/features.server";
+import { JOBS_FEATURE_FLAG } from "../lib/jobs/constants";
 import { type Plan, PLAN_LIMITS } from "../lib/billing/plan-limits";
 import { getActiveCampaignCount, getVariantCount } from "../lib/billing/plan-limits.server";
 import { isPlanLimitError } from "../lib/billing/plan-limit-error";
@@ -145,12 +148,18 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     remainingVariants = variantLimit - usedVariants;
   }
 
+  // Con la barra activada la campaña nace como BORRADOR aunque el merchant haya
+  // pulsado "Crear y activar": pasa a ACTIVE en el `finalize` del job, cuando los
+  // precios ya están puestos de verdad. Así una campaña que muere a mitad —o que
+  // se pasa de la cuota del plan— no queda anunciada como activa sin serlo.
+  const conBarra = hasFeature(shop, JOBS_FEATURE_FLAG);
+
   const campaign = await prisma.campaign.create({
     data: {
       shopId: shop.id,
       name: name.trim(),
       type: "PERCENTAGE",
-      status: shouldActivate ? "ACTIVE" : "DRAFT",
+      status: shouldActivate && !conBarra ? "ACTIVE" : "DRAFT",
       config: {
         discountPercent,
         showCompareAtPrice: useCompareAtPriceAsBase,
@@ -168,6 +177,32 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   });
 
   if (shouldActivate) {
+    // ── Camino con barra ──────────────────────────────────────────────────────
+    // Devuelve en milisegundos: la resolución del catálogo y las mutaciones de
+    // precio se hacen por lotes en segundo plano. El merchant ve la barra en el
+    // listado y puede cerrar la pestaña.
+    const enq = await enqueueCampaignJob({
+      request,
+      shop,
+      campaignId: campaign.id,
+      operation: "APPLY",
+      payload: {
+        maxVariants: remainingVariants,
+        excludedVariantIds: excludedVariantIds ? [...excludedVariantIds] : [],
+        selection: {
+          selectionMode,
+          selectedProducts: selectionMode === "products" ? selectedProducts : undefined,
+          collectionIds: selectionMode === "collections" ? collectionIds : undefined,
+          selectedTags: selectionMode === "tags" ? selectedTags : undefined,
+          selectedVendors: selectionMode === "vendors" ? selectedVendors : undefined,
+          selectedProductTypes:
+            selectionMode === "productTypes" ? selectedProductTypes : undefined,
+        },
+      },
+    });
+    if (enq.enqueued) return redirect("/app/campaigns");
+
+    // ── Camino síncrono de siempre (flag apagado) — intacto ───────────────────
     try {
       await applyPercentageDiscount(admin, campaign.id, {
         discountPercent,

@@ -33,6 +33,7 @@ import {
   requestCancel,
 } from "./jobs.server.ts";
 import { runJobBatch, type BatchOutcome } from "./runner.server.ts";
+import { createFakeAdmin } from "../shopify/fake-admin.ts";
 
 const TEST_DOMAIN = "jobs-test.myshopify.test";
 const E2E_UNITS = Number(process.env.JOBS_TEST_UNITS ?? 20_000);
@@ -156,6 +157,15 @@ type DriveOpts = {
   maxBatches?: number;
   /** Corta el bucle cuando el progreso alcance esta fracción del total. */
   stopAtFraction?: number;
+  /** Cliente Shopify. Por defecto uno inerte: NOOP no llama a Shopify. */
+  admin?: { graphql: (q: string, o?: { variables: unknown }) => Promise<Response> };
+};
+
+/** Cliente que revienta si alguien lo usa: NOOP no debe tocar Shopify jamás. */
+const adminProhibido = {
+  graphql: async () => {
+    throw new Error("NOOP no debe llamar a Shopify");
+  },
 };
 
 /**
@@ -175,6 +185,7 @@ async function drive(jobId: string, opts: DriveOpts = {}) {
       ...(opts.maxProductsPerBatch !== undefined && {
         maxProductsPerBatch: opts.maxProductsPerBatch,
       }),
+      getAdmin: async () => opts.admin ?? adminProhibido,
       dispatchNext: async () => {
         dispatches += 1;
       },
@@ -392,8 +403,16 @@ test("dos workers sobre el mismo job: solo uno avanza", async () => {
   });
 
   const [a, b] = await Promise.all([
-    runJobBatch(job.id, { deadlineMs: 45_000, dispatchNext: async () => {} }),
-    runJobBatch(job.id, { deadlineMs: 45_000, dispatchNext: async () => {} }),
+    runJobBatch(job.id, {
+      deadlineMs: 45_000,
+      getAdmin: async () => adminProhibido,
+      dispatchNext: async () => {},
+    }),
+    runJobBatch(job.id, {
+      deadlineMs: 45_000,
+      getAdmin: async () => adminProhibido,
+      dispatchNext: async () => {},
+    }),
   ]);
 
   const avanzaron = [a, b].filter((r) => r.unitsThisBatch > 0);
@@ -424,7 +443,11 @@ test("cancelar a mitad deja CANCELLED y suelta el cerrojo de la campaña", async
   const parcial = await sellados(campaign.id, job.id);
   assert.ok(parcial > 0 && parcial < 600, `progreso parcial: ${parcial}`);
 
-  assert.equal(await requestCancel(job.id, SHOP_ID), true, "la cancelación se acepta");
+  assert.equal(
+    (await requestCancel(job.id, SHOP_ID)).cancelled,
+    true,
+    "la cancelación se acepta"
+  );
   await matarWorker(job.id); // el worker anterior ya no está
   await drive(job.id, { deadlineMs: 45_000 });
 
@@ -450,7 +473,11 @@ test(`un job que revienta siempre en el mismo punto para en attempts=${MAX_ATTEM
   });
 
   for (let i = 0; i < MAX_ATTEMPTS + 4; i++) {
-    await runJobBatch(job.id, { deadlineMs: 45_000, dispatchNext: async () => {} });
+    await runJobBatch(job.id, {
+      deadlineMs: 45_000,
+      getAdmin: async () => adminProhibido,
+      dispatchNext: async () => {},
+    });
     await matarWorker(job.id); // cada reintento llega como worker nuevo
     const j = await getJob(job.id, SHOP_ID);
     if (j && isTerminal(j.status as JobStatus)) break;
@@ -470,6 +497,274 @@ test(`un job que revienta siempre en el mismo punto para en attempts=${MAX_ATTEM
   console.log(
     `[freno] el job murió en attempts=${final?.attempts} sin re-patearse indefinidamente`
   );
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  WORKERS REALES — contra el cliente Shopify falso, con volumen
+//
+//  Aquí no hay simulacro: se ejecutan APPLY, REVERT, REACTIVATE y DELETE de
+//  verdad, con toda su lógica de precios, contra un catálogo sintético de 1.000
+//  productos × 5 variantes = 5.000 variantes. El cliente falso permite además
+//  provocar a voluntad lo que en una tienda real es imposible reproducir: un
+//  THROTTLED en la mutación 47, un userError en la 300, o matar el proceso justo
+//  a la mitad.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const CAT_PRODUCTOS = 1_000;
+const CAT_VARIANTES = 5;
+const TOTAL_VARIANTES = CAT_PRODUCTOS * CAT_VARIANTES; // 5.000
+const PCT = 20;
+
+async function campañaPorcentaje(nombre: string, status = "DRAFT") {
+  return prisma.campaign.create({
+    data: {
+      shopId: SHOP_ID,
+      name: `[test] ${nombre} #${++seq}`,
+      type: "PERCENTAGE",
+      status: status as "DRAFT",
+      config: { discountPercent: PCT, showCompareAtPrice: false },
+    },
+  });
+}
+
+const catalogo = (b: Parameters<typeof createFakeAdmin>[1] = {}) =>
+  createFakeAdmin(
+    { products: CAT_PRODUCTOS, variantsPerProduct: CAT_VARIANTES, basePrice: 100 },
+    b
+  );
+
+const applyPayload = (max?: number) => ({
+  selection: { selectionMode: "all" as const },
+  ...(max !== undefined ? { maxVariants: max } : {}),
+});
+
+test(`APPLY real sobre ${TOTAL_VARIANTES.toLocaleString("es-CL")} variantes: precios correctos y una mutación por producto`, async () => {
+  const campaign = await campañaPorcentaje("apply-grande");
+  const admin = catalogo();
+  const { job } = await createJob({
+    campaignId: campaign.id,
+    shopId: SHOP_ID,
+    operation: "APPLY",
+    payload: applyPayload(),
+  });
+
+  const t0 = Date.now();
+  const { batches } = await drive(job.id, { deadlineMs: 45_000, admin });
+  const total = Date.now() - t0;
+
+  const final = await getJob(job.id, SHOP_ID);
+  assert.equal(final?.status, "COMPLETED", `estado: ${final?.status} · ${final?.lastError}`);
+
+  // Se crearon las filas de trabajo con los precios originales dentro.
+  assert.equal(
+    await prisma.campaignProduct.count({ where: { campaignId: campaign.id } }),
+    TOTAL_VARIANTES,
+    "filas de CampaignProduct creadas"
+  );
+  assert.equal(await sellados(campaign.id, job.id), TOTAL_VARIANTES, "todas selladas");
+  assert.equal(await sinSellar(campaign.id, job.id), 0, "sin huecos");
+
+  // UNA mutación por producto, ni una de más: es la garantía de que no se
+  // reprocesó nada entre lotes.
+  assert.equal(admin.mutationCalls.length, CAT_PRODUCTOS, "mutaciones a Shopify");
+  const tocados = new Set(admin.mutationCalls.map((m) => m.productId));
+  assert.equal(tocados.size, CAT_PRODUCTOS, "productos distintos tocados");
+
+  // Y el precio es el correcto: producto i vale 100+i, con 20 % queda en 0,8×.
+  const primera = admin.mutationCalls.find(
+    (m) => m.productId === "gid://shopify/Product/0"
+  );
+  assert.ok(primera, "se mutó el producto 0");
+  assert.equal(primera!.prices[0].price, "80.00", "100.00 con 20% -> 80.00");
+  assert.equal(primera!.prices[0].compareAtPrice, "100.00", "precio tachado");
+
+  const c = await prisma.campaign.findUnique({ where: { id: campaign.id } });
+  assert.equal(c?.status, "ACTIVE", "la campaña pasa a ACTIVE solo al terminar");
+  assert.equal(c?.activeJobId, null, "cerrojo liberado");
+
+  const peor = Math.max(...batches.map((b) => b.elapsedMs));
+  assert.ok(peor < 90_000, `peor lote ${peor} ms`);
+  console.log(
+    `[apply real] ${TOTAL_VARIANTES} variantes · ${CAT_PRODUCTOS} mutaciones · ${batches.length} lotes · peor lote ${(peor / 1000).toFixed(1)} s · total ${(total / 1000).toFixed(1)} s`
+  );
+});
+
+test("APPLY interrumpido a mitad: al reanudar no repite ni una sola mutación", async () => {
+  const campaign = await campañaPorcentaje("apply-interrumpido");
+  const admin = catalogo();
+  const { job } = await createJob({
+    campaignId: campaign.id,
+    shopId: SHOP_ID,
+    operation: "APPLY",
+    payload: applyPayload(),
+  });
+
+  await drive(job.id, { maxProductsPerBatch: 120, stopAtFraction: 0.4, admin });
+  const aMitad = admin.mutationCalls.length;
+  assert.ok(aMitad > 0 && aMitad < CAT_PRODUCTOS, `mutaciones a mitad: ${aMitad}`);
+
+  await matarWorker(job.id); // 💀
+  await drive(job.id, { deadlineMs: 45_000, admin });
+
+  const final = await getJob(job.id, SHOP_ID);
+  assert.equal(final?.status, "COMPLETED", `estado: ${final?.status}`);
+  assert.equal(await sinSellar(campaign.id, job.id), 0, "sin huecos");
+
+  // Lo que de verdad importa: el TOTAL de mutaciones sigue siendo una por
+  // producto. Si la reanudación repitiera trabajo, este número se pasaría.
+  assert.equal(
+    admin.mutationCalls.length,
+    CAT_PRODUCTOS,
+    `se esperaban ${CAT_PRODUCTOS} mutaciones y hubo ${admin.mutationCalls.length}`
+  );
+  console.log(
+    `[apply interrumpido] cortado tras ${aMitad} mutaciones · total final ${admin.mutationCalls.length} (esperado ${CAT_PRODUCTOS})`
+  );
+});
+
+test("APPLY que excede la cuota del plan muere SIN tocar un solo precio", async () => {
+  const campaign = await campañaPorcentaje("apply-limite");
+  const admin = catalogo();
+  const { job } = await createJob({
+    campaignId: campaign.id,
+    shopId: SHOP_ID,
+    operation: "APPLY",
+    payload: applyPayload(50), // plan FREE: 50 variantes
+  });
+
+  await drive(job.id, { deadlineMs: 45_000, admin });
+
+  const final = await getJob(job.id, SHOP_ID);
+  assert.equal(final?.status, "FAILED", `estado: ${final?.status}`);
+  assert.match(String(final?.lastError), /plan admite/i);
+
+  // 🔴 La garantía que importa: cero mutaciones. El límite salta durante la
+  // RESOLUCIÓN, antes de la primera escritura en Shopify.
+  assert.equal(admin.mutationCalls.length, 0, "no se tocó ningún precio");
+
+  const c = await prisma.campaign.findUnique({ where: { id: campaign.id } });
+  assert.equal(c?.status, "DRAFT", "la campaña se queda en borrador, no activa");
+  assert.equal(c?.activeJobId, null, "cerrojo liberado");
+  console.log(`[apply límite] FAILED sin mutaciones · campaña en DRAFT`);
+});
+
+test("REVERT devuelve exactamente los precios originales", async () => {
+  const campaign = await campañaPorcentaje("revert");
+  const admin = catalogo();
+
+  const { job: apply } = await createJob({
+    campaignId: campaign.id, shopId: SHOP_ID, operation: "APPLY", payload: applyPayload(),
+  });
+  await drive(apply.id, { deadlineMs: 45_000, admin });
+  const trasApply = admin.mutationCalls.length;
+
+  const { job: revert } = await createJob({
+    campaignId: campaign.id, shopId: SHOP_ID, operation: "REVERT",
+  });
+  await drive(revert.id, { deadlineMs: 45_000, admin });
+
+  const final = await getJob(revert.id, SHOP_ID);
+  assert.equal(final?.status, "COMPLETED", `estado: ${final?.status}`);
+  assert.equal(
+    admin.mutationCalls.length - trasApply,
+    CAT_PRODUCTOS,
+    "una mutación de revert por producto"
+  );
+
+  // El precio del producto 0 vuelve a ser 100.00 y su tachado desaparece.
+  const ultima = [...admin.mutationCalls]
+    .reverse()
+    .find((m) => m.productId === "gid://shopify/Product/0");
+  assert.equal(ultima?.prices[0].price, "100", "precio original restaurado");
+  assert.equal(ultima?.prices[0].compareAtPrice, null, "sin precio tachado");
+
+  const c = await prisma.campaign.findUnique({ where: { id: campaign.id } });
+  assert.equal(c?.status, "PAUSED", "la campaña queda pausada");
+  console.log(`[revert] ${CAT_PRODUCTOS} productos devueltos a su precio original`);
+});
+
+test("cancelar un APPLY encola SOLO el revert de lo ya aplicado", async () => {
+  const campaign = await campañaPorcentaje("cancel-compensa");
+  const admin = catalogo();
+  const { job } = await createJob({
+    campaignId: campaign.id, shopId: SHOP_ID, operation: "APPLY", payload: applyPayload(),
+  });
+
+  await drive(job.id, { maxProductsPerBatch: 100, maxBatches: 1, admin });
+  const aplicados = admin.mutationCalls.length;
+  assert.ok(aplicados > 0 && aplicados < CAT_PRODUCTOS, `aplicados: ${aplicados}`);
+
+  // Entre lote y lote el job está en QUEUED, así que la cancelación se resuelve
+  // en el acto y es AHÍ donde tiene que nacer el revert compensatorio.
+  const cancel = await requestCancel(job.id, SHOP_ID);
+  assert.equal(cancel.cancelled, true, "la cancelación se acepta");
+  assert.equal((await getJob(job.id, SHOP_ID))?.status, "CANCELLED");
+
+  assert.ok(
+    cancel.compensatingJobId,
+    "cancelar un APPLY con precios ya tocados debe crear un REVERT compensatorio"
+  );
+  const compensatorio = await getJob(cancel.compensatingJobId!, SHOP_ID);
+  assert.ok(compensatorio, "el revert compensatorio existe");
+
+  const antes = admin.mutationCalls.length;
+  await drive(compensatorio!.id, { deadlineMs: 45_000, admin });
+  const deshechos = admin.mutationCalls.length - antes;
+
+  assert.equal((await getJob(compensatorio!.id, SHOP_ID))?.status, "COMPLETED");
+  // Solo lo aplicado, NO el catálogo entero: esa es la razón de `onlyStampedBy`.
+  assert.equal(deshechos, aplicados, `deshechos ${deshechos}, aplicados ${aplicados}`);
+  console.log(
+    `[cancelar APPLY] ${aplicados} productos aplicados -> revert compensatorio deshizo exactamente ${deshechos}`
+  );
+});
+
+test("APPLY tolera fallos por producto y acaba COMPLETED_WITH_ERRORS", async () => {
+  const campaign = await campañaPorcentaje("apply-con-fallos");
+  // Un throttle (que el backoff absorbe) y dos rechazos duros de Shopify.
+  const admin = catalogo({ throttleAtCalls: [7], userErrorAtCalls: [20, 400] });
+  const { job } = await createJob({
+    campaignId: campaign.id, shopId: SHOP_ID, operation: "APPLY", payload: applyPayload(),
+  });
+
+  await drive(job.id, { deadlineMs: 45_000, admin });
+
+  const final = await getJob(job.id, SHOP_ID);
+  assert.equal(final?.status, "COMPLETED_WITH_ERRORS", `estado: ${final?.status}`);
+  assert.equal(final?.errorCount, 2, `errores contados: ${final?.errorCount}`);
+  // Un producto que falla también se sella: si no, `remaining` nunca llegaría a
+  // cero y el job daría vueltas hasta agotar sus intentos.
+  assert.equal(await sinSellar(campaign.id, job.id), 0, "ningún producto bloquea el final");
+  console.log(
+    `[apply con fallos] 1 throttle absorbido por el backoff + 2 rechazos -> COMPLETED_WITH_ERRORS`
+  );
+});
+
+test("DELETE revierte los precios y luego borra la campaña", async () => {
+  const campaign = await campañaPorcentaje("delete");
+  const admin = catalogo();
+  const { job: apply } = await createJob({
+    campaignId: campaign.id, shopId: SHOP_ID, operation: "APPLY", payload: applyPayload(),
+  });
+  await drive(apply.id, { deadlineMs: 45_000, admin });
+  const trasApply = admin.mutationCalls.length;
+
+  const { job: del } = await createJob({
+    campaignId: campaign.id, shopId: SHOP_ID, operation: "DELETE",
+  });
+  await drive(del.id, { deadlineMs: 45_000, admin });
+
+  assert.equal(
+    admin.mutationCalls.length - trasApply,
+    CAT_PRODUCTOS,
+    "revierte antes de borrar"
+  );
+  assert.equal(
+    await prisma.campaign.count({ where: { id: campaign.id } }),
+    0,
+    "la campaña ya no existe"
+  );
+  console.log(`[delete] ${CAT_PRODUCTOS} productos revertidos y campaña borrada`);
 });
 
 // ─── 8. Invariante final ──────────────────────────────────────────────────────

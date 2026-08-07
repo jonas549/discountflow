@@ -149,8 +149,12 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   const intent = String(form.get("intent") ?? "");
 
   if (intent === "cancel") {
-    const ok = await requestCancel(jobId, shop.id);
-    return Response.json({ ok });
+    const res = await requestCancel(jobId, shop.id);
+    // Cancelar un APPLY que ya tocó precios deja un REVERT compensatorio creado:
+    // hay que arrancarlo, o los productos ya rebajados se quedarían así.
+    if (res.compensatingJobId)
+      await dispatchNextBatch(request, res.compensatingJobId);
+    return Response.json({ ok: res.cancelled, revertJobId: res.compensatingJobId ?? null });
   }
 
   if (intent === "kick") {

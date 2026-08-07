@@ -8,6 +8,7 @@ import {
 import { authenticate } from "../shopify.server";
 import { prisma } from "../lib/db";
 import { getOrCreateShop } from "../lib/shopify/shop.server";
+import { rejectIfCampaignBusy } from "../lib/jobs/enqueue.server";
 import {
   getProductMetadata,
   getProductsByIds,
@@ -73,6 +74,9 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
 
 export const action = async ({ request, params }: ActionFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
+  const ocupada = await rejectIfCampaignBusy(session.shop, params.id!);
+  if (ocupada) return ocupada;
+
   const campaignId = params.id!;
   const f = parseTieredForm(await request.formData());
 

@@ -25,6 +25,7 @@ import {
 import { authenticate } from "../shopify.server";
 import { prisma } from "../lib/db";
 import { getOrCreateShop } from "../lib/shopify/shop.server";
+import { rejectIfCampaignBusy } from "../lib/jobs/enqueue.server";
 import {
   applyRangeDiscount,
   revertRangeDiscount,
@@ -125,6 +126,9 @@ type ActionErrors = {
 
 export const action = async ({ request, params }: ActionFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
+  const ocupada = await rejectIfCampaignBusy(session.shop, params.id!);
+  if (ocupada) return ocupada;
+
   const formData = await request.formData();
   const campaignId = params.id!;
 

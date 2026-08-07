@@ -11,7 +11,13 @@
 
 import prisma from "../../../db.server.ts";
 import type { JobRecord } from "../jobs.server.ts";
-import type { JobHandler, JobUnit, ResolveStep, RunUnitsResult } from "./index.ts";
+import type {
+  JobHandler,
+  JobUnit,
+  OpContext,
+  ResolveStep,
+  RunUnitsResult,
+} from "./index.ts";
 
 export type NoopPayload = {
   /** Unidades totales a simular. */
@@ -54,7 +60,7 @@ export const noopHandler: JobHandler = {
    * Crea las filas de trabajo por páginas. `resolveCursor` guarda cuántas van, así
    * que si el plazo corta a mitad de la creación se retoma donde iba.
    */
-  async resolveStep(job: JobRecord): Promise<ResolveStep> {
+  async resolveStep({ job }: OpContext): Promise<ResolveStep> {
     const cfg = readPayload(job);
     const created = Number(job.resolveCursor ?? "0") || 0;
     const remaining = cfg.totalUnits - created;
@@ -98,7 +104,7 @@ export const noopHandler: JobHandler = {
    * Lo pendiente es una CONSULTA, no un cálculo con cursor. Por eso reanudar es
    * exacto aunque el conjunto cambie entre lotes.
    */
-  async pendingUnits(job: JobRecord, limit: number): Promise<JobUnit[]> {
+  async pendingUnits({ job }: OpContext, limit: number): Promise<JobUnit[]> {
     const rows = await prisma.campaignProduct.groupBy({
       by: ["shopifyProductId"],
       where: {
@@ -116,7 +122,7 @@ export const noopHandler: JobHandler = {
     }));
   },
 
-  async runUnits(job: JobRecord, units: JobUnit[]): Promise<RunUnitsResult> {
+  async runUnits({ job }: OpContext, units: JobUnit[]): Promise<RunUnitsResult> {
     const cfg = readPayload(job);
 
     if (cfg.failAtUnit >= 0) {
@@ -147,7 +153,7 @@ export const noopHandler: JobHandler = {
     return { succeeded: units, failures: [] };
   },
 
-  async totalDone(job: JobRecord): Promise<{ products: number; variants: number }> {
+  async totalDone({ job }: OpContext): Promise<{ products: number; variants: number }> {
     const variants = await prisma.campaignProduct.count({
       where: { campaignId: job.campaignId, processedByJobId: job.id },
     });
@@ -155,7 +161,7 @@ export const noopHandler: JobHandler = {
     return { products: Math.floor(variants / cfg.variantsPerUnit), variants };
   },
 
-  async remaining(job: JobRecord): Promise<number> {
+  async remaining({ job }: OpContext): Promise<number> {
     const rows = await prisma.campaignProduct.groupBy({
       by: ["shopifyProductId"],
       where: {

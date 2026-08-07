@@ -36,6 +36,8 @@ export type JobRecord = {
   leaseNonce: string | null;
   attempts: number;
   errorCount: number;
+  /** Incidencias por unidad acumuladas entre lotes. Ver la siembra en el runner. */
+  errors: unknown;
   lastError: string | null;
   payload: unknown;
   startedAt: Date | null;
@@ -305,20 +307,31 @@ export async function flushProgress(
  * cadena se rompiera de verdad, a los 90 s se volvería rancio y el vigilante lo
  * recogería igual.
  *
- * Los intentos se reinician aquí porque el lote progresó: `attempts` solo debe
- * contar arranques que NO avanzan. Si no, un job sano de 18 lotes llegaría a
- * attempts=18 y el freno de MAX_ATTEMPTS lo mataría por estar funcionando bien.
+ * 🔴 `resetAttempts` NO es un detalle: es lo que decide si el freno de
+ *    MAX_ATTEMPTS funciona.
+ *
+ *    Tras un lote LIMPIO hay que reiniciarlo (true): `attempts` solo debe contar
+ *    arranques que NO avanzan, o un job sano de 18 lotes llegaría a attempts=18 y
+ *    el freno lo mataría por estar funcionando bien.
+ *
+ *    Tras un lote que REVENTÓ hay que conservarlo (false). Reiniciarlo ahí anula
+ *    el freno por completo: el contador vuelve a cero en cada fallo, nunca alcanza
+ *    el tope y un job que revienta siempre en el mismo punto se re-patea para
+ *    siempre, comiéndose la cuota de invocaciones de Hobby —donde agotarla no
+ *    degrada el servicio, lo APAGA hasta 30 días—. Ese bug existió: se coló al
+ *    cablear las operaciones reales y lo cazó el test del freno.
  */
 export async function handOffToNextBatch(
   jobId: string,
-  nonce: string
+  nonce: string,
+  opts: { resetAttempts: boolean } = { resetAttempts: true }
 ): Promise<boolean> {
   const res = await prisma.campaignJob.updateMany({
     where: { id: jobId, leaseNonce: nonce, status: { in: ["RUNNING", "RESOLVING"] } },
     data: {
       status: "QUEUED",
       leaseNonce: null,
-      attempts: 0,
+      ...(opts.resetAttempts ? { attempts: 0 } : {}),
       heartbeatAt: new Date(),
     },
   });
@@ -398,18 +411,70 @@ export async function finishJob(
 export async function requestCancel(
   jobId: string,
   shopId: string
-): Promise<boolean> {
+): Promise<{ cancelled: boolean; compensatingJobId?: string }> {
   const job = await prisma.campaignJob.findFirst({ where: { id: jobId, shopId } });
-  if (!job || isTerminal(job.status as JobStatus)) return false;
+  if (!job || isTerminal(job.status as JobStatus)) return { cancelled: false };
 
-  if (job.status === "QUEUED")
-    return finishJob(jobId, job.leaseNonce, "CANCELLED", { force: true });
+  // ⚠️ Un job QUEUED se cancela EN EL ACTO, y ese es el caso más frecuente, no una
+  // rareza: entre lote y lote el job pasa por QUEUED, así que la mayoría de las
+  // cancelaciones caen aquí. Como no hay worker que se entere, el revert
+  // compensatorio hay que crearlo desde aquí; si solo viviera en el runner —donde
+  // estaba al principio— cancelar entre lotes dejaría los precios aplicados sin
+  // deshacer y sin que nadie lo supiera.
+  if (job.status === "QUEUED") {
+    const ok = await finishJob(jobId, job.leaseNonce, "CANCELLED", { force: true });
+    if (!ok) return { cancelled: false };
+    const compensatingJobId = await createCompensatingRevert(jobId);
+    return { cancelled: true, ...(compensatingJobId ? { compensatingJobId } : {}) };
+  }
 
   const res = await prisma.campaignJob.updateMany({
     where: { id: jobId, status: { in: ["RESOLVING", "RUNNING"] } },
     data: { status: "CANCELLING" },
   });
-  return res.count === 1;
+  return { cancelled: res.count === 1 };
+}
+
+/**
+ * Crea (sin lanzar) el REVERT que deshace lo que un APPLY cancelado llegó a
+ * aplicar. Devuelve su id, o null si no hacía falta.
+ *
+ * Vive aquí, y no en el runner, porque hay DOS caminos por los que un APPLY puede
+ * acabar cancelado: que el worker vea la orden a mitad de lote, o que la orden
+ * llegue mientras el job espera entre lotes (estado QUEUED). Si solo lo hiciera
+ * uno de los dos, la mitad de las cancelaciones dejarían precios rebajados sin
+ * deshacer.
+ *
+ * Va acotado con `onlyStampedBy`: no tiene sentido recorrer el catálogo entero
+ * para deshacer el 10 % que se llegó a tocar.
+ */
+export async function createCompensatingRevert(
+  cancelledJobId: string
+): Promise<string | null> {
+  try {
+    const job = await prisma.campaignJob.findUnique({
+      where: { id: cancelledJobId },
+      include: { campaign: { select: { id: true, type: true } } },
+    });
+    if (!job || job.operation !== "APPLY") return null;
+    if (job.campaign.type !== "PERCENTAGE" && job.campaign.type !== "RANGE") return null;
+
+    const tocadas = await prisma.campaignProduct.count({
+      where: { campaignId: job.campaignId, processedByJobId: cancelledJobId },
+    });
+    if (tocadas === 0) return null; // no se aplicó nada: no hay qué deshacer
+
+    const { job: revert, created } = await createJob({
+      campaignId: job.campaignId,
+      shopId: job.shopId,
+      operation: "REVERT",
+      payload: { onlyStampedBy: cancelledJobId },
+    });
+    return created ? revert.id : null;
+  } catch (err) {
+    console.error("[jobs] no se pudo crear el revert compensatorio:", err);
+    return null;
+  }
 }
 
 // ─── Zombis ───────────────────────────────────────────────────────────────────
