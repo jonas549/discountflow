@@ -44,6 +44,10 @@ model Shop {
   plan            String     @default("FREE")
   planActivatedAt DateTime?
   lastSyncAt      DateTime?
+  /// Flags por tienda. Se lee SIEMPRE con hasFeature() (app/lib/features.server.ts),
+  /// que falla CERRADO: ausencia, error o JSON corrupto = flag apagado = camino
+  /// estable. Permite encender/apagar sin desplegar: UPDATE "Shop" SET features = ...
+  features        Json       @default("{}")
   campaigns       Campaign[]
 }
 
@@ -88,9 +92,21 @@ model Campaign {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  /// Cerrojo de UNA operación en curso por campaña.
+  ///
+  /// Es String? y no una relación a propósito: una FK Campaign -> CampaignJob y otra
+  /// CampaignJob -> Campaign forman un ciclo que obliga a insertar en dos pasos. Aquí
+  /// solo hace falta el cerrojo, y el @unique lo hace infalsificable a nivel de BD:
+  /// dos peticiones simultáneas no pueden dejar dos jobs vivos sobre la misma campaña.
+  ///
+  /// null = campaña libre. No-null = hay un job no terminal. TODA transición a estado
+  /// terminal debe ponerlo a null EN LA MISMA TRANSACCIÓN o la campaña queda bloqueada.
+  activeJobId String? @unique
+
   products          CampaignProduct[]
   orderAttributions OrderAttribution[]
   analyticsEvents   AnalyticsEvent[]
+  jobs              CampaignJob[]
 
   @@index([shopId])
   @@index([status])
@@ -110,9 +126,95 @@ model CampaignProduct {
   originalCompareAtPrice Decimal? @db.Decimal(10, 2)
   createdAt              DateTime @default(now())
 
+  /// Marca de "este job ya procesó esta fila". Es el mecanismo de reanudación.
+  ///
+  /// Se eligió una marca por fila en vez de un cursor numérico porque "lo que queda"
+  /// pasa a ser una CONSULTA y no un cálculo:
+  ///     WHERE campaignId = ? AND (processedByJobId IS NULL OR processedByJobId <> :jobId)
+  ///
+  /// Propiedades que salen gratis de esto:
+  ///   - reanudar no necesita guardar posición y es exacto aunque el catálogo cambie
+  ///   - reprocesar es imposible (es un sello, no un contador)
+  ///   - las filas antiguas (NULL) son "pendientes" para cualquier job nuevo, que es
+  ///     justo lo correcto para un REVERT sobre una campaña anterior a este sistema
+  ///   - identifica lo ya tocado, que es lo que necesita el job compensatorio al cancelar
+  processedByJobId String?
+
   @@unique([campaignId, shopifyVariantId])
   @@index([campaignId])
   @@index([shopifyProductId])
+  @@index([campaignId, processedByJobId])
+}
+
+// ─── Jobs por lotes (progreso de operaciones largas) ─────────────────────────
+
+enum JobOperation {
+  /// Solo cuenta. No toca Shopify. Existe para ejercitar el motor completo
+  /// (encadenado, lease, zombis, cancelación, reanudación) sin poder tocar un
+  /// precio real. Es la operación con la que se validó todo el sistema.
+  NOOP
+  APPLY
+  REACTIVATE
+  REVERT
+  DELETE
+}
+
+enum JobStatus {
+  QUEUED
+  RESOLVING
+  RUNNING
+  CANCELLING
+  COMPLETED
+  COMPLETED_WITH_ERRORS
+  FAILED
+  CANCELLED
+}
+
+model CampaignJob {
+  id         String       @id @default(cuid())
+  campaignId String
+  campaign   Campaign     @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  shopId     String
+  operation  JobOperation
+  status     JobStatus    @default(QUEUED)
+  /// RESOLVING | APPLYING | FINALIZING — qué está haciendo dentro de su estado.
+  phase      String       @default("RESOLVING")
+
+  totalProducts     Int @default(0)
+  processedProducts Int @default(0)
+  totalVariants     Int @default(0)
+  processedVariants Int @default(0)
+
+  /// Cursor de paginación GraphQL: la fase de resolución también se trocea.
+  resolveCursor String?
+
+  /// Última señal de vida. Un job no terminal con heartbeat rancio es un zombi
+  /// y puede ser reclamado por otro worker (ver LEASE_STALE_MS).
+  heartbeatAt DateTime?
+  /// Identifica al worker dueño. Un worker desalojado lo comprueba antes de
+  /// escribir y se detiene si ya no coincide.
+  leaseNonce  String?
+  /// Freno de mano: al llegar a MAX_ATTEMPTS el job muere en vez de re-patearse
+  /// para siempre y comerse la cuota de invocaciones.
+  attempts    Int       @default(0)
+
+  errorCount Int     @default(0)
+  /// Errores por unidad, persistidos EN BD a propósito: los Runtime Logs de
+  /// Vercel Hobby se retienen solo 1 hora, así que un job que falla de noche no
+  /// dejaría rastro por la mañana.
+  errors     Json?
+  lastError  String?
+
+  payload Json @default("{}")
+
+  startedAt  DateTime?
+  finishedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([shopId])
+  @@index([campaignId])
+  @@index([status, heartbeatAt])
 }
 
 // ─── Order attribution (for analytics) ───────────────────────────────────────
