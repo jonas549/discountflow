@@ -41,6 +41,8 @@ import {
   type RangeCampaignConfig,
 } from "../lib/discounts/range";
 import { enqueueCampaignJob, sweepStalledJobs } from "../lib/jobs/enqueue.server";
+import { hasFeature } from "../lib/features.server";
+import { JOBS_FEATURE_FLAG } from "../lib/jobs/constants";
 import { JobProgress } from "../components/JobProgress";
 import { es, estadoLabel, tipoLabel, formatDate } from "../i18n";
 import { Btn, LinkBtn } from "../components/Btn";
@@ -52,6 +54,8 @@ import {
   getActiveCampaignCountByType,
 } from "../lib/billing/plan-limits.server";
 import { useSearchParams } from "react-router";
+
+const isProduction = process.env.NODE_ENV === "production";
 
 // ─── Límites de plan al reactivar ─────────────────────────────────────────────
 
@@ -140,6 +144,27 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     accessToken: session.accessToken,
     scopes: session.scope,
   });
+
+  // ── Interruptor de la barra de progreso ───────────────────────────────────
+  // Vive AQUÍ, en la pantalla donde se trabaja, y no detrás de una URL que haya
+  // que adivinar. Un interruptor que no se ve es un interruptor que nadie
+  // enciende: la feature entera puede quedar apagada sin que nadie lo note.
+  // Nunca disponible en producción — allí el flag se mueve con un UPDATE.
+  if (actionType === null && formData.get("intent") === "toggle-jobs-flag") {
+    if (isProduction)
+      return Response.json({ error: "No disponible en producción" }, { status: 403 });
+    const current = (shop.features ?? {}) as Record<string, unknown>;
+    await prisma.shop.update({
+      where: { id: shop.id },
+      data: {
+        features: {
+          ...current,
+          [JOBS_FEATURE_FLAG]: !hasFeature(shop, JOBS_FEATURE_FLAG),
+        } as never,
+      },
+    });
+    return Response.json({ ok: true });
+  }
 
   const campaign = await prisma.campaign.findFirst({
     where: { id: campaignId, shopId: shop.id },
@@ -282,6 +307,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const skipped = Number(new URL(request.url).searchParams.get("skipped") ?? 0);
   return {
     skipped,
+    jobsFlagOn: hasFeature(shop, JOBS_FEATURE_FLAG),
+    canToggleJobsFlag: !isProduction,
     campaigns: campaigns.map((c) => ({
       id: c.id,
       name: c.name,
@@ -696,7 +723,8 @@ function DeleteModal({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function Campaigns() {
-  const { campaigns, skipped } = useLoaderData<typeof loader>();
+  const { campaigns, skipped, jobsFlagOn, canToggleJobsFlag } =
+    useLoaderData<typeof loader>();
   const [searchParams] = useSearchParams();
   const fetcher = useFetcher();
 
@@ -764,6 +792,55 @@ export default function Campaigns() {
 
   return (
     <s-page heading={es.campanas.titulo}>
+      {/* Interruptor de la barra de progreso — solo fuera de producción.
+          Visible aquí a propósito: escondido detrás de una URL, nadie lo enciende
+          y la feature entera queda muerta sin que se note. */}
+      {canToggleJobsFlag && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+            flexWrap: "wrap",
+            background: jobsFlagOn ? "#f1f8f5" : "#fff8e1",
+            border: `1px solid ${jobsFlagOn ? "#008060" : "#f9a825"}`,
+            borderRadius: 8,
+            padding: "10px 14px",
+            marginBottom: 16,
+            fontSize: 13,
+          }}
+        >
+          <span style={{ color: "#42474c" }}>
+            <strong>Barra de progreso por lotes:</strong>{" "}
+            <strong style={{ color: jobsFlagOn ? "#007a5a" : "#a05c00" }}>
+              {jobsFlagOn ? "ENCENDIDA" : "APAGADA"}
+            </strong>
+            {jobsFlagOn
+              ? " — crear, activar, pausar y eliminar devuelven al instante y muestran progreso."
+              : " — las operaciones corren en bloque y la pantalla se queda esperando (comportamiento anterior)."}
+          </span>
+          <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <fetcher.Form method="post" style={{ display: "inline" }}>
+              <input type="hidden" name="intent" value="toggle-jobs-flag" />
+              {/* type="submit" explícito: Btn usa type="button" por defecto y
+                  dentro de un form no enviaría nada. */}
+              <Btn
+                type="submit"
+                variant={jobsFlagOn ? "muted" : "primary"}
+                size="sm"
+                disabled={isBusy}
+              >
+                {jobsFlagOn ? "Apagar" : "Encender"}
+              </Btn>
+            </fetcher.Form>
+            <Link to="/app/jobs-demo" style={{ fontSize: 12, color: "#008060" }}>
+              Banco de pruebas
+            </Link>
+          </span>
+        </div>
+      )}
+
       {/* Delete confirmation modal */}
       {deleteCandidate && (
         <DeleteModal
