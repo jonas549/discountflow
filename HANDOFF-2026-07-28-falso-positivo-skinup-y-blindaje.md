@@ -1,6 +1,7 @@
-# 🔍 HANDOFF — El caso SkinUp era un falso positivo, y el blindaje que sí hacía falta (2026-07-28)
+# 🚀 HANDOFF — Falso positivo de SkinUp, blindaje del alcance y niveles al 0% (2026-07-28, cierre de jornada)
 
-> **Handoff vigente.** El anterior, [`HANDOFF-2026-07-26-enforcement-limites.md`](HANDOFF-2026-07-26-enforcement-limites.md), sigue siendo válido para el enforcement de límites y el endpoint de pausa.
+> **Este es el handoff vigente.**
+> El anterior, [`HANDOFF-2026-07-26-enforcement-limites.md`](HANDOFF-2026-07-26-enforcement-limites.md), sigue siendo válido para el enforcement de límites y el endpoint de pausa.
 > La sección **🧨 DEUDA TÉCNICA Y TRAMPAS** de [`HANDOFF-2026-07-24-escalonados-produccion.md`](HANDOFF-2026-07-24-escalonados-produccion.md) continúa siendo la referencia a nivel de código.
 
 ---
@@ -9,21 +10,32 @@
 
 | Pieza | Estado |
 |---|---|
-| Código en producción | **`8706569`** — sin cambios hoy |
-| Function de Shopify | `discountflow-6` ★ activa — **sin cambios hoy** |
-| Trabajo de hoy | **solo en `dev`, sin commitear.** Producción intacta |
+| Código en producción | **`5bcddba`** (funcional: `d54d0da`) |
+| Anterior | `8706569` |
+| Function de Shopify | **`discountflow-7` ★ activa** — creada y liberada hoy 18:37:56 |
+| Function anterior | `discountflow-6` (inactiva, 24/07) |
+| Migraciones | **ninguna** |
+| Scopes / webhooks / toml | **sin tocar** → ningún merchant reautorizó |
+| `main` / `dev` / `origin/main` | los tres en `5bcddba`, sin divergencia |
 
-**No se tocó producción en ningún momento.** Todo el acceso a datos reales fue de solo lectura.
+### Rollback — 🔴 EL ORDEN IMPORTA
+
+```
+1. Vercel → Instant Rollback a 8706569
+2. Partner Dashboard → release de discountflow-6
+```
+
+**Vercel primero, Function después.** La combinación "app vieja + Function nueva" es segura (los escalonados simplemente no descuentan). La inversa —"app nueva + Function vieja"— deja guardar niveles al 0% que el Wasm viejo descarta, y entonces **cobra de más en silencio**. Sin migraciones ni scopes de por medio: rollback limpio, sin pasos previos.
 
 ---
 
-## ═══ 🔴 LO PRIMERO: LA CAUSA RAÍZ QUE ARRASTRÁBAMOS ERA FALSA ═══
+## ═══ 1. EL "BUG CRÍTICO" DE SKINUP ERA UN FALSO POSITIVO ═══
 
-La sesión se retomó con este diagnóstico dado por confirmado:
+La jornada empezó con este diagnóstico dado por confirmado:
 
-> *La campaña guarda GID de PRODUCTO; la Function compara contra GID de VARIANTE → nunca coinciden → la lista de elegibles queda vacía → lista vacía = "toda la tienda" → descuenta TODO.*
+> *La campaña guarda GID de PRODUCTO; la Function compara contra GID de VARIANTE → la lista de elegibles queda vacía → lista vacía = "toda la tienda" → descuenta TODO.*
 
-**Nada de eso ocurre.** Comprobado en tres sitios independientes:
+**Nada de eso ocurría.** Comprobado en tres sitios independientes:
 
 | Comprobación | Resultado |
 |---|---|
@@ -31,15 +43,11 @@ La sesión se retomó con este diagnóstico dado por confirmado:
 | Compilado `dist/function.js:145-147` | idéntico al fuente |
 | Historial git completo (4 commits sobre la Function) | **ningún** commit comparó nunca variantes |
 
-Si la comparación hubiera sido producto-vs-variante, además, el síntoma habría sido el **contrario**: cero coincidencias con la lista NO vacía significa que no se descuenta **nada**. Nunca "se descuenta todo".
+El razonamiento tampoco se sostenía: con lista NO vacía y cero coincidencias el síntoma sería "no descuenta **nada**", jamás "descuenta todo". Solo una lista **vacía** podía descontar todo.
 
----
+### Auditoría de producción (solo lectura)
 
-## ═══ 🔍 AUDITORÍA DE PRODUCCIÓN (solo lectura) ═══
-
-### Alcance real: **1 sola campaña TIERED en toda la producción**
-
-Ni Greta, ni NYZA, ni Vermú tienen escalonados. La única es "Mudrad 2" de SkinUp.
+**Alcance real: 1 sola campaña TIERED en toda la producción.** Ni Greta, ni NYZA, ni Vermú tienen escalonados.
 
 ```
 [OK] skinup-cl.myshopify.com (ESSENTIAL) | "Mudrad 2" | PAUSED
@@ -48,8 +56,6 @@ Ni Greta, ni NYZA, ni Vermú tienen escalonados. La única es "Mudrad 2" de Skin
 ACTIVAS descontando toda la tienda sin pedirlo: 0
 Latentes con el mismo config: 0
 ```
-
-### La campaña estaba correctamente configurada
 
 Contrastado contra la Admin API de SkinUp, producto a producto:
 
@@ -76,116 +82,165 @@ Hydrating Toner - Tónico Hidratante  [vendor: Murad]  gid://shopify/Product/436
 1. **Hay OTRA app de descuentos activa en SkinUp.** `Pack 2 Flo` es un `DiscountAutomaticApp` **ACTIVE** con `functionId 65d94a32-0917-4729-868d-b8f9f34ba62a`, distinto del nuestro (`019f9628-8775-7f75-9e6f-7d8579e30de4`). Si el cliente vio un descuento inesperado sobre algo que no es Murad, ese es el candidato probable. SkinUp tiene además ~20 códigos activos y un BxGy ("Environ + regalo").
 2. **La colección se llama "BRAND Murad" pero su handle es `brand-multimarca-copia`** — creada duplicando una colección multimarca. Si el merchant cree que contiene menos productos de los que contiene, la discusión es sobre el contenido de su colección, no sobre la app.
 
-> `[DiscountFlow] Mudrad 2` figura como **EXPIRED** en Shopify: es el efecto normal de pausarla (`discountAutomaticDeactivate` fija `endsAt`). La pausa de Jonas funcionó.
+> `[DiscountFlow] Mudrad 2` figura como **EXPIRED** en Shopify: es el efecto normal de pausarla (`discountAutomaticDeactivate` fija `endsAt`). La pausa funcionó.
 
 ---
 
-## ═══ ✅ LO QUE SÍ SE ARREGLÓ (en `dev`) ═══
+## ═══ 2. BLINDAJE DEL ALCANCE (el agujero que sí existía) ═══
 
-El agujero real no era el reportado, sino el que ya estaba anotado como deuda: **"un escalonado sobre una colección vacía descuenta todo el catálogo"**. Seguía abierto y es el único camino por el que el sangrado temido podía ocurrir de verdad.
+El agujero real era el ya anotado como deuda: **"un escalonado sobre una colección vacía descuenta todo el catálogo"**. Era el único camino por el que el sangrado temido podía ocurrir de verdad.
 
-**Raíz del problema:** `productIds: []` significaba dos cosas incompatibles e indistinguibles — *"el merchant eligió toda la tienda"* y *"la resolución falló o la colección está vacía"*. La segunda convertía un fallo silencioso en un descuento a todo el catálogo.
+**Raíz:** `productIds: []` significaba dos cosas incompatibles e indistinguibles — *"el merchant eligió toda la tienda"* y *"la resolución falló o la colección está vacía"*. La segunda convertía un fallo silencioso en un descuento a todo el catálogo.
 
 ### Capa 1 — La Function ya no adivina el alcance
-
 Campo **`scope`** explícito en el metafield: `"all"` | `"selected"`. Solo `"all"` autoriza descontar todo el catálogo. Cualquier otro caso con lista vacía → `NO_DISCOUNT`.
 
-**Metafields legados (sin `scope`) → fail-closed.** Una campaña vieja de "toda la tienda" deja de aplicar hasta que la app reescriba su metafield. Es deliberado: dejar de descontar es un fallo que el merchant ve y reporta; descontar el catálogo entero cuesta dinero en silencio.
+**Metafields legados (sin `scope`) → fail-closed.** Una campaña vieja de "toda la tienda" deja de aplicar hasta que la app reescriba su metafield. Deliberado: dejar de descontar es un fallo que el merchant ve y reporta; descontar el catálogo entero cuesta dinero en silencio.
 
 ### Capa 2 — La app declara el alcance
-
-`toFunctionConfig()` emite `scope` derivado de `selectionMode`. `tieredAppliesToProduct()` (atribución en Analytics) replica la regla nueva: si las dos divergen, la atribución miente.
+`toFunctionConfig()` emite `scope` derivado de `selectionMode`. `tieredAppliesToProduct()` (atribución en Analytics) replica la regla nueva: **si las dos divergen, la atribución miente.**
 
 ### Capa 3 — La resolución deja de mentir
-
 `admin-api.ts` tenía el patrón `json.data?.algo?.nodes ?? []`, que convierte **cualquier** fallo de API (consulta rechazada, throttling, token caducado) en "no hay productos". Nuevo helper `readQueryData()` que lanza. Aplicado a `getCollectionProductVariants`, `getAllProductVariants` y `getProductsByFilter`. Una colección borrada o inaccesible lanza en vez de pasar por vacía.
 
-> Mismo fallo tragado que ya se corrigió en `bulkUpdateVariantPrices` y `runDiscountMutation`. Este era el tercero.
+> Mismo fallo tragado que ya se corrigió en `bulkUpdateVariantPrices` y `runDiscountMutation`. **Este era el tercero.**
 
 ### Capa 4 — Una campaña no se guarda si no abarca nada
-
-`resolveTieredProductIds()` lanza con mensaje accionable cuando la selección resuelve a cero productos (colección vacía, filtro que no casa, selección ausente). `countTieredProducts()` queda tolerante (devuelve 0) porque es solo un contador de UI y no puede tumbar una pantalla.
+`resolveTieredProductIds()` lanza con mensaje accionable cuando la selección resuelve a cero productos. `countTieredProducts()` queda tolerante (devuelve 0): es un contador de UI y no puede tumbar una pantalla.
 
 ### Capa 5 — La reactivación refresca la configuración
-
-Reactivar un TIERED desde el listado llamaba solo a `activateTieredDiscount`, que **no** reescribe el metafield. Con el fail-closed eso habría dejado a "Mudrad 2" reactivada y sin descontar nada. Ahora la reactivación llama antes a `updateTieredDiscount`: migra el metafield legado y re-resuelve los productos, de modo que una campaña por colección refleje la colección de HOY.
+Reactivar un TIERED desde el listado llamaba solo a `activateTieredDiscount`, que **no** reescribe el metafield. Con el fail-closed eso habría dejado a "Mudrad 2" reactivada y sin descontar. Ahora la reactivación llama antes a `updateTieredDiscount`: migra el metafield legado y re-resuelve los productos, de modo que una campaña por colección refleje la colección de HOY.
 
 ---
 
-## ═══ VERIFICACIÓN ═══
+## ═══ 3. NIVELES AL 0% ═══
 
-| Suite | Resultado |
+**Necesidad de negocio (SkinUp):** que la 1ª unidad quede a precio normal y el descuento empiece desde la 2ª. `1ª=0%, 2ª=10%, 3ª=15%, 4ª=20%`.
+
+### ⚠️ La premisa "no toca la Function" era falsa — no volver a darla por buena
+
+El 0% se descartaba en `normalizeTiers` (`tiered-calc.ts`), y **ese módulo se compila dentro del Wasm de la Function**. Solo el 0% del *primer* nivel funcionaba sin tocar nada, y porque era redundante con omitir el nivel. En un escalón intermedio o final, al desaparecer el nivel **sus unidades HEREDABAN el porcentaje del anterior**:
+
+| tiers | Wasm viejo | Wasm nuevo |
+|---|---|---|
+| `[{1,10%},{2,0%},{3,20%}]`, 3 uds × $100 | **$40** (la 2ª hereda el 10%) | **$30** ✅ |
+
+No había atajo: ninguna configuración de tiers hacía que el Wasm viejo produjera un 0% intermedio.
+
+### Cambios
+
+- `MIN_TIER_PERCENT` 1 → **0**.
+- `normalizeTiers` **conserva** los 0; solo descarta negativos y no finitos.
+- `computeUniform` corta si el nivel vigente es 0%: sin eso emitiría un descuento de valor cero y el comprador vería **"-$0.00"** en su carrito. (INCREMENTAL ya se protegía solo: `percent <= 0 → continue` y `totalCents === 0 → applies:false`.)
+- `validateTiers` acepta 0 y **rechaza la campaña con todos los niveles a 0%** (no descontaría nada y ocuparía cuota).
+- El input del formulario usa las constantes: el `Math.max(1, …)` del `onChange` era lo que impedía teclear 0, más que el `min={1}`.
+- `tieredDiscountLabel` y el resumen del preview usan el **máximo**, no el último nivel: con un 0% al final anunciaban "hasta 0%".
+
+### 📌 Detalle de producto que el merchant debe entender
+
+Con la 1ª unidad al 0%, la unidad que se queda a precio normal es **la más cara del carrito**, no la primera que añadió. Es la regla "mayor % al más barato" decidida el 24/07. Con un Murad de $100 y otro de $50, el de $100 es el que no lleva descuento.
+
+### Sobre los límites de plan — no hay conflicto
+
+TIERED se topa por **cantidad de campañas activas** (`getActiveCampaignCountByType`), no por variantes: no crea filas en `CampaignProduct`, así que aporta 0 al conteo de variantes con o sin 0%. El porcentaje de un nivel no es entrada de ninguna de las dos mediciones. Y un 0% **solo puede quitar descuento, nunca añadirlo**: no existe forma de usarlo para obtener más cobertura de la que el plan concede.
+
+> El hueco que sí sigue abierto es otro, anterior y aceptado conscientemente: BxGy/Escalonado "toda la tienda" se topan por cantidad de campañas, no por tamaño de catálogo. El 0% no lo empeora.
+
+---
+
+## ═══ EL DEPLOY ═══
+
+### Secuencia ejecutada
+
+```
+1. cd extensions/tiered-discount && npm run build      # recompilar el Wasm
+2. npx vitest run                                       # 12/12 fixtures
+   npm test                                             # 37/37 calculadora
+3. commits en dev (por ruta, NUNCA git add -A)
+4. shopify app config use shopify.app.toml
+   shopify app deploy --no-release --force              # -> discountflow-7
+   shopify app config use dev                           # en un finally
+5. shopify app config use shopify.app.toml
+   shopify app release --version=discountflow-7 --force
+   shopify app config use dev                           # en un finally
+6. git checkout main && git merge --ff-only dev && git push origin main
+```
+
+**Los pasos 4 y 5 llevan el retorno a `dev` encadenado en un `finally`**, para que la config de producción no quede activa ni aunque el comando falle. En ningún momento se arrancó `shopify app dev` con la config de producción.
+
+### Por qué se pudo usar `--force`
+
+`shopify.app.toml` **no se modifica desde el 2026-05-25** (`a489bc6`), muy anterior al deploy del 24/07 que creó `discountflow-6`, y sin cambios locales. Cualquier configuración que el deploy subiera era por tanto **idéntica a la ya viva**, así que el resumen que `--force` oculta no contenía cambios. Y con `--no-release` nada se activaba hasta el release explícito.
+
+### Verificación post-deploy (hecha)
+
+| Comprobación | Resultado |
 |---|---|
-| Fixtures de la Function (contra el Wasm real) | **10/10** ✅ (eran 7) |
-| `npm test` (calculadora) | **24/24** ✅ |
-| `npm run build` | verde ✅ |
-| `npm run typecheck` | **103** — ver nota abajo |
+| `git branch -r --contains d54d0da` | `origin/main` ✅ |
+| `main` = `dev` = `origin/main` | los tres en `5bcddba`, sin divergencia ✅ |
+| `GET /assets/TieredCampaignForm-ort-vtvK.js` | **200**, 13.530 bytes ✅ |
+| Clamp viejo `Math.max(1, Math.min(99` en el bundle servido | **AUSENTE** → es el código nuevo ✅ |
+| `GET /` | 200 ✅ |
+| `shopify app versions list` | activa la del **2026-07-28 18:37:56** (= `discountflow-7`); la del 24/07 (`discountflow-6`) inactiva ✅ |
 
-### Fixtures nuevas (3)
+Vercel tardó **120 s** desde el push en servir el bundle nuevo.
 
-- **`seleccion-vacia-no-descuenta-nada.json`** — `scope: "selected"` + lista vacía → no descuenta. Es *el* test del bug latente.
-- **`metafield-legado-sin-scope-no-descuenta.json`** — metafield viejo sin `scope` → fail-closed.
-- **`coleccion-carrito-mixto-solo-los-de-dentro.json`** — réplica del caso SkinUp: carrito con productos dentro y fuera de la colección; solo los de dentro reciben descuento, y las líneas ajenas **no** corren los tramos.
+> La tabla de `versions list` trunca el número de versión (el CLI asume 80 columnas fuera de un TTY). Lo que identifica la versión activa sin ambigüedad es la fecha de creación más el output del propio `release`.
 
-Las 6 fixtures previas se migraron al contrato explícito (`scope`).
+### La ventana entre release y Vercel
 
-> ⚠️ **Nota sobre el typecheck: 103, no 102.** El error nuevo es `app.campaigns._index.tsx:168` — `updateTieredDiscount(admin, …)`, exactamente el mismo desajuste `AdminApiContext` vs `AdminClient` que ya arrastran **todas** las llamadas de ese archivo. Es la deuda de tipos conocida del repo, no un tipo mal escrito. No se enmascaró con un `as` porque ningún otro sitio del repo lo hace. **Nueva línea base de `dev` = 103.**
+Duró ~2 minutos y era la segura por diseño: Function nueva + app vieja = los escalonados no descuentan, y **Mudrad 2 estaba pausada** → impacto cero.
+
+---
+
+## ═══ ⏳ PENDIENTE DE VERIFICAR (Jonas) ═══
+
+1. **Campaña nueva de prueba** en SkinUp con `1→0%, 2→10%, 3→15%, 4→20%` y carrito de 4 unidades → la 1ª a precio normal. No reconfigurar Mudrad 2 para esto.
+2. **Mudrad 2** sigue `PAUSED` e intacta. Al reactivarla se le reescribe el metafield automáticamente (capa 5), por el listado o por la pantalla de edición.
+3. 🔴 **Logs de Vercel, 24-48 h — lo más importante.** `readQueryData` afecta a **todos** los tipos de campaña, no solo TIERED. Si alguna query venía fallando en silencio para Greta o NYZA, ahora lanzará una excepción donde antes se veía "0 productos". **Es el cambio de mayor radio del lote.** Lo que aparezca son fallos reales que antes se tragaban, no regresiones — pero hay que verlos.
+
+---
+
+## ═══ 🔴 SEGURIDAD — SIGUE TODO PENDIENTE ═══
+
+Sin novedades desde el 24/07. **Van cuatro días.**
+
+- [ ] **El repo de GitHub sigue PÚBLICO** → volver a privado. Es un clic. *(Vercel despliega repos privados sin problema; ponerlo público nunca fue necesario.)*
+- [ ] **`C:\Users\Jonas\discountflow-ENV-PROD-BACKUP-2026-07-24.txt` todavía existe** con las 7 claves de producción dentro. Moverlo al gestor y borrarlo.
+- [ ] **Rotar:** `SHOPIFY_API_SECRET` de producción, contraseña de Neon y el secreto de la app Dev.
+
+---
+
+## ═══ PENDIENTES TÉCNICOS HEREDADOS ═══
+
+- 🔴 **Campañas programadas no se activan nunca**: `vercel.json` declara el cron `/api/cron/sync-campaigns` y **la ruta no existe** → 404 cada medianoche desde siempre. Bug de producto vigente. Quien construya ese cron debe meter dentro los dos checks de límites: activaría campañas **sin merchant presente**.
+- 🟡 **Endpoint de pausa** (`app/routes/api.internal.pause-over-limit.tsx`) sigue **sin desplegar y sin trackear**, deliberadamente fuera de este deploy. Caso Vermú sin cerrar (FREE, 578 variantes, límite 50; la puerta de entrada ya está cerrada por el enforcement, falta apagar la campaña actual).
+- 🟡 Quitar los logs `[tiered-debug]` y `[tiered-attribution]`.
+- 🟡 `"Descuento por cantidad"` duplicado en 3 sitios que deben coincidir o la atribución se rompe en silencio.
+- 🟡 Bug latente: un escalonado sobre una **colección vacía** ya no descuenta todo (capa 1), pero conviene revisar el mensaje que ve el merchant.
+- 🟡 Dashboard de Inicio (`app._index.tsx`) con el contador viejo para TIERED.
+- 🟡 `connect_timeout=20` en las URLs de Neon (el `P1001` vuelve tras cada suspensión del branch dev).
+- 🟡 **Decisión pendiente:** `combinesWith.productDiscounts` sigue en `false`. Dato nuevo de hoy: SkinUp tiene **otro descuento automático de app activo** (`Pack 2 Flo`), así que en cualquier carrito donde ambos apliquen **uno de los dos se pierde en silencio**. El escenario que motivó la duda ahora tiene un caso real detrás.
+
+---
+
+## ═══ NOTAS PARA RETOMAR ═══
+
+### Aprendido hoy sobre el entorno
+
+- **El CLI de Shopify SÍ está autenticado aquí** (`contacto@appsdeveloperspro.com`) y acepta `--force` para saltar los prompts → **los deploys de Function son ejecutables sin intervención manual**. `shopify app config link` sigue sin poder ser interactivo, pero `deploy` y `release` sí funcionan.
+- **El CLI recompila la Function al desplegar** (`Building function… Running javy… Done!`) pese a `[extensions.build] command = ""`. El riesgo de subir un Wasm viejo era menor de lo estimado — aun así, recompilar antes no cuesta nada.
+- **Para verificar que Vercel desplegó de verdad**: sondear el hash del bundle de cliente (`/assets/TieredCampaignForm-*.js`) y comprobar que el código viejo ya no está dentro. Es la única sonda fiable cuando los cambios son de servidor; el 200 de la raíz no discrimina.
+- `shopify app versions list` **trunca el número de versión** fuera de un TTY. Guiarse por la fecha.
+- **`npm run build` modifica `.vercel/react-router-build-result.json`, que está TRACKEADO.** Revertirlo antes de commitear.
+- 🔴 **Nunca `shopify app dev` con la config de producción activa** — reescribiría la `application_url` de prod y rompería el OAuth de los tres clientes.
+- **Líneas base de `typecheck`: 103** (`main` = 100 histórico + los del endpoint sin trackear en dev). Los errores son de las clases `AdminApiContext` vs `AdminClient` y `Record<string,unknown>` vs `InputJsonValue`, la convención ya rota del repo.
+- **Suites:** `npm test` (37 tests) y `cd extensions/tiered-discount && npx vitest run` (12 fixtures).
 
 ### Regla de negocio confirmada de paso
 
-En modo INCREMENTAL las unidades se agrupan entre **todas** las líneas elegibles del carrito, se ordenan de más cara a más barata y los tramos se reparten por posición (el % más alto a la unidad más barata; decidido el 24/07). Un carrito de 3×$100 + 2×$50 da `[10,15,20,20,20]` → $45.00 y $20.00. La primera versión de la fixture asumía cálculo por línea y estaba mal; el código tenía razón.
+En modo INCREMENTAL las unidades se agrupan entre **todas** las líneas elegibles del carrito, se ordenan de más cara a más barata y los tramos se reparten por posición (el % más alto a la unidad más barata). Un carrito de 3×$100 + 2×$50 da `[10,15,20,20,20]` → $45.00 y $20.00. **No se calcula por línea.**
 
 ---
 
-## ═══ 📋 PLAN DE DEPLOY A PRODUCCIÓN (pendiente de aprobación) ═══
-
-**Este deploy toca la Function → requiere `shopify app deploy` + release.** Es más delicado que los tres últimos.
-
-### Antes
-
-1. **Probar en la dev store** con `shopify app dev` (interactivo, lo corre Jonas): escalonado por colección con carrito mixto; regresión de "productos específicos" y "toda la tienda". Las fixtures ya cubren la lógica contra el Wasm, pero el circuito completo con metafield real no se ha ejercitado.
-2. **Decidir si se sigue adelante**, dado que el bug que motivó la sesión no existía. El blindaje sigue mereciendo la pena por sí solo, pero ya no es una urgencia: **no hay ninguna campaña sangrando en producción.**
-
-### Orden
-
-1. `shopify app deploy` → nueva versión de la Function → **release**.
-2. Deploy del código de la app (Vercel).
-3. La Function nueva y el código viejo conviven bien: el código viejo no emite `scope`, la Function nueva lo trata como legado → fail-closed. **Como la única campaña TIERED está PAUSED, ese hueco temporal no afecta a nadie.** Aun así, desplegar la Function y la app seguidas.
-
-### Después — migración de "Mudrad 2"
-
-Su metafield es legado (sin `scope`). **No hace falta script**: al reactivarla desde el listado, la capa 5 reescribe el metafield y re-resuelve la colección. Verificar tras reactivar que el metafield tiene `scope: "selected"` y 85 productIds.
-
-### Rollback
-
-Vercel → Instant Rollback a `8706569`. La Function se revierte por separado desde el Partner Dashboard (release de la versión anterior). Sin migraciones ni scopes de por medio.
-
----
-
-## ═══ ARCHIVOS TOCADOS (todo en `dev`, sin commitear) ═══
-
-```
-extensions/tiered-discount/src/cart_lines_discounts_generate_run.ts   puerta de seguridad + scope
-app/lib/discounts/tiered-client.ts                                    tipo TieredScope, toFunctionConfig, tieredAppliesToProduct
-app/lib/discounts/tiered.ts                                           resolveTieredProductIds lanza; countTieredProducts tolerante
-app/lib/shopify/admin-api.ts                                          readQueryData() + 3 helpers endurecidos
-app/routes/app.campaigns._index.tsx                                   reactivación refresca el metafield
-extensions/tiered-discount/tests/fixtures/*.json                      3 nuevas + 6 migradas
-```
-
----
-
-## ═══ PENDIENTES HEREDADOS (sin cambios) ═══
-
-- 🔴 Seguridad: repo GitHub **público**, backup `.env` de prod sin borrar, secretos sin rotar. **Van 4 días.**
-- 🔴 Cron `/api/cron/sync-campaigns` declarado en `vercel.json` y **la ruta no existe** → campañas programadas nunca se activan.
-- 🟡 Endpoint de pausa (`api.internal.pause-over-limit.tsx`) sin desplegar; caso Vermú sin cerrar.
-- 🟡 Quitar los logs `[tiered-debug]` y `[tiered-attribution]`.
-- 🟡 `"Descuento por cantidad"` duplicado en 3 sitios.
-- 🟡 Decisión pendiente: `combinesWith.productDiscounts` sigue en `false`.
-
-> Sobre el último punto, dato nuevo de hoy: SkinUp tiene **otro descuento automático de app activo** (`Pack 2 Flo`). Con `productDiscounts: false`, nuestro escalonado y el de la otra app compiten y **uno de los dos se pierde en silencio** en cualquier carrito donde ambos apliquen. Es el escenario exacto que motivó la duda, ahora con un caso real detrás.
-
----
-
-*Sesión 2026-07-28. Cero cambios en producción. Un falso positivo cerrado con evidencia y un bug latente real, blindado en dev.*
+*Cierre de jornada 2026-07-28. Un falso positivo cerrado con evidencia, un bug latente real blindado, los niveles al 0% en producción. Un deploy de Function + código, sin incidencias.*
