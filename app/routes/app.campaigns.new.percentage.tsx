@@ -5,7 +5,7 @@ import type {
 } from "react-router";
 import { redirect, useActionData, useLoaderData, useNavigation, Link } from "react-router";
 import { Form } from "react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAppBridge } from "@shopify/app-bridge-react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { ChevronDown, ChevronUp, Tag } from "lucide-react";
@@ -438,7 +438,7 @@ export default function NewPercentageCampaign() {
   const shopify = useAppBridge();
 
   const isSubmitting = navigation.state === "submitting";
-  const errors = actionData?.errors ?? {};
+  const serverErrors: ActionErrors = actionData?.errors ?? {};
 
   const [name, setName] = useState("");
   const [discountPercent, setDiscountPercent] = useState(20);
@@ -461,6 +461,36 @@ export default function NewPercentageCampaign() {
   >([]);
   const [startsAt, setStartsAt] = useState("");
   const [endsAt, setEndsAt] = useState("");
+
+  // ── Limpieza de los errores de validación ────────────────────────────────────
+  // Los mensajes vienen de `actionData`, que React Router conserva hasta el
+  // siguiente envío. Nada los recalculaba: el merchant corregía los campos, el
+  // resumen de la derecha se actualizaba (lee estado local) y los mensajes rojos
+  // seguían ahí, de modo que la pantalla parecía trancada y había que recargar.
+  //
+  // Cada error se oculta en cuanto cambia el campo que lo provocó. Al llegar una
+  // respuesta nueva del servidor se vuelven a mostrar todos: la última palabra
+  // sobre si el formulario es válido la tiene el action, no el cliente.
+  const [dismissed, setDismissed] = useState<Partial<Record<keyof ActionErrors, boolean>>>({});
+  const dismiss = (field: keyof ActionErrors) =>
+    setDismissed((d) => (d[field] ? d : { ...d, [field]: true }));
+
+  useEffect(() => setDismissed({}), [actionData]);
+  useEffect(() => dismiss("name"), [name]);
+  useEffect(() => dismiss("discountPercent"), [discountPercent]);
+  useEffect(() => dismiss("dates"), [startsAt, endsAt]);
+  useEffect(() => dismiss("products"), [
+    selectionMode,
+    selectedProducts,
+    selectedCollections,
+    selectedTags,
+    selectedVendors,
+    selectedProductTypes,
+  ]);
+
+  const errors: ActionErrors = Object.fromEntries(
+    Object.entries(serverErrors).filter(([k]) => !dismissed[k as keyof ActionErrors])
+  );
 
   const productChips: ProductChip[] = selectedProducts.map((p) => ({
     id: p.id,
