@@ -263,12 +263,34 @@ async function runPriceUnits(
     })
   );
 
-  await prisma.campaignProduct.updateMany({
-    where: { campaignId: ctx.campaign.id, shopifyProductId: { in: productIds } },
-    data: { processedByJobId: ctx.job.id },
-  });
+  // ── El sellado ────────────────────────────────────────────────────────────
+  // 🔴 Antes se sellaba el lote ENTERO sin mirar el resultado. Como el sello es el
+  // mecanismo de reanudación (`pendingUnits` descarta lo sellado), una unidad que
+  // había fallado quedaba marcada como hecha y NO se reintentaba nunca dentro del
+  // job. En un APPLY eso deja un producto sin descuento; en un REVERT deja un
+  // producto REBAJADO mientras el sistema da por hecho que lo devolvió, que es
+  // exactamente el sangrado silencioso que este motor existe para evitar.
+  //
+  // Ahora se sellan las que salieron bien. Las que fallaron se dejan sin sellar
+  // para que el siguiente lote las reintente —salvo que ya vinieran fallando de
+  // antes, en cuyo caso se sellan igual: sin ese tope, una unidad que falla
+  // siempre haría que el job encadenase lotes indefinidamente, y agotar la cuota
+  // de invocaciones en Hobby apaga el servicio hasta 30 días.
+  const failedNow = new Set(failures.map((f) => f.unit));
+  const failedBefore = new Set(
+    (Array.isArray(ctx.job.errors) ? ctx.job.errors : [])
+      .map((e) => (e as { unit?: string })?.unit)
+      .filter((u): u is string => typeof u === "string")
+  );
+  const toSeal = productIds.filter((id) => !failedNow.has(id) || failedBefore.has(id));
 
-  return { succeeded: units, failures };
+  if (toSeal.length > 0)
+    await prisma.campaignProduct.updateMany({
+      where: { campaignId: ctx.campaign.id, shopifyProductId: { in: toSeal } },
+      data: { processedByJobId: ctx.job.id },
+    });
+
+  return { succeeded: units.filter((u) => !failedNow.has(u.productId)), failures };
 }
 
 // ─── Unidad única (BXGY / TIERED) ─────────────────────────────────────────────
