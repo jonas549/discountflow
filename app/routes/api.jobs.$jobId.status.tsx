@@ -79,10 +79,14 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
 
   const now = new Date();
   const status = job.status as JobStatus;
-  const campaign = await prisma.campaign.findUnique({
-    where: { id: job.campaignId },
-    select: { name: true },
-  });
+  // La campaña puede haberse borrado (un DELETE que terminó). El job sobrevive, y
+  // el nombre sale de la copia que guardó al crearse.
+  const campaign = job.campaignId
+    ? await prisma.campaign.findUnique({
+        where: { id: job.campaignId },
+        select: { name: true },
+      })
+    : null;
 
   const etaSeconds =
     job.startedAt && job.totalProducts > 0 && job.processedProducts > 0
@@ -99,7 +103,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   return Response.json({
     jobId: job.id,
     campaignId: job.campaignId,
-    campaignName: campaign?.name ?? null,
+    campaignName: campaign?.name ?? job.campaignName ?? null,
     operation: job.operation,
     status,
     phase: job.phase,

@@ -109,14 +109,19 @@ export async function runJobBatch(
   }
 
   // Contexto: la campaña y el cliente de Shopify se cargan UNA vez por lote.
-  const campaign = await prisma.campaign.findUnique({
-    where: { id: job.campaignId },
-    select: {
-      id: true, name: true, type: true, status: true,
-      config: true, startsAt: true, endsAt: true,
-      shop: { select: { domain: true } },
-    },
-  });
+  // campaignId NULL = la campaña se borró bajo los pies del job. No es un estado
+  // alcanzable por la vía normal (DELETE la borra al final, cuando ya terminó),
+  // pero si pasa hay que parar aquí y no seguir con media operación.
+  const campaign = job.campaignId
+    ? await prisma.campaign.findUnique({
+        where: { id: job.campaignId },
+        select: {
+          id: true, name: true, type: true, status: true,
+          config: true, startsAt: true, endsAt: true,
+          shop: { select: { domain: true } },
+        },
+      })
+    : null;
   if (!campaign) {
     await finishJob(jobId, nonce, "FAILED", {
       lastError: "La campaña de este trabajo ya no existe.",

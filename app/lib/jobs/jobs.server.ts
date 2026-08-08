@@ -22,7 +22,10 @@ import { isTerminal, type JobOperation, type JobStatus } from "./job-state.ts";
 
 export type JobRecord = {
   id: string;
-  campaignId: string;
+  /** NULL = la campaña ya se borró y este job es solo historial. Ver el schema. */
+  campaignId: string | null;
+  /** Copia del nombre al crear el job: sobrevive al borrado de la campaña. */
+  campaignName: string | null;
   shopId: string;
   operation: JobOperation;
   status: JobStatus;
@@ -85,7 +88,7 @@ export async function createJob(input: {
     const job = await prisma.$transaction(async (tx) => {
       const campaign = await tx.campaign.findFirst({
         where: { id: input.campaignId, shopId: input.shopId },
-        select: { id: true },
+        select: { id: true, name: true },
       });
       if (!campaign)
         throw new Error("Campaña no encontrada o de otra tienda.");
@@ -93,6 +96,9 @@ export async function createJob(input: {
       const created = await tx.campaignJob.create({
         data: {
           campaignId: input.campaignId,
+          // Se copia AQUÍ, no al terminar: si el job muere a mitad, el historial
+          // tiene que poder decir de qué campaña hablaba.
+          campaignName: campaign.name,
           shopId: input.shopId,
           operation: input.operation,
           payload: (input.payload ?? {}) as never,
@@ -389,12 +395,16 @@ export async function finishJob(
     });
     if (res.count !== 1) return false;
 
-    await tx.$executeRaw`
-      UPDATE "Campaign"
-         SET "activeJobId" = NULL
-       WHERE "id" = ${job.campaignId}
-         AND "activeJobId" = ${jobId}
-    `;
+    // Si la campaña ya no existe (campaignId NULL tras un DELETE) no hay cerrojo
+    // que soltar: se borró con ella.
+    if (job.campaignId !== null) {
+      await tx.$executeRaw`
+        UPDATE "Campaign"
+           SET "activeJobId" = NULL
+         WHERE "id" = ${job.campaignId}
+           AND "activeJobId" = ${jobId}
+      `;
+    }
     return true;
   });
 }
@@ -457,6 +467,9 @@ export async function createCompensatingRevert(
       include: { campaign: { select: { id: true, type: true } } },
     });
     if (!job || job.operation !== "APPLY") return null;
+    // Sin campaña no hay nada que compensar: si se borró, sus CampaignProduct se
+    // fueron con ella (siguen en Cascade) y no queda precio que devolver.
+    if (job.campaignId === null || !job.campaign) return null;
     if (job.campaign.type !== "PERCENTAGE" && job.campaign.type !== "RANGE") return null;
 
     const tocadas = await prisma.campaignProduct.count({

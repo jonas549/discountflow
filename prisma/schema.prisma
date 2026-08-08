@@ -171,9 +171,28 @@ enum JobStatus {
 }
 
 model CampaignJob {
-  id         String       @id @default(cuid())
-  campaignId String
-  campaign   Campaign     @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  id String @id @default(cuid())
+
+  /// 🔴 NULL = la campaña ya no existe. El job SOBREVIVE a su campaña a propósito.
+  ///
+  /// Antes esta relación era `onDelete: Cascade`, y eso borraba el registro del job
+  /// justo en el momento en que más falta hace: la operación DELETE termina su
+  /// trabajo, borra la campaña, y el cascade se llevaba por delante el único rastro
+  /// de lo que acababa de pasar —incluidos `errors` y `lastError`, que este modelo
+  /// persiste EN BD precisamente porque los Runtime Logs de Vercel Hobby duran 1 h.
+  /// Dos incidentes reales (2026-08-08) se quedaron sin diagnóstico por esto.
+  ///
+  /// Con SetNull el job pasa a ser un registro histórico inmutable. Se eligió esto
+  /// frente a una tabla de archivo aparte porque no duplica escrituras ni deja dos
+  /// sitios donde buscar el mismo hecho, y frente a quitar la FK porque un
+  /// `campaignId` colgante no distingue "la campaña se borró" de un bug: NULL sí.
+  campaignId String?
+  campaign   Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+
+  /// Copia del nombre al crear el job. Sin esto, un job cuya campaña ya se borró es
+  /// un identificador opaco: el historial diría "algo pasó" sin decir sobre qué.
+  campaignName String?
+
   shopId     String
   operation  JobOperation
   status     JobStatus    @default(QUEUED)

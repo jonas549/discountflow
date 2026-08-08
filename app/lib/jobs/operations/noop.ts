@@ -60,7 +60,7 @@ export const noopHandler: JobHandler = {
    * Crea las filas de trabajo por páginas. `resolveCursor` guarda cuántas van, así
    * que si el plazo corta a mitad de la creación se retoma donde iba.
    */
-  async resolveStep({ job }: OpContext): Promise<ResolveStep> {
+  async resolveStep({ job, campaign }: OpContext): Promise<ResolveStep> {
     const cfg = readPayload(job);
     const created = Number(job.resolveCursor ?? "0") || 0;
     const remaining = cfg.totalUnits - created;
@@ -82,7 +82,7 @@ export const noopHandler: JobHandler = {
     for (let i = created; i < created + take; i++)
       for (let v = 0; v < cfg.variantsPerUnit; v++)
         rows.push({
-          campaignId: job.campaignId,
+          campaignId: campaign.id,
           shopifyProductId: productGid(job.id, i),
           shopifyVariantId: variantGid(job.id, i, v),
         });
@@ -104,11 +104,11 @@ export const noopHandler: JobHandler = {
    * Lo pendiente es una CONSULTA, no un cálculo con cursor. Por eso reanudar es
    * exacto aunque el conjunto cambie entre lotes.
    */
-  async pendingUnits({ job }: OpContext, limit: number): Promise<JobUnit[]> {
+  async pendingUnits({ job, campaign }: OpContext, limit: number): Promise<JobUnit[]> {
     const rows = await prisma.campaignProduct.groupBy({
       by: ["shopifyProductId"],
       where: {
-        campaignId: job.campaignId,
+        campaignId: campaign.id,
         shopifyProductId: { startsWith: `gid://shopify/Product/noop-${job.id}-` },
         OR: [{ processedByJobId: null }, { processedByJobId: { not: job.id } }],
       },
@@ -122,12 +122,12 @@ export const noopHandler: JobHandler = {
     }));
   },
 
-  async runUnits({ job }: OpContext, units: JobUnit[]): Promise<RunUnitsResult> {
+  async runUnits({ job, campaign }: OpContext, units: JobUnit[]): Promise<RunUnitsResult> {
     const cfg = readPayload(job);
 
     if (cfg.failAtUnit >= 0) {
       const done = await prisma.campaignProduct.count({
-        where: { campaignId: job.campaignId, processedByJobId: job.id },
+        where: { campaignId: campaign.id, processedByJobId: job.id },
       });
       // Revienta SIEMPRE en el mismo punto y sin haber progresado, que es el
       // escenario que debe agotar los intentos en vez de reintentarse eternamente.
@@ -144,7 +144,7 @@ export const noopHandler: JobHandler = {
     // El sello. Una sola escritura para toda la ola.
     await prisma.campaignProduct.updateMany({
       where: {
-        campaignId: job.campaignId,
+        campaignId: campaign.id,
         shopifyProductId: { in: units.map((u) => u.productId) },
       },
       data: { processedByJobId: job.id },
@@ -153,19 +153,19 @@ export const noopHandler: JobHandler = {
     return { succeeded: units, failures: [] };
   },
 
-  async totalDone({ job }: OpContext): Promise<{ products: number; variants: number }> {
+  async totalDone({ job, campaign }: OpContext): Promise<{ products: number; variants: number }> {
     const variants = await prisma.campaignProduct.count({
-      where: { campaignId: job.campaignId, processedByJobId: job.id },
+      where: { campaignId: campaign.id, processedByJobId: job.id },
     });
     const cfg = readPayload(job);
     return { products: Math.floor(variants / cfg.variantsPerUnit), variants };
   },
 
-  async remaining({ job }: OpContext): Promise<number> {
+  async remaining({ job, campaign }: OpContext): Promise<number> {
     const rows = await prisma.campaignProduct.groupBy({
       by: ["shopifyProductId"],
       where: {
-        campaignId: job.campaignId,
+        campaignId: campaign.id,
         shopifyProductId: { startsWith: `gid://shopify/Product/noop-${job.id}-` },
         OR: [{ processedByJobId: null }, { processedByJobId: { not: job.id } }],
       },
