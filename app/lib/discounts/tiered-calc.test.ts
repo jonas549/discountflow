@@ -28,15 +28,20 @@ const line = (lineId: string, unitPrice: number, quantity: number) => ({
 });
 
 // Helpers de aserción que además estrechan el tipo de la unión discriminada.
+//
+// Estrechan por `emit`, no por `mode`: desde que UNIFORM puede producir importes
+// (campañas de monto fijo), el modo ya no determina qué trae el resultado. `emit`
+// sí, y es el mismo campo por el que ramifica la Function.
 function asUniform(out: TieredOutcome) {
-  if (!out.applies || out.mode !== "UNIFORM")
-    throw new Error(`esperaba UNIFORM, llegó ${JSON.stringify(out)}`);
+  if (!out.applies || out.emit !== "PERCENTAGE")
+    throw new Error(`esperaba UNIFORM en %, llegó ${JSON.stringify(out)}`);
   return out;
 }
 
+/** Cualquier resultado que se emita como importe: INCREMENTAL, o UNIFORM en monto. */
 function asIncremental(out: TieredOutcome) {
-  if (!out.applies || out.mode !== "INCREMENTAL")
-    throw new Error(`esperaba INCREMENTAL, llegó ${JSON.stringify(out)}`);
+  if (!out.applies || out.emit !== "FIXED_AMOUNT")
+    throw new Error(`esperaba importes, llegó ${JSON.stringify(out)}`);
   return out;
 }
 
@@ -435,4 +440,193 @@ test("preview INCREMENTAL muestra totales distintos con los mismos niveles", () 
 
 test("preview sin niveles no revienta", () => {
   assert.deepEqual(buildPreviewRows("UNIFORM", [], 100), []);
+});
+
+// ─── Montos fijos (valueType AMOUNT) ─────────────────────────────────────────
+//
+// Los dos primeros casos son literalmente el ejemplo que fijó la decisión de
+// producto: un producto de $10 con niveles 1→$1, 2→$2, 3→$5 y 3 unidades.
+
+const MONTOS = [
+  { minQty: 1, amount: 1 },
+  { minQty: 2, amount: 2 },
+  { minQty: 3, amount: 5 },
+];
+
+test("AMOUNT INCREMENTAL — cada unidad paga según su nivel: 9 + 8 + 5", () => {
+  const out = computeTiered("INCREMENTAL", MONTOS, [line("a", 10, 3)], "AMOUNT");
+  assert.equal(out.applies, true);
+  if (!out.applies) return;
+  assert.equal(out.emit, "FIXED_AMOUNT");
+  assert.equal(out.totalDiscount, 8); // 1 + 2 + 5
+  assert.deepEqual(out.lines, [{ lineId: "a", discountAmount: 8 }]);
+  // Subtotal 30 − 8 = 22, que es 9 + 8 + 5.
+  assert.equal(30 - out.totalDiscount, 22);
+});
+
+test("AMOUNT UNIFORM — el mejor nivel se aplica a todas: 5 + 5 + 5", () => {
+  const out = computeTiered("UNIFORM", MONTOS, [line("a", 10, 3)], "AMOUNT");
+  assert.equal(out.applies, true);
+  if (!out.applies) return;
+  assert.equal(out.emit, "FIXED_AMOUNT");
+  assert.equal(out.totalDiscount, 15); // 5 × 3 unidades
+  assert.equal(30 - out.totalDiscount, 15);
+});
+
+test("AMOUNT UNIFORM emite importe, no porcentaje", () => {
+  const out = computeTiered("UNIFORM", MONTOS, [line("a", 10, 3)], "AMOUNT");
+  assert.equal(out.applies && out.emit, "FIXED_AMOUNT");
+  // Y el porcentaje sigue emitiendo porcentaje, como siempre.
+  const pct = computeTiered("UNIFORM", TIERS, [line("a", 10, 3)]);
+  assert.equal(pct.applies && pct.emit, "PERCENTAGE");
+});
+
+test("el monto POR UNIDAD se multiplica por la cantidad de la linea", () => {
+  const out = asIncremental(
+    computeTiered("UNIFORM", [{ minQty: 2, amount: 3 }], [line("a", 20, 4)], "AMOUNT")
+  );
+  assert.equal(out.totalDiscount, 12); // 3 × 4 unidades
+});
+
+// ── La regla del monto que se pasa de precio ────────────────────────────────
+
+test("monto MAYOR que el precio: ese producto no descuenta nada", () => {
+  const out = computeTiered("UNIFORM", [{ minQty: 1, amount: 5 }], [line("a", 3, 2)], "AMOUNT");
+  assert.equal(out.applies, false);
+  if (out.applies) return;
+  assert.equal(out.reason, "zero-discount");
+});
+
+test("monto IGUAL al precio: tampoco descuenta — nunca deja el precio en cero", () => {
+  const out = computeTiered("UNIFORM", [{ minQty: 1, amount: 5 }], [line("a", 5, 1)], "AMOUNT");
+  assert.equal(out.applies, false);
+});
+
+test("el precio nunca queda en cero ni en negativo", () => {
+  for (const precio of [0.5, 1, 3, 4.99, 5]) {
+    const out = computeTiered("UNIFORM", [{ minQty: 1, amount: 5 }], [line("a", precio, 1)], "AMOUNT");
+    if (out.applies && out.emit === "FIXED_AMOUNT") {
+      const restante = precio * out.totalQuantity - out.totalDiscount;
+      assert.ok(restante > 0, `precio ${precio} quedo en ${restante}`);
+    }
+  }
+});
+
+test("UNIFORM: la linea que no aguanta el monto queda fuera, las demas descuentan", () => {
+  const out = asIncremental(
+    computeTiered(
+      "UNIFORM",
+      [{ minQty: 2, amount: 5 }],
+      [line("barata", 3, 1), line("cara", 20, 1)],
+      "AMOUNT"
+    )
+  );
+  assert.deepEqual(out.lines, [{ lineId: "cara", discountAmount: 5 }]);
+  assert.equal(out.totalDiscount, 5);
+});
+
+test("INCREMENTAL: la unidad cuyo nivel se pasa de precio se salta, las otras siguen", () => {
+  // $10 con niveles 1→$1, 2→$2, 3→$50: la 3ª unidad no puede descontar $50.
+  const out = asIncremental(
+    computeTiered(
+      "INCREMENTAL",
+      [{ minQty: 1, amount: 1 }, { minQty: 2, amount: 2 }, { minQty: 3, amount: 50 }],
+      [line("a", 10, 3)],
+      "AMOUNT"
+    )
+  );
+  assert.equal(out.totalDiscount, 3); // 1 + 2 + (la tercera no aplica)
+});
+
+// ── Retrocompatibilidad ─────────────────────────────────────────────────────
+
+test("sin valueType se comporta como PERCENT — las campanas ya creadas no cambian", () => {
+  const conDefecto = computeTiered("UNIFORM", TIERS, [line("a", 100, 3)]);
+  const explicito = computeTiered("UNIFORM", TIERS, [line("a", 100, 3)], "PERCENT");
+  assert.deepEqual(conDefecto, explicito);
+});
+
+test("niveles en monto leidos como PERCENT no descuentan (fail-closed)", () => {
+  // Es lo que hara la Function VIEJA si le llega una campana de montos: no
+  // encuentra `percent`, descarta todos los niveles y no aplica nada.
+  const out = computeTiered("UNIFORM", MONTOS, [line("a", 10, 3)]);
+  assert.equal(out.applies, false);
+  if (out.applies) return;
+  assert.equal(out.reason, "no-tiers");
+});
+
+// ── normalizeTiers y el 0 ───────────────────────────────────────────────────
+
+test("normalizeTiers conserva el monto 0 y descarta negativos", () => {
+  const out = normalizeTiers(
+    [{ minQty: 1, amount: 0 }, { minQty: 2, amount: -3 }, { minQty: 3, amount: 4 }],
+    "AMOUNT"
+  );
+  assert.deepEqual(out, [{ minQty: 1, amount: 0 }, { minQty: 3, amount: 4 }]);
+});
+
+test("un monto 0 intermedio no hereda el nivel anterior", () => {
+  const out = asIncremental(
+    computeTiered(
+      "INCREMENTAL",
+      [{ minQty: 1, amount: 1 }, { minQty: 2, amount: 0 }, { minQty: 3, amount: 2 }],
+      [line("a", 10, 3)],
+      "AMOUNT"
+    )
+  );
+  assert.equal(out.totalDiscount, 3); // 1 + 0 + 2
+});
+
+// ── Validacion ──────────────────────────────────────────────────────────────
+
+test("validateTiers en AMOUNT rechaza montos negativos", () => {
+  const v = validateTiers([{ minQty: 1, amount: -1 }], { valueType: "AMOUNT" });
+  assert.ok(v.errors.length > 0);
+});
+
+test("validateTiers en AMOUNT no aplica el tope del 99%", () => {
+  const v = validateTiers([{ minQty: 1, amount: 500 }], { valueType: "AMOUNT" });
+  assert.deepEqual(v.errors, []);
+});
+
+test("validateTiers rechaza todos los montos a 0", () => {
+  const v = validateTiers([{ minQty: 1, amount: 0 }, { minQty: 2, amount: 0 }], {
+    valueType: "AMOUNT",
+  });
+  assert.ok(v.errors.some((e) => e.includes("mayor que 0")));
+});
+
+test("validateTiers avisa de los montos que se pasan del precio de referencia", () => {
+  const v = validateTiers([{ minQty: 1, amount: 2 }, { minQty: 2, amount: 50 }], {
+    valueType: "AMOUNT",
+    unitPrice: 10,
+  });
+  assert.deepEqual(v.errors, []);
+  assert.ok(v.warnings.some((w) => w.includes("2 unidades")));
+});
+
+test("validateTiers da ERROR si NINGUN nivel cabe en el precio", () => {
+  const v = validateTiers([{ minQty: 1, amount: 50 }], { valueType: "AMOUNT", unitPrice: 10 });
+  assert.ok(v.errors.some((e) => e.includes("Ningún nivel")));
+});
+
+test("sin precio de referencia no se inventa ningun aviso", () => {
+  const v = validateTiers([{ minQty: 1, amount: 999 }], { valueType: "AMOUNT" });
+  assert.deepEqual(v.warnings, []);
+  assert.deepEqual(v.errors, []);
+});
+
+// ── Preview ─────────────────────────────────────────────────────────────────
+
+test("preview en AMOUNT usa el mismo calculo que el checkout", () => {
+  const rows = buildPreviewRows("INCREMENTAL", MONTOS, 10, "AMOUNT");
+  assert.deepEqual(
+    rows.map((r) => [r.quantity, r.saved, r.total]),
+    [
+      [1, 1, 9], // 1
+      [2, 3, 17], // 1 + 2
+      [3, 8, 22], // 1 + 2 + 5
+      [4, 13, 27], // 1 + 2 + 5 + 5  (el ultimo nivel se mantiene)
+    ]
+  );
 });

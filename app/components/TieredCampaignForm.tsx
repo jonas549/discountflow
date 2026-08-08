@@ -645,7 +645,10 @@ function TieredPreview({
   const sorted = normalizeTiers(tiers);
   // El máximo, no el último: con un nivel al 0% al final, el último ya no es
   // el que más descuenta y el resumen diría "máximo 0%".
-  const maxPercent = sorted.reduce((max, t) => (t.percent > max ? t.percent : max), 0);
+  const maxPercent = sorted.reduce(
+    (max, t) => ((t.percent ?? 0) > max ? t.percent ?? 0 : max),
+    0
+  );
 
   const aplicaDesc =
     selectionMode === "all"

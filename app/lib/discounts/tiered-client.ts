@@ -109,7 +109,10 @@ export function tieredDiscountLabel(config: TieredCampaignConfig): string {
   if (tiers.length === 0) return "—";
   // El mayor, no el último: un nivel al 0% (= "desde aquí, precio normal")
   // puede ir al final, y entonces el último no es el que más descuenta.
-  const max = tiers.reduce((m, t) => (t.percent > m ? t.percent : m), 0);
+  // `?? 0`: desde que existen los niveles en monto, `percent` es opcional. Esta
+  // etiqueta sigue siendo la de porcentajes; la variante de montos entra con el
+  // formulario (E3).
+  const max = tiers.reduce((m, t) => ((t.percent ?? 0) > m ? t.percent ?? 0 : m), 0);
   const modo = config.mode === "INCREMENTAL" ? "incremental" : "uniforme";
   return `${tiers.length} ${tiers.length === 1 ? "nivel" : "niveles"} · hasta ${max}% (${modo})`;
 }
