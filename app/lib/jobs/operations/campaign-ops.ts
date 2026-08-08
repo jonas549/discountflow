@@ -47,6 +47,7 @@ import type { TieredCampaignConfig } from "../../discounts/tiered-client.ts";
 const bxgyOps = () => import("../../discounts/bxgy.ts");
 const tieredOps = () => import("../../discounts/tiered.ts");
 import { JobFatalError } from "../errors.ts";
+import { applyPercentCents, centsToString, toCents } from "../money.ts";
 import type {
   JobHandler,
   JobUnit,
@@ -56,7 +57,7 @@ import type {
 } from "./index.ts";
 
 /** Igual que en range.ts: por debajo de esto no se baja un precio. */
-const MIN_PRICE = 1.0;
+const MIN_PRICE_CENTS = 100; // 1,00
 
 const isPriceType = (t: string) => t === "PERCENTAGE" || t === "RANGE";
 
@@ -123,18 +124,27 @@ function priceFor(
       cfg.showCompareAtPrice && originalCompareAtPrice !== null
         ? originalCompareAtPrice
         : originalPrice;
-    const next = base * (1 - cfg.discountPercent / 100);
-    return { price: next.toFixed(2), compareAtPrice: base.toFixed(2) };
+    // En centavos: `base * (1 - pct/100)` en coma flotante se queda corto justo en
+    // el medio centavo. 45,50 al 15 % vale 38,675, pero el float más cercano es
+    // 38,674999999999997158, así que toFixed(2) daba 38,67 en vez de 38,68.
+    const nextCents = applyPercentCents(toCents(base), cfg.discountPercent);
+    return { price: centsToString(nextCents), compareAtPrice: centsToString(toCents(base)) };
   }
 
   const cfg = config as RangeConfig;
   if (cfg.mode === "fixedPrice") {
     if (cfg.value >= originalPrice) return null;
-    return { price: cfg.value.toFixed(2), compareAtPrice: originalPrice.toFixed(2) };
+    return {
+      price: centsToString(toCents(cfg.value)),
+      compareAtPrice: centsToString(toCents(originalPrice)),
+    };
   }
-  const next = originalPrice - cfg.value;
-  if (next < MIN_PRICE) return null;
-  return { price: next.toFixed(2), compareAtPrice: originalPrice.toFixed(2) };
+  const nextCents = toCents(originalPrice) - toCents(cfg.value);
+  if (nextCents < MIN_PRICE_CENTS) return null;
+  return {
+    price: centsToString(nextCents),
+    compareAtPrice: centsToString(toCents(originalPrice)),
+  };
 }
 
 // ─── Unidades sobre CampaignProduct (PERCENTAGE / RANGE) ──────────────────────
