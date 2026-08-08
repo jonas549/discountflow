@@ -20,6 +20,7 @@ import {
 import {
   computeTiered,
   type TierMode,
+  type TierValueType,
   type Tier,
   type ApplicableLine,
 } from '../../../app/lib/discounts/tiered-calc';
@@ -28,6 +29,15 @@ import {
 type TieredFunctionConfig = {
   mode: TierMode;
   tiers: Tier[];
+  /**
+   * En qué se miden los niveles: porcentaje o dinero por unidad.
+   *
+   * ⚠️ AUSENTE = "PERCENT", y eso no es un detalle: es lo que mantiene
+   * funcionando a las campañas creadas antes de que existieran los montos, cuyo
+   * metafield no trae este campo. No poner aquí un valor por defecto distinto
+   * ni exigirlo en readConfig.
+   */
+  valueType?: TierValueType;
   /**
    * Alcance EXPLÍCITO de la campaña. Es el único campo que autoriza descontar
    * todo el catálogo.
@@ -126,7 +136,12 @@ export function cartLinesDiscountsGenerateRun(
     applicable.push({lineId: line.id, unitPrice, quantity: line.quantity});
   }
 
-  const outcome = computeTiered(config.mode, config.tiers, applicable);
+  const outcome = computeTiered(
+    config.mode,
+    config.tiers,
+    applicable,
+    config.valueType ?? 'PERCENT'
+  );
 
   // TEMPORAL [tiered-debug] — estos logs NO llegan a Vercel: la Function corre
   // en Shopify. Se leen con `shopify app logs` o en el Partner Dashboard.
@@ -137,6 +152,7 @@ export function cartLinesDiscountsGenerateRun(
       discountClasses: input.discount.discountClasses,
       configLeida: true,
       modo: config.mode,
+      valueType: config.valueType ?? 'PERCENT',
       tiers: config.tiers?.length ?? 0,
       scope: config.scope ?? null,
       aplicaATodaLaTienda,
@@ -154,8 +170,11 @@ export function cartLinesDiscountsGenerateRun(
 
   const message = config.message || 'Descuento por cantidad';
 
+  // Se ramifica por `emit`, NO por `mode`. Desde que existen los niveles en
+  // monto, un UNIFORM puede producir importes en vez de porcentajes, así que el
+  // modo dejó de decir qué hay que emitir. `emit` lo dice explícitamente.
   const candidates: ProductDiscountCandidate[] =
-    outcome.mode === 'UNIFORM'
+    outcome.emit === 'PERCENTAGE'
       ? outcome.lines.map((l) => ({
           message,
           targets: [{cartLine: {id: l.lineId}}],
