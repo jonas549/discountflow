@@ -45,6 +45,15 @@ const TERMINAL = new Set([
   "CANCELLED",
 ]);
 
+/**
+ * Cuántos fallos de red seguidos se toleran antes de rendirse (~25 s a 5 s cada uno).
+ *
+ * Antes no había tope: cualquier error dejaba un setTimeout reintentando para
+ * siempre, así que una pestaña olvidada sondeaba indefinidamente y la barra se
+ * quedaba congelada en la última foto que hubiera alcanzado a leer.
+ */
+const MAX_ERROR_RETRIES = 5;
+
 const COLORS: Record<string, { bar: string; bg: string; text: string }> = {
   RUNNING: { bar: "#008060", bg: "#f1f8f5", text: "#007a5a" },
   COMPLETED: { bar: "#008060", bg: "#d3f5e2", text: "#007a5a" },
@@ -72,8 +81,18 @@ export function JobProgress({
 }) {
   const [data, setData] = useState<JobStatusPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** El job ya no existe (404): la barra se retira en vez de quedarse colgada. */
+  const [gone, setGone] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const finishedNotified = useRef(false);
+  const errorRetries = useRef(0);
+
+  // onFinished se guarda en un ref y NO va en las dependencias del efecto: los
+  // padres lo definen inline, así que cambia de identidad en cada render y el
+  // sondeo se reiniciaría solo —justo después de revalidar, que es cuando el
+  // padre re-renderiza—, duplicando peticiones sobre el mismo job.
+  const onFinishedRef = useRef(onFinished);
+  onFinishedRef.current = onFinished;
 
   const post = useCallback(
     async (intent: "cancel" | "kick") => {
@@ -87,21 +106,46 @@ export function JobProgress({
   useEffect(() => {
     let cancelled = false;
 
+    // Un solo sitio por el que se sale del sondeo: así no hay forma de terminar
+    // sin avisar al padre, que es lo que dejaba la lista sin refrescar.
+    const finish = (reason: string) => {
+      if (finishedNotified.current) return;
+      finishedNotified.current = true;
+      onFinishedRef.current?.(reason);
+    };
+
     const tick = async () => {
       try {
         const res = await fetch(`/api/jobs/${jobId}/status`);
+
+        // 🔴 404 = el job ya no está. Eso es un FINAL, no un error de red.
+        //
+        // Tratarlo como error era el bug que hacía parecer rota la app: el
+        // componente se quedaba pintando el último payload que hubiera leído
+        // —100 % en jobs largos, 0 % en jobs cortos, de ahí que pareciera
+        // intermitente— y reintentaba cada 5 s para siempre sin avisar a nadie.
+        //
+        // Con el job sobreviviendo a su campaña esto ya casi no debería ocurrir;
+        // queda como red de seguridad para el resto de casos (id inválido, base
+        // limpiada, job purgado).
+        if (res.status === 404) {
+          if (cancelled) return;
+          setGone(true);
+          setError(null);
+          finish("GONE");
+          return; // no se vuelve a sondear
+        }
+
         if (!res.ok) throw new Error(`estado ${res.status}`);
         const payload = (await res.json()) as JobStatusPayload;
         if (cancelled) return;
 
         setData(payload);
         setError(null);
+        errorRetries.current = 0;
 
         if (TERMINAL.has(payload.status)) {
-          if (!finishedNotified.current) {
-            finishedNotified.current = true;
-            onFinished?.(payload.status);
-          }
+          finish(payload.status);
           return; // no se vuelve a sondear
         }
 
@@ -112,7 +156,16 @@ export function JobProgress({
         timer.current = setTimeout(tick, payload.nextPollMs ?? 2000);
       } catch (err) {
         if (cancelled) return;
+        errorRetries.current += 1;
         setError(err instanceof Error ? err.message : String(err));
+
+        // Se acabaron los reintentos: se avisa al padre igualmente para que
+        // revalide y la lista deje de mostrar un estado que ya no es cierto.
+        if (errorRetries.current >= MAX_ERROR_RETRIES) {
+          finish("UNREACHABLE");
+          return;
+        }
+
         timer.current = setTimeout(tick, 5000);
       }
     };
@@ -122,7 +175,11 @@ export function JobProgress({
       cancelled = true;
       if (timer.current) clearTimeout(timer.current);
     };
-  }, [jobId, onFinished, post]);
+  }, [jobId, post]);
+
+  // El job ya no existe. La barra se retira en silencio: al padre ya se le avisó
+  // y habrá revalidado, así que la lista de al lado muestra el estado real.
+  if (gone) return null;
 
   if (error && !data)
     return (
