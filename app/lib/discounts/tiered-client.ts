@@ -1,9 +1,9 @@
 // Helpers client-safe para campañas TIERED (sin imports de servidor).
 
-import type { Tier, TierMode } from "./tiered-calc";
+import type { Tier, TierMode, TierValueType } from "./tiered-calc";
 import { normalizeTiers } from "./tiered-calc";
 
-export type { Tier, TierMode };
+export type { Tier, TierMode, TierValueType };
 
 export type TieredSelectionMode =
   | "products"
@@ -23,6 +23,13 @@ export type TieredScope = "all" | "selected";
 export type TieredCampaignConfig = {
   mode: TierMode;
   tiers: Tier[];
+  /**
+   * En qué se miden los niveles: porcentaje o dinero por unidad.
+   *
+   * Opcional y ausente = "PERCENT". Las campañas guardadas antes de que esto
+   * existiera no lo traen, y deben seguir leyéndose exactamente igual.
+   */
+  valueType?: TierValueType;
 
   // Aplicabilidad — mismo vocabulario que BXGY
   selectionMode: TieredSelectionMode;
@@ -105,16 +112,19 @@ export const DEFAULT_TIERS: Tier[] = [
 
 /** Etiqueta corta para la tabla del listado de campañas. */
 export function tieredDiscountLabel(config: TieredCampaignConfig): string {
-  const tiers = normalizeTiers(config?.tiers);
+  const valueType = config?.valueType ?? "PERCENT";
+  const esMonto = valueType === "AMOUNT";
+  const tiers = normalizeTiers(config?.tiers, valueType);
   if (tiers.length === 0) return "—";
-  // El mayor, no el último: un nivel al 0% (= "desde aquí, precio normal")
-  // puede ir al final, y entonces el último no es el que más descuenta.
-  // `?? 0`: desde que existen los niveles en monto, `percent` es opcional. Esta
-  // etiqueta sigue siendo la de porcentajes; la variante de montos entra con el
-  // formulario (E3).
-  const max = tiers.reduce((m, t) => ((t.percent ?? 0) > m ? t.percent ?? 0 : m), 0);
+  // El mayor, no el último: un nivel al 0 (= "desde aquí, precio normal") puede
+  // ir al final, y entonces el último no es el que más descuenta.
+  const max = tiers.reduce((m, t) => {
+    const v = (esMonto ? t.amount : t.percent) ?? 0;
+    return v > m ? v : m;
+  }, 0);
   const modo = config.mode === "INCREMENTAL" ? "incremental" : "uniforme";
-  return `${tiers.length} ${tiers.length === 1 ? "nivel" : "niveles"} · hasta ${max}% (${modo})`;
+  const tope = esMonto ? `$${max}` : `${max}%`;
+  return `${tiers.length} ${tiers.length === 1 ? "nivel" : "niveles"} · hasta ${tope} (${modo})`;
 }
 
 /**
@@ -153,9 +163,15 @@ export function tieredProductsLabel(config: TieredCampaignConfig): string {
  */
 export function toFunctionConfig(config: TieredCampaignConfig) {
   const scope: TieredScope = config.selectionMode === "all" ? "all" : "selected";
+  const valueType = config.valueType ?? "PERCENT";
   return {
     mode: config.mode,
-    tiers: normalizeTiers(config.tiers),
+    // Se emite SIEMPRE, también en las campañas de porcentaje. Un metafield que
+    // lo lleva explícito no depende de que el lector acierte con el valor por
+    // defecto, que es justo el tipo de suposición que ya costó un incidente con
+    // el `scope` inferido de una lista vacía.
+    valueType,
+    tiers: normalizeTiers(config.tiers, valueType),
     scope,
     productIds: scope === "all" ? [] : config.productIds ?? [],
     excludeProductIds: config.excludeProductIds ?? [],

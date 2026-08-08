@@ -184,6 +184,9 @@ export default function EditTieredCampaign() {
         initial={{
           name: campaign.name,
           mode: config.mode ?? "UNIFORM",
+          // Ausente = PERCENT: es lo que traen las campañas guardadas antes de
+          // que existieran los montos, y deben abrirse igual que siempre.
+          valueType: config.valueType ?? "PERCENT",
           tiers: config.tiers?.length ? config.tiers : DEFAULT_TIERS,
           selectionMode: config.selectionMode ?? "products",
           products: prefilledProducts,

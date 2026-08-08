@@ -416,7 +416,14 @@ export const es = {
 
     secNiveles: "4 · Niveles de descuento",
     nivelesHelper:
-      "Define desde cuántas unidades aplica cada descuento. Las unidades por encima del último nivel conservan ese mismo porcentaje.",
+      "Define desde cuántas unidades aplica cada descuento. Las unidades por encima del último nivel conservan ese mismo descuento.",
+    unidadLabel: "Descontar en:",
+    unidadPorcentaje: "Porcentaje (%)",
+    unidadMonto: "Monto fijo ($)",
+    unidadPorcentajeHelper:
+      "Cada nivel descuenta un porcentaje del precio de la unidad.",
+    unidadMontoHelper:
+      "Cada nivel descuenta una cantidad fija de dinero POR UNIDAD. Si el monto iguala o supera el precio de un producto, ese producto no recibe descuento.",
     nivelDesde: "Desde",
     nivelUnidades: "unidades",
     nivelDescuento: "Descuento",

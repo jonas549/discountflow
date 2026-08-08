@@ -155,6 +155,7 @@ export default function NewTieredCampaign() {
         initial={{
           name: "",
           mode: "UNIFORM",
+          valueType: "PERCENT",
           tiers: DEFAULT_TIERS,
           selectionMode: "products",
           products: [],

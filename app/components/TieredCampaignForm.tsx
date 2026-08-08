@@ -24,8 +24,10 @@ import {
   validateTiers,
   MIN_TIER_PERCENT,
   MAX_TIER_PERCENT,
+  MIN_TIER_AMOUNT,
   type Tier,
   type TierMode,
+  type TierValueType,
 } from "../lib/discounts/tiered-calc";
 import type { TieredSelectionMode } from "../lib/discounts/tiered-client";
 import { es } from "../i18n";
@@ -48,6 +50,8 @@ export type CollectionItem = { id: string; title: string };
 export type TieredFormInitial = {
   name: string;
   mode: TierMode;
+  /** Ausente en las campañas guardadas antes de los montos: se lee como PERCENT. */
+  valueType: TierValueType;
   tiers: Tier[];
   selectionMode: TieredSelectionMode;
   products: ProductItem[];
@@ -96,7 +100,30 @@ export function TieredCampaignForm({
 
   const [name, setName] = useState(initial.name);
   const [mode, setMode] = useState<TierMode>(initial.mode);
+  const [valueType, setValueType] = useState<TierValueType>(initial.valueType);
   const [tiers, setTiers] = useState<Tier[]>(initial.tiers);
+  const esMonto = valueType === "AMOUNT";
+
+  /**
+   * Cambiar la unidad reescribe los niveles en vez de arrastrar el campo viejo.
+   *
+   * Si no, un nivel de "20" en % pasaría a valer "$20" sin que nadie lo haya
+   * escrito, y `normalizeTiers` descartaría los que quedaran sin el campo de su
+   * tipo — el merchant vería desaparecer sus niveles sin explicación. Se
+   * conserva la escalera de cantidades, que es lo que costó configurar, y se
+   * ponen los valores a 0 para que se vea que hay que rellenarlos.
+   */
+  const cambiarUnidad = (siguiente: TierValueType) => {
+    if (siguiente === valueType) return;
+    setValueType(siguiente);
+    setTiers((prev) =>
+      prev.map((t) =>
+        siguiente === "AMOUNT"
+          ? { minQty: t.minQty, amount: 0 }
+          : { minQty: t.minQty, percent: 0 }
+      )
+    );
+  };
   const [selectionMode, setSelectionMode] = useState<TieredSelectionMode>(initial.selectionMode);
   const [products, setProducts] = useState<ProductItem[]>(initial.products);
   const [collections, setCollections] = useState<CollectionItem[]>(initial.collections);
@@ -107,7 +134,7 @@ export function TieredCampaignForm({
   const [endsAt, setEndsAt] = useState(initial.endsAt);
   const [pickerMode, setPickerMode] = useState<"tags" | "vendors" | "productTypes" | null>(null);
 
-  const tierWarnings = validateTiers(tiers).warnings;
+  const tierWarnings = validateTiers(tiers, { valueType }).warnings;
 
   const pickProducts = async () => {
     const selected = await shopify.resourcePicker({
@@ -146,9 +173,12 @@ export function TieredCampaignForm({
   const addTier = () =>
     setTiers((prev) => {
       const last = prev[prev.length - 1];
+      const minQty = (last?.minQty ?? 0) + 1;
       return [
         ...prev,
-        { minQty: (last?.minQty ?? 0) + 1, percent: Math.min(99, (last?.percent ?? 5) + 5) },
+        esMonto
+          ? { minQty, amount: (last?.amount ?? 0) + 1 }
+          : { minQty, percent: Math.min(MAX_TIER_PERCENT, (last?.percent ?? 5) + 5) },
       ];
     });
 
@@ -174,6 +204,7 @@ export function TieredCampaignForm({
       <Form method="post">
         {/* Estado serializado para el action */}
         <input type="hidden" name="mode" value={mode} />
+        <input type="hidden" name="valueType" value={valueType} />
         <input type="hidden" name="selectionMode" value={selectionMode} />
         <input type="hidden" name="tiersJson" value={JSON.stringify(tiers)} />
         <input
@@ -371,13 +402,51 @@ export function TieredCampaignForm({
                   </button>
                 ))}
               </div>
-              <ModeExplainer mode={mode} tiers={tiers} />
+              <ModeExplainer mode={mode} valueType={valueType} tiers={tiers} />
             </Section>
 
             <Section title={es.nuevaTiered.secNiveles} defaultOpen>
               <p style={{ fontSize: "12px", color: "#6d7175", margin: "8px 0 12px" }}>
                 {es.nuevaTiered.nivelesHelper}
               </p>
+
+              {/* Unidad del descuento. Es un eje aparte del modo: el modo dice
+                  cómo se reparte y esto en qué se mide. La campaña entera va en
+                  una sola unidad — no se mezclan niveles en % con niveles en $. */}
+              <div style={{ marginBottom: "14px" }}>
+                <span style={{ fontSize: "13px", color: "#42474c", marginRight: "10px" }}>
+                  {es.nuevaTiered.unidadLabel}
+                </span>
+                <div style={{ display: "inline-flex", verticalAlign: "middle" }}>
+                  {(["PERCENT", "AMOUNT"] as const).map((v, idx) => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => cambiarUnidad(v)}
+                      style={{
+                        background: valueType === v ? "#008060" : "#fff",
+                        color: valueType === v ? "#fff" : "#42474c",
+                        border: "1px solid " + (valueType === v ? "#008060" : "#c9cccf"),
+                        borderLeft: idx === 1 ? "none" : undefined,
+                        borderRadius: idx === 0 ? "6px 0 0 6px" : "0 6px 6px 0",
+                        padding: "6px 16px",
+                        fontSize: "13px",
+                        fontWeight: 500,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {v === "PERCENT"
+                        ? es.nuevaTiered.unidadPorcentaje
+                        : es.nuevaTiered.unidadMonto}
+                    </button>
+                  ))}
+                </div>
+                <p style={{ fontSize: "12px", color: "#6d7175", margin: "8px 0 0" }}>
+                  {esMonto
+                    ? es.nuevaTiered.unidadMontoHelper
+                    : es.nuevaTiered.unidadPorcentajeHelper}
+                </p>
+              </div>
 
               {tiers.map((tier, i) => (
                 <div
@@ -429,22 +498,40 @@ export function TieredCampaignForm({
                   </div>
 
                   <div style={{ display: "flex" }}>
-                    <input
-                      type="number"
-                      min={MIN_TIER_PERCENT}
-                      max={MAX_TIER_PERCENT}
-                      value={tier.percent}
-                      onChange={(e) =>
-                        updateTier(i, {
-                          // 0 es válido: "desde esta cantidad, precio normal".
-                          percent: Math.max(
-                            MIN_TIER_PERCENT,
-                            Math.min(MAX_TIER_PERCENT, Number(e.target.value))
-                          ),
-                        })
-                      }
-                      style={{ ...inputStyle, borderRadius: "6px 0 0 6px", flex: 1, minWidth: 0 }}
-                    />
+                    {esMonto ? (
+                      <input
+                        type="number"
+                        min={MIN_TIER_AMOUNT}
+                        step="0.01"
+                        value={tier.amount ?? 0}
+                        onChange={(e) =>
+                          updateTier(i, {
+                            // 0 sigue siendo válido: "desde aquí, precio normal".
+                            // No hay tope: el monto máximo depende del precio de
+                            // cada producto, y eso se avisa en el preview.
+                            amount: Math.max(MIN_TIER_AMOUNT, Number(e.target.value)),
+                          })
+                        }
+                        style={{ ...inputStyle, borderRadius: "6px 0 0 6px", flex: 1, minWidth: 0 }}
+                      />
+                    ) : (
+                      <input
+                        type="number"
+                        min={MIN_TIER_PERCENT}
+                        max={MAX_TIER_PERCENT}
+                        value={tier.percent ?? 0}
+                        onChange={(e) =>
+                          updateTier(i, {
+                            // 0 es válido: "desde esta cantidad, precio normal".
+                            percent: Math.max(
+                              MIN_TIER_PERCENT,
+                              Math.min(MAX_TIER_PERCENT, Number(e.target.value))
+                            ),
+                          })
+                        }
+                        style={{ ...inputStyle, borderRadius: "6px 0 0 6px", flex: 1, minWidth: 0 }}
+                      />
+                    )}
                     <span
                       style={{
                         background: "#f1f2f3",
@@ -456,7 +543,7 @@ export function TieredCampaignForm({
                         color: "#6d7175",
                       }}
                     >
-                      %
+                      {esMonto ? "$" : "%"}
                     </span>
                   </div>
 
@@ -549,6 +636,7 @@ export function TieredCampaignForm({
             <TieredPreview
               name={name}
               mode={mode}
+              valueType={valueType}
               tiers={tiers}
               selectionMode={selectionMode}
               productCount={products.length}
@@ -626,6 +714,7 @@ export function TieredCampaignForm({
 function TieredPreview({
   name,
   mode,
+  valueType,
   tiers,
   selectionMode,
   productCount,
@@ -634,21 +723,26 @@ function TieredPreview({
 }: {
   name: string;
   mode: TierMode;
+  valueType: TierValueType;
   tiers: Tier[];
   selectionMode: TieredSelectionMode;
   productCount: number;
   startsAt: string;
   endsAt: string;
 }) {
+  const esMonto = valueType === "AMOUNT";
   // El preview NO replica la lógica: ejecuta la misma función que la Function.
-  const rows = buildPreviewRows(mode, tiers, PRECIO_EJEMPLO);
-  const sorted = normalizeTiers(tiers);
-  // El máximo, no el último: con un nivel al 0% al final, el último ya no es
-  // el que más descuenta y el resumen diría "máximo 0%".
-  const maxPercent = sorted.reduce(
-    (max, t) => ((t.percent ?? 0) > max ? t.percent ?? 0 : max),
-    0
-  );
+  // Con montos eso importa aún más, porque es donde se ve el caso del nivel que
+  // se pasa del precio: aparece como un ahorro de 0, igual que le pasaría al
+  // comprador.
+  const rows = buildPreviewRows(mode, tiers, PRECIO_EJEMPLO, valueType);
+  const sorted = normalizeTiers(tiers, valueType);
+  // El máximo, no el último: con un nivel al 0 al final, el último ya no es
+  // el que más descuenta y el resumen diría "máximo 0".
+  const maxPercent = sorted.reduce((max, t) => {
+    const v = (esMonto ? t.amount : t.percent) ?? 0;
+    return v > max ? v : max;
+  }, 0);
 
   const aplicaDesc =
     selectionMode === "all"
@@ -674,7 +768,10 @@ function TieredPreview({
     },
     { label: es.nuevaTiered.resumenAplica, value: aplicaDesc },
     { label: es.nuevaTiered.resumenNiveles, value: String(sorted.length) },
-    { label: es.nuevaTiered.resumenMaximo, value: maxPercent ? `${maxPercent}%` : "—" },
+    {
+      label: es.nuevaTiered.resumenMaximo,
+      value: maxPercent ? (esMonto ? `$${maxPercent}` : `${maxPercent}%`) : "—",
+    },
     {
       label: es.nuevaTiered.resumenInicio,
       value: startsAt
@@ -747,7 +844,7 @@ function TieredPreview({
                     {r.isBeyondLastTier ? "+" : ""}
                   </td>
                   <td style={{ ...cellStyle, textAlign: "right", color: "#008060", fontWeight: 600 }}>
-                    {r.percent}%
+                    {esMonto ? `$${r.percent}` : `${r.percent}%`}
                   </td>
                   <td style={{ ...cellStyle, textAlign: "right", fontWeight: 500 }}>
                     {money(r.total)}
@@ -829,20 +926,32 @@ function TieredPreview({
  * números concretos. Es la forma más rápida de que entienda que los mismos
  * niveles producen dos totales distintos.
  */
-function ModeExplainer({ mode, tiers }: { mode: TierMode; tiers: Tier[] }) {
-  const rows = buildPreviewRows(mode, tiers, PRECIO_EJEMPLO);
+function ModeExplainer({
+  mode,
+  valueType,
+  tiers,
+}: {
+  mode: TierMode;
+  valueType: TierValueType;
+  tiers: Tier[];
+}) {
+  const esMonto = valueType === "AMOUNT";
+  const rows = buildPreviewRows(mode, tiers, PRECIO_EJEMPLO, valueType);
   if (rows.length === 0) return null;
 
   // Se usa la fila del último nivel definido (la última es la fila "N+").
   const row = rows[Math.max(0, rows.length - 2)];
-  const percents = normalizeTiers(tiers)
-    .map((t) => `${t.percent}%`)
+  const fmt = (v: number) => (esMonto ? `$${v}` : `${v}%`);
+  const valores = normalizeTiers(tiers, valueType)
+    .map((t) => fmt((esMonto ? t.amount : t.percent) ?? 0))
     .join(", ");
 
   const texto =
     mode === "UNIFORM"
-      ? `Al llegar a ${row.quantity} unidades, las ${row.quantity} quedan al ${row.percent}%. ${row.quantity} × ${money(PRECIO_EJEMPLO)} → paga ${money(row.total)}.`
-      : `Cada unidad lleva su propio descuento (${percents}). ${row.quantity} × ${money(PRECIO_EJEMPLO)} → paga ${money(row.total)}.`;
+      ? `Al llegar a ${row.quantity} unidades, las ${row.quantity} llevan ${fmt(row.percent)}${
+          esMonto ? " de descuento cada una" : ""
+        }. ${row.quantity} × ${money(PRECIO_EJEMPLO)} → paga ${money(row.total)}.`
+      : `Cada unidad lleva su propio descuento (${valores}). ${row.quantity} × ${money(PRECIO_EJEMPLO)} → paga ${money(row.total)}.`;
 
   return (
     <div

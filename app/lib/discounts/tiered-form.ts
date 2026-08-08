@@ -2,7 +2,13 @@
 // Vive fuera de las rutas porque lo usan tanto la de creación como la de edición.
 
 import type { TieredFormErrors } from "../../components/TieredCampaignForm";
-import { normalizeTiers, validateTiers, type Tier, type TierMode } from "./tiered-calc";
+import {
+  normalizeTiers,
+  validateTiers,
+  type Tier,
+  type TierMode,
+  type TierValueType,
+} from "./tiered-calc";
 import type { TieredCampaignConfig, TieredSelectionMode } from "./tiered-client";
 import { es } from "../../i18n";
 
@@ -17,17 +23,22 @@ export function parseTieredForm(fd: FormData) {
     }
   };
 
+  // Ausente = PERCENT: es lo que reciben las campañas guardadas antes de que
+  // existieran los montos, y también cualquier envío que no traiga el campo.
+  const valueType = ((fd.get("valueType") as string) || "PERCENT") as TierValueType;
+
   return {
     name: (fd.get("name") as string | null)?.trim() ?? "",
     intent: (fd.get("intent") as "draft" | "activate") ?? "draft",
     mode: ((fd.get("mode") as string) || "UNIFORM") as TierMode,
+    valueType,
     selectionMode: ((fd.get("selectionMode") as string) || "products") as TieredSelectionMode,
     products: parse<Array<{ id: string }>>("productsJson", []),
     collectionIds: parse<string[]>("collectionIdsJson", []),
     tags: parse<string[]>("tagsJson", []),
     vendors: parse<string[]>("vendorsJson", []),
     types: parse<string[]>("typesJson", []),
-    tiers: normalizeTiers(parse<Tier[]>("tiersJson", [])),
+    tiers: normalizeTiers(parse<Tier[]>("tiersJson", []), valueType),
     startsAt: (fd.get("startsAt") as string) || "",
     endsAt: (fd.get("endsAt") as string) || "",
   };
@@ -46,7 +57,7 @@ export function validateTieredForm(f: ParsedTieredForm): TieredFormErrors {
     (f.selectionMode === "productTypes" && f.types.length > 0);
   if (!hasSelection) errors.selection = es.nuevaTiered.errSeleccion;
 
-  const tierValidation = validateTiers(f.tiers);
+  const tierValidation = validateTiers(f.tiers, { valueType: f.valueType });
   if (tierValidation.errors.length > 0) errors.tiers = tierValidation.errors.join(" ");
 
   if (f.startsAt && f.endsAt && new Date(f.endsAt) <= new Date(f.startsAt))
@@ -58,6 +69,7 @@ export function validateTieredForm(f: ParsedTieredForm): TieredFormErrors {
 export function buildTieredConfig(f: ParsedTieredForm): TieredCampaignConfig {
   return {
     mode: f.mode,
+    valueType: f.valueType,
     tiers: f.tiers,
     selectionMode: f.selectionMode,
     productIds: f.products.map((p) => p.id),
