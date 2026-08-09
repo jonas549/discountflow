@@ -26,6 +26,9 @@ const DEMO_PREFIX = "[NOOP demo]";
 const isProduction = process.env.NODE_ENV === "production";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
+  // Banco de pruebas: inalcanzable en producción. 404 = como si la ruta no existiera,
+  // ni GET (esta página) ni POST (el action de abajo).
+  if (isProduction) throw new Response("Not Found", { status: 404 });
   const { session } = await authenticate.admin(request);
   const shop = await getOrCreateShop({
     domain: session.shop,
@@ -67,6 +70,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
+  if (isProduction) throw new Response("Not Found", { status: 404 });
   const { session } = await authenticate.admin(request);
   const shop = await getOrCreateShop({
     domain: session.shop,

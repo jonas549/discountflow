@@ -537,6 +537,32 @@ será una puerta trasera al enforcement.
 
 ### 1. `/app/plans/confirm` se fía del parámetro de la URL
 
+> ⏸️ **EN PAUSA — decidido pero pospuesto (decisión de Jonas, 2026-08-09).**
+> El agujero está **confirmado y reproducido en dev** (ver la nota de verificación más
+> abajo), y el arreglo está **diseñado y aprobado en su forma**, pero **no se implementa
+> todavía**: se retoma *después* del despliegue de escalonados de hoy, en su propio cambio.
+> **No arreglar `/confirm` en este despliegue.** El código sigue como está descrito aquí.
+>
+> **Diseño acordado para cuando se retome** (cierra el agujero sin tocar el camino legítimo
+> ni la salvaguarda de cancelación):
+> 1. `/confirm` deja de escribir el plan del parámetro. Consulta `activeSubscriptions` a
+>    Shopify y **escribe el plan que Shopify confirma activo** (`ACTIVE`/`PENDING`); el
+>    `?plan_handle=` queda solo como pista para logs.
+> 2. Si no hay ninguna suscripción de pago activa → **no escribe nada** (ni `plan` ni
+>    `lastSyncAt`). Un atacante que teclee `?plan_handle=professional` sin pagar queda en su
+>    plan real.
+> 3. **Desfase post-cobro** (Shopify tarda 1-3 s en mostrar la sub tras el pago): reintentos
+>    con backoff dentro de `/confirm` (**3 intentos, esperas 0 / 1,2 s / 2,5 s**). Si aún no
+>    aparece, **no se rechaza a quien pagó**: como no se toca `lastSyncAt`, el sync de `/app`
+>    reconsulta en la siguiente carga y escribe el plan cuando la sub ya esté visible.
+> 4. **Nunca degrada**: `/confirm` solo escribe cuando ve una sub de pago activa; si no ve
+>    nada, no toca el plan. El parámetro por sí solo no puede mover el plan.
+> 5. El caso `plan_handle=free` (bajar de plan) **no se toca** — depende de la salvaguarda
+>    anti-degradación, que se decide aparte (ver §5).
+> 6. Código: `resolvePaidPlanFromSubs(subs)` puro en `plan-limits.ts`; `resolveConfirmedPlan(
+>    admin, …)` con la consulta+reintentos en un `confirm-plan.server.ts` nuevo, aislado de
+>    `shop.server.ts` para no tocar el camino legítimo. Tests puros + repro en dev.
+
 [`app.plans_.confirm.tsx`](../app/routes/app.plans_.confirm.tsx) son 37 líneas y **escribe
 el plan directamente desde `?plan_handle=`, sin verificar contra Shopify que exista esa
 suscripción**:
@@ -554,6 +580,15 @@ falta nada más que la URL.
 El daño se autolimita: el siguiente sondeo (≤15 min) leería `activeSubscriptions`… pero
 **la salvaguarda anti-degradación impide que baje**. O sea que el plan regalado **se queda
 puesto**.
+
+> ✅ **Verificado en dev el 2026-08-09** (no deducido del código). Con la tienda de dev sin
+> ninguna suscripción en Shopify (`activeSubscriptions: []`, confirmado por API), se ejecutó
+> el cuerpo real del loader de `/confirm` con `plan_handle=professional`: la BD pasó de
+> `FREE` a `PROFESSIONAL`. Acto seguido se corrió el sondeo real (`syncShopPlanIfStale`) con
+> el admin real: log `no active/pending sub … keeping plan=PROFESSIONAL, not degrading` → el
+> plan inflado **sobrevive al sondeo**. La salvaguarda es exactamente lo que lo hace
+> permanente. **No genera asignaciones erróneas espontáneas** —solo se dispara si alguien
+> teclea la URL a mano—, por eso es compatible con cero reportes de clientes en un año.
 
 **Lo que yo esperaría:** que `/confirm` consultase `activeSubscriptions` y solo escribiera
 el plan si Shopify confirma la suscripción, usando el `plan_handle` únicamente como pista.
@@ -592,6 +627,11 @@ y ese es justamente el procedimiento que se usa en desarrollo.
 Explicado en [§4](#la-contrapartida-dicha-claramente). Un merchant que cancela conserva su
 plan de pago en la app **indefinidamente**: el sondeo no puede bajarlo por diseño, no hay
 webhook de billing, y el único camino de bajada es desinstalar.
+
+> ✅ **Verificado en dev el 2026-08-09.** Partiendo de `ESSENTIAL` en la BD (como Nachin/
+> SkinUp), se corrió el sondeo real con dos payloads de cancelación: `activeSubscriptions: []`
+> y una sub con `status: CANCELLED`. En ambos, `keeping plan=ESSENTIAL, not degrading` → el
+> plan de pago **queda puesto tras cancelar**. Solo desinstalar lo resetea.
 
 Entiendo por qué la salvaguarda es así —y no la tocaría a ciegas—, pero **hoy no hay nada
 que cierre el círculo**. Lo que yo esperaría es alguna forma de distinguir "no sé qué plan
