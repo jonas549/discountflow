@@ -33,8 +33,20 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   ]);
 
   const shopName = session.shop.replace(".myshopify.com", "");
+  // 🔴 SIN valor de reserva, a propósito.
+  //
+  // Antes era `process.env.SHOPIFY_APP_HANDLE || "discountflow-1"`, y
+  // `discountflow-1` es el handle de la app de PRODUCCIÓN. Como este archivo lo
+  // comparten las dos apps, cualquier instalación sin la variable definida —la app
+  // de desarrollo, por ejemplo— construía la URL de precios de PRODUCCIÓN y
+  // entregaba el merchant a otra app: la página de precios, el cobro y el welcome
+  // link pertenecían a la app equivocada. Pasó el 2026-09-01 en la tienda de
+  // pruebas y fue invisible hasta que alguien miró a dónde había ido a parar.
+  //
+  // Ahora falta la variable = no hay botón de cobro. Es preferible no poder
+  // cambiar de plan a cambiarlo en la app de otro.
   // eslint-disable-next-line no-undef
-  const appHandle = process.env.SHOPIFY_APP_HANDLE || "discountflow-1";
+  const appHandle = process.env.SHOPIFY_APP_HANDLE?.trim() || null;
 
   return {
     currentPlan: syncedShop.plan as Plan,
@@ -89,7 +101,8 @@ function PlanCard({
   planKey: Plan;
   isCurrent: boolean;
   isPopular: boolean;
-  pricingUrl: string;
+  /** `null` si falta SHOPIFY_APP_HANDLE: la tarjeta muestra el aviso, no el botón. */
+  pricingUrl: string | null;
 }) {
   const limits = PLAN_LIMITS[planKey];
   const features = FEATURES[planKey];
@@ -196,7 +209,7 @@ function PlanCard({
           >
             {es.planes.btnActual}
           </div>
-        ) : (
+        ) : pricingUrl ? (
           <a
             href={pricingUrl}
             target="_top"
@@ -214,6 +227,21 @@ function PlanCard({
           >
             {es.planes.btnUpgrade}
           </a>
+        ) : (
+          <div
+            style={{
+              textAlign: "center",
+              padding: "10px",
+              background: "#fff8e1",
+              border: "1px solid #f9a825",
+              borderRadius: "8px",
+              fontSize: "12px",
+              color: "#a05c00",
+              lineHeight: 1.4,
+            }}
+          >
+            {es.planes.cobroNoConfigurado}
+          </div>
         )}
       </div>
     </div>
@@ -226,7 +254,11 @@ export default function Plans() {
   const { currentPlan, campaignCount, variantCount, shopName, appHandle } =
     useLoaderData<typeof loader>();
 
-  const pricingUrl = `https://admin.shopify.com/store/${shopName}/charges/${appHandle}/pricing_plans`;
+  // `null` cuando falta SHOPIFY_APP_HANDLE: las tarjetas muestran un aviso en vez
+  // del botón, en lugar de enlazar a la página de precios de otra app.
+  const pricingUrl = appHandle
+    ? `https://admin.shopify.com/store/${shopName}/charges/${appHandle}/pricing_plans`
+    : null;
 
   const limits = PLAN_LIMITS[currentPlan];
 
