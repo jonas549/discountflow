@@ -67,7 +67,7 @@
 
 // Extensión `.ts` explícita: el resolvedor ESM de Node la exige y este módulo se
 // carga desde `npm test`. Vite la resuelve igual. Misma razón que en app/lib/jobs.
-import { handleToPlan, type Plan } from "./plan-limits.ts";
+import { planFromHandle, type Plan } from "./plan-limits.ts";
 
 /** Estados vivos: mientras exista alguno, la tienda NO baja de plan. */
 const ESTADOS_VIVOS = ["ACTIVE", "PENDING", "FROZEN"] as const;
@@ -118,23 +118,27 @@ export function evaluarLectura(lectura: LecturaPlan): Evaluacion {
     return { accion: "mantener", motivo: `lectura inválida: ${lectura.motivo}` };
 
   // Una suscripción de pago vigente manda sobre todo lo demás.
-  const dePago = lectura.activas.find((s) =>
+  const vigente = lectura.activas.find((s) =>
     (ESTADOS_DE_PAGO as readonly string[]).includes(s.status)
   );
-  if (dePago) {
-    const plan = dePago.planHandle ? handleToPlan(dePago.planHandle) : null;
-    // `handleToPlan` devuelve FREE ante un handle desconocido. Eso aquí sería una
-    // degradación encubierta por un handle que no supimos leer, así que se trata
-    // como ambigüedad y se conserva el plan.
-    if (plan && plan !== "FREE")
+  if (vigente) {
+    // 🔴 `planFromHandle` distingue «reconocido» de «desconocido»; `handleToPlan`
+    // no, porque devuelve FREE para los dos. Esa confusión hacía que una bajada
+    // legítima al plan gratuito —que Shopify entrega como una suscripción ACTIVE
+    // con handle "free"— se tratara como handle ilegible y la tienda se quedara
+    // en su plan de pago para siempre. Era el caso REAL de bajar de plan; el
+    // camino de «no queda ninguna suscripción» solo ocurre al desinstalar.
+    const plan = planFromHandle(vigente.planHandle);
+    if (plan)
       return {
         accion: "usar-plan",
         plan,
-        motivo: `suscripción ${dePago.status} con handle ${dePago.planHandle}`,
+        motivo: `suscripción ${vigente.status} con handle ${vigente.planHandle}`,
       };
+    // Handle que no está en la lista: ambigüedad, no degradación encubierta.
     return {
       accion: "mantener",
-      motivo: `suscripción ${dePago.status} con handle no reconocido (${dePago.planHandle ?? "ninguno"})`,
+      motivo: `suscripción ${vigente.status} con handle no reconocido (${vigente.planHandle ?? "ninguno"})`,
     };
   }
 
@@ -192,10 +196,18 @@ export function decidirPlan({
   primera: LecturaPlan;
   segunda?: LecturaPlan;
 }): { plan: string; degradado: boolean; motivo: string } {
+  // «Degradado» = la tienda pasa de un plan de PAGO a FREE, venga por donde venga.
+  // No se define como «llegó por el camino de las cuatro condiciones»: al bajar de
+  // plan desde Shopify, la tienda llega por `usar-plan` con handle "free", y ese
+  // caso tiene que quedar igual de vigilado —y frenado por el modo observación—
+  // que una cancelación. Lo que le importa a un merchant es que su plan bajó, no
+  // por qué rama del código pasó.
+  const esDegradacion = (planNuevo: string) => planActual !== "FREE" && planNuevo === "FREE";
+
   const uno = evaluarLectura(primera);
 
   if (uno.accion === "usar-plan")
-    return { plan: uno.plan, degradado: false, motivo: uno.motivo };
+    return { plan: uno.plan, degradado: esDegradacion(uno.plan), motivo: uno.motivo };
 
   if (uno.accion === "mantener")
     return { plan: planActual, degradado: false, motivo: uno.motivo };
@@ -220,7 +232,7 @@ export function decidirPlan({
   // Si ya está en FREE no es una degradación, es el estado correcto.
   return {
     plan: "FREE",
-    degradado: planActual !== "FREE",
+    degradado: esDegradacion("FREE"),
     motivo: `confirmado por dos lecturas: ${uno.motivo}`,
   };
 }

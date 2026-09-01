@@ -69,6 +69,29 @@ export function handleToPlan(handle: string | null | undefined): Plan {
   return (PLANS as readonly string[]).includes(up) ? (up as Plan) : "FREE";
 }
 
+/**
+ * Igual que `handleToPlan`, pero devuelve `null` cuando el handle NO se reconoce,
+ * en vez de caer a FREE.
+ *
+ * 🔴 Por qué hacen falta las dos: `handleToPlan` responde `"FREE"` tanto para el
+ * handle `"free"` (que Shopify sí manda: al bajar al plan gratuito crea una
+ * suscripción ACTIVE con `planHandle: "free"`) como para un handle que no
+ * conocemos. Quien tiene que decidir si una tienda baja de plan no puede
+ * confundir esos dos casos: el primero es una instrucción explícita de Shopify y
+ * el segundo es ambigüedad, y la ambigüedad nunca debe mover el plan. Con `null`
+ * se distinguen.
+ *
+ * La comparación es EXACTA (sin subcadenas, sin heurísticas). Matear por
+ * aproximación es lo que causó el bug de junio con `name`. Si el Partner
+ * Dashboard tuviera un handle distinto a estos cuatro, esto devuelve `null`, el
+ * plan se conserva y el motivo queda en el log para añadirlo a mano.
+ */
+export function planFromHandle(handle: string | null | undefined): Plan | null {
+  if (!handle) return null;
+  const up = handle.trim().toUpperCase();
+  return (PLANS as readonly string[]).includes(up) ? (up as Plan) : null;
+}
+
 export function getPlanLimits(plan: Plan) {
   return PLAN_LIMITS[plan];
 }

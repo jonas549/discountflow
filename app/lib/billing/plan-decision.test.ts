@@ -50,6 +50,65 @@ test("PENDING cuenta como viva y conserva el plan de pago", () => {
   assert.equal(r.plan, "PROFESSIONAL");
 });
 
+// ─── Bajar de plan: el caso REAL de Managed Pricing ───────────────────────────
+
+test("⭐ bajar a gratis: ACTIVE con handle 'free' → FREE", () => {
+  // Al bajar al plan gratuito, Shopify NO deja la tienda sin suscripción: crea
+  // una suscripción ACTIVE con planHandle "free". Verificado en producción el
+  // 2026-09-01. Este es el camino real de una bajada de plan; el de «no queda
+  // ninguna suscripción» solo ocurre al desinstalar la app.
+  const r = decidirPlan({
+    planActual: "LITE",
+    primera: ok([sub("ACTIVE", "free")]),
+  });
+  assert.equal(r.plan, "FREE");
+  assert.equal(r.degradado, true, "tiene que contar como degradación y frenarse en observación");
+});
+
+test("bajar a gratis desde ESSENTIAL, con el historial lleno de cambios de plan", () => {
+  const r = decidirPlan({
+    planActual: "ESSENTIAL",
+    primera: ok(
+      [sub("ACTIVE", "free")],
+      [
+        sub("CANCELLED", "lite"),
+        sub("CANCELLED", "essential"),
+        sub("ACTIVE", "free"),
+      ]
+    ),
+  });
+  assert.equal(r.plan, "FREE");
+  assert.equal(r.degradado, true);
+});
+
+test("estar ya en FREE con handle 'free' no cuenta como degradación", () => {
+  const r = decidirPlan({ planActual: "FREE", primera: ok([sub("ACTIVE", "free")]) });
+  assert.equal(r.plan, "FREE");
+  assert.equal(r.degradado, false);
+});
+
+test("PENDING con handle 'free' también baja: es una instrucción explícita", () => {
+  const r = decidirPlan({ planActual: "PROFESSIONAL", primera: ok([sub("PENDING", "free")]) });
+  assert.equal(r.plan, "FREE");
+  assert.equal(r.degradado, true);
+});
+
+test("🔴 handle desconocido NO puede colarse como FREE", () => {
+  // La razón de que exista `planFromHandle`: `handleToPlan` devuelve "FREE" tanto
+  // para "free" como para un handle que no conoce. Si se usara el segundo aquí,
+  // un handle nuevo del Partner Dashboard degradaría a la tienda en silencio.
+  for (const raro of ["essential-anual", "plan_2", "gratis", "FREE_TRIAL", ""]) {
+    const r = decidirPlan({ planActual: "ESSENTIAL", primera: ok([sub("ACTIVE", raro)]) });
+    assert.equal(r.plan, "ESSENTIAL", `handle ${JSON.stringify(raro)} no debe mover el plan`);
+    assert.equal(r.degradado, false);
+  }
+});
+
+test("el handle se reconoce sin importar mayúsculas ni espacios", () => {
+  assert.equal(decidirPlan({ planActual: "FREE", primera: ok([sub("ACTIVE", " Essential ")]) }).plan, "ESSENTIAL");
+  assert.equal(decidirPlan({ planActual: "LITE", primera: ok([sub("ACTIVE", "FREE")]) }).plan, "FREE");
+});
+
 test("ACTIVE con handle desconocido NO degrada: conserva el plan", () => {
   const r = decidirPlan({
     planActual: "ESSENTIAL",
