@@ -870,7 +870,13 @@ export default function EditRangeCampaign() {
               disabled={isSubmitting}
               style={isSubmitting ? { background: "#4d9e8a" } : undefined}
             >
-              {isSubmitting ? es.editarRango.btnCargando : es.editarRango.btnGuardar}
+              {/* Ver la nota del mismo botón en edit_.bxgy.tsx: en borrador este
+                  submit activa la campaña, así que el rótulo lo dice. */}
+              {isSubmitting
+                ? es.editarRango.btnCargando
+                : campaign.status === "ACTIVE"
+                ? es.editarRango.btnGuardar
+                : es.campanas.acciones.activarCampana}
             </Btn>
           </div>
         </ActionBar>

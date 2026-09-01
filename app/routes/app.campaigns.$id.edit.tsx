@@ -1218,7 +1218,10 @@ export default function EditPercentageCampaign() {
             >
               {isSubmitting
                 ? es.editarPorcentaje.btnCargando
-                : es.editarPorcentaje.btnGuardar}
+                : campaign.status === "ACTIVE"
+                ? es.editarPorcentaje.btnGuardar
+                : /* En borrador este submit activa la campaña; ver edit_.bxgy.tsx */
+                  es.campanas.acciones.activarCampana}
             </Btn>
           </div>
         </div>

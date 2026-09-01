@@ -7,7 +7,6 @@ import { useLoaderData, useFetcher, Link, useRevalidator } from "react-router";
 import { useState, useEffect, Fragment } from "react";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { Plus } from "lucide-react";
-import { Link } from "react-router";
 import { authenticate } from "../shopify.server";
 import { prisma } from "../lib/db";
 import { getOrCreateShop } from "../lib/shopify/shop.server";
@@ -16,6 +15,7 @@ import {
   reactivatePercentageDiscount,
 } from "../lib/discounts/percentage";
 import {
+  createBxgyDiscount,
   deactivateBxgyDiscount,
   activateBxgyDiscount,
   deleteBxgyDiscount,
@@ -25,6 +25,7 @@ import {
   type BxgyCampaignConfig,
 } from "../lib/discounts/bxgy-client";
 import {
+  createTieredDiscount,
   deactivateTieredDiscount,
   activateTieredDiscount,
   deleteTieredDiscount,
@@ -68,6 +69,28 @@ const isProduction = process.env.NODE_ENV === "production";
  * llevara su copia, acabarían divergiendo y el camino nuevo se convertiría en un
  * bypass del enforcement.
  */
+/**
+ * Devuelve el id del descuento en Shopify, o lanza si no existe.
+ *
+ * 🔴 Por qué esto no es una comprobación decorativa: antes, la rama de BXGY y la
+ * de TIERED llevaban el id dentro de la propia condición
+ * (`campaign.type === "BXGY" && bxgyId`). Si el id faltaba, la cadena de
+ * `else if` no entraba en NINGUNA rama, no se tocaba Shopify… y el
+ * `prisma.campaign.update` de más abajo escribía el estado igual. Resultado: la
+ * app decía «Activa» y en el checkout no había ningún descuento — el mismo
+ * síntoma que reportó la revisión de Shopify.
+ *
+ * Que falte el id es un fallo, no un caso normal: el `catch` de la acción lo
+ * convierte en un 500 con mensaje, y el estado NO se mueve.
+ */
+function exigirDescuento(id: string | undefined): string {
+  if (!id)
+    throw new Error(
+      "La campaña no tiene un descuento de Shopify asociado. No se cambió su estado."
+    );
+  return id;
+}
+
 async function comprobarLimitesAlReactivar(
   shop: { id: string; plan: string },
   campaign: { id: string; type: string }
@@ -220,12 +243,82 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         await revertPercentageDiscount(admin, campaignId);
       } else if (campaign.type === "RANGE") {
         await revertRangeDiscount(admin, campaignId);
-      } else if (campaign.type === "BXGY" && bxgyId) {
-        await deactivateBxgyDiscount(admin, bxgyId);
-      } else if (campaign.type === "TIERED" && tieredId) {
-        await deactivateTieredDiscount(admin, tieredId);
+      } else if (campaign.type === "BXGY") {
+        await deactivateBxgyDiscount(admin, exigirDescuento(bxgyId));
+      } else if (campaign.type === "TIERED") {
+        await deactivateTieredDiscount(admin, exigirDescuento(tieredId));
       }
       await prisma.campaign.update({ where: { id: campaignId }, data: { status: "PAUSED" } });
+    } else if (actionType === "activate" && campaign.status === "DRAFT") {
+      // ── Activar un BORRADOR ───────────────────────────────────────────────
+      // Un borrador todavía NO tiene descuento en Shopify: activarlo es CREARLO,
+      // no reactivar nada. Sin esta rama la campaña quedaba atrapada — el listado
+      // no ofrecía botón y la pantalla de edición rotulaba «Guardar cambios», así
+      // que el merchant no encontraba cómo publicarla y el descuento no llegaba
+      // nunca al checkout.
+      //
+      // Solo BXGY y TIERED entran por aquí: su activación es UNA mutación y
+      // termina en milisegundos, por eso va síncrona y no por el motor de jobs.
+      // Porcentaje y Rango se activan desde su pantalla de edición, que es donde
+      // vive el camino de aplicar precios variante a variante.
+      const limite = await comprobarLimitesAlReactivar(shop, campaign);
+      if (limite) return limite;
+
+      // Se comprueba el id ANTES de crear: un borrador normalmente no tiene
+      // descuento, pero puede tenerlo si un guardado anterior lo creó en Shopify
+      // y falló después (la pantalla de edición revierte el estado a borrador en
+      // ese caso). Crear otra vez dejaría DOS descuentos automáticos vivos en la
+      // tienda del merchant, con el primero huérfano y sin forma de pausarlo
+      // desde la app. Reutilizar el que ya existe hace la operación idempotente.
+      if (campaign.type === "BXGY") {
+        if (bxgyId) {
+          await activateBxgyDiscount(admin, bxgyId);
+        } else {
+          await createBxgyDiscount(
+            admin,
+            campaignId,
+            campaign.name,
+            campaign.config as BxgyCampaignConfig,
+            campaign.startsAt,
+            campaign.endsAt
+          );
+        }
+      } else if (campaign.type === "TIERED") {
+        if (tieredId) {
+          // Mismo motivo que al reactivar: se reescribe la configuración antes de
+          // activar, para migrar metafields legados y re-resolver la selección.
+          await updateTieredDiscount(
+            admin,
+            tieredId,
+            campaignId,
+            campaign.name,
+            campaign.config as TieredCampaignConfig,
+            campaign.startsAt,
+            campaign.endsAt
+          );
+          await activateTieredDiscount(admin, tieredId);
+        } else {
+          await createTieredDiscount(
+            admin,
+            campaignId,
+            campaign.name,
+            campaign.config as TieredCampaignConfig,
+            campaign.startsAt,
+            campaign.endsAt
+          );
+        }
+      } else {
+        return Response.json(
+          {
+            error:
+              "Este tipo de campaña se activa desde su pantalla de edición, donde se aplican los precios.",
+          },
+          { status: 400 }
+        );
+      }
+      // Solo se llega aquí si Shopify confirmó la creación: `createBxgyDiscount`
+      // y `createTieredDiscount` lanzan ante userErrors o si no devuelven id.
+      await prisma.campaign.update({ where: { id: campaignId }, data: { status: "ACTIVE" } });
     } else if (actionType === "activate" && campaign.status === "PAUSED") {
       const limite = await comprobarLimitesAlReactivar(shop, campaign);
       if (limite) return limite;
@@ -234,9 +327,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         await reactivatePercentageDiscount(admin, campaignId);
       } else if (campaign.type === "RANGE") {
         await reactivateRangeDiscount(admin, campaignId);
-      } else if (campaign.type === "BXGY" && bxgyId) {
-        await activateBxgyDiscount(admin, bxgyId);
-      } else if (campaign.type === "TIERED" && tieredId) {
+      } else if (campaign.type === "BXGY") {
+        await activateBxgyDiscount(admin, exigirDescuento(bxgyId));
+      } else if (campaign.type === "TIERED") {
+        const idTiered = exigirDescuento(tieredId);
         // Se REESCRIBE la configuración antes de activar, en vez de solo
         // activar el descuento existente. Dos motivos:
         //
@@ -253,14 +347,14 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         // campaña que no descuenta (o que descontaría de más).
         await updateTieredDiscount(
           admin,
-          tieredId,
+          idTiered,
           campaignId,
           campaign.name,
           campaign.config as TieredCampaignConfig,
           campaign.startsAt,
           campaign.endsAt
         );
-        await activateTieredDiscount(admin, tieredId);
+        await activateTieredDiscount(admin, idTiered);
       }
       await prisma.campaign.update({ where: { id: campaignId }, data: { status: "ACTIVE" } });
     } else if (actionType === "delete") {
@@ -278,7 +372,17 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       await prisma.campaign.delete({ where: { id: campaignId } });
     }
   } catch (err) {
-    return Response.json({ error: `Error: ${String(err)}` }, { status: 500 });
+    // Se registra en el servidor ADEMÁS de devolverlo: en Vercel Hobby los logs
+    // duran 1 hora, así que un fallo que solo viaje al navegador y el merchant no
+    // reporte se pierde entero. Con el contexto (tienda, campaña, tipo, acción)
+    // el error es diagnosticable sin tener que reproducirlo.
+    console.error(
+      `[campaign-action] ${actionType} falló · shop=${session.shop} · campaña=${campaignId} ` +
+        `· tipo=${campaign.type} · estado=${campaign.status}`,
+      err
+    );
+    const mensaje = err instanceof Error ? err.message : String(err);
+    return Response.json({ error: mensaje }, { status: 500 });
   }
 
   return Response.json({ success: true });
@@ -850,16 +954,23 @@ export default function Campaigns() {
         />
       )}
 
-      {/* Banner de límite de plan */}
-      {fetcherData?.limitExceeded && fetcherData.error && (
+      {/* Banner de error de las acciones del listado.
+          🔴 La condición era `fetcherData?.limitExceeded && fetcherData.error`, así
+          que SOLO se pintaba el aviso de límite de plan: cualquier otro fallo
+          —Shopify rechaza la mutación, la selección no resuelve productos, el
+          descuento no existe— volvía en el JSON y se descartaba sin pintar nada.
+          El merchant veía «Activando…», luego nada, y la campaña sin cambiar de
+          estado. Ahora se muestra SIEMPRE que haya error: amarillo con enlace a
+          planes si es de cuota, rojo si es un fallo real. */}
+      {fetcherData?.error && (
         <div
           style={{
-            background: "#fff8e1",
-            border: "1px solid #f9a825",
+            background: fetcherData.limitExceeded ? "#fff8e1" : "#fde8e8",
+            border: `1px solid ${fetcherData.limitExceeded ? "#f9a825" : "#f97066"}`,
             borderRadius: "8px",
             padding: "12px 16px",
             fontSize: "14px",
-            color: "#a05c00",
+            color: fetcherData.limitExceeded ? "#a05c00" : "#c0392b",
             marginBottom: "16px",
             display: "flex",
             alignItems: "center",
@@ -868,12 +979,14 @@ export default function Campaigns() {
           }}
         >
           <span>{fetcherData.error}</span>
-          <Link
-            to="/app/plans"
-            style={{ fontSize: "13px", fontWeight: "600", color: "#008060", textDecoration: "none", whiteSpace: "nowrap" }}
-          >
-            {es.planes.verPlanes} →
-          </Link>
+          {fetcherData.limitExceeded && (
+            <Link
+              to="/app/plans"
+              style={{ fontSize: "13px", fontWeight: "600", color: "#008060", textDecoration: "none", whiteSpace: "nowrap" }}
+            >
+              {es.planes.verPlanes} →
+            </Link>
+          )}
         </div>
       )}
 
@@ -1111,8 +1224,15 @@ export default function Campaigns() {
                             </Btn>
                           )}
 
-                          {/* Reactivar — solo cuando PAUSED */}
-                          {c.status === "PAUSED" && (
+                          {/* Activar — cuando PAUSED (reactivar), y cuando DRAFT
+                              en BxGy/Escalonado (crear el descuento en Shopify).
+                              Sin esta segunda mitad, un borrador de esos dos tipos
+                              quedaba atrapado: aquí no había botón y la pantalla de
+                              edición rotulaba «Guardar cambios». Porcentaje y Rango
+                              se activan desde su edición, donde se aplican precios. */}
+                          {(c.status === "PAUSED" ||
+                            (c.status === "DRAFT" &&
+                              (c.type === "BXGY" || c.type === "TIERED"))) && (
                             <Btn
                               variant="primary"
                               size="sm"
@@ -1121,6 +1241,8 @@ export default function Campaigns() {
                             >
                               {pendingAction?.id === c.id && pendingAction.type === "activate"
                                 ? "Activando…"
+                                : c.status === "DRAFT"
+                                ? es.campanas.acciones.activar
                                 : es.campanas.acciones.reactivar}
                             </Btn>
                           )}
