@@ -167,8 +167,13 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   const errors: ActionErrors = {};
   if (!name) errors.name = es.nuevaBxgy.errNombre;
 
+  // Rechazo en el servidor del modo retirado, igual que al crear. Aquí además
+  // cubre el caso de la campaña legada: si alguien reenvía el formulario con el
+  // `all` que traía guardado, no se vuelve a mandar el catálogo entero.
+  if (xMode === "all") errors.xProducts = es.nuevaBxgy.errModoTiendaNoDisponible;
+  if (yMode === "all") errors.yProducts = es.nuevaBxgy.errModoTiendaNoDisponible;
+
   const xHasSelection =
-    xMode === "all" ||
     (xMode === "products" && xProducts.length > 0) ||
     (xMode === "collections" && xCollectionIds.length > 0) ||
     (xMode === "tags" && xTags.length > 0) ||
@@ -178,7 +183,6 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
 
   const yHasSelection =
     yMode === "same-as-x" ||
-    yMode === "all" ||
     (yMode === "products" && yProducts.length > 0) ||
     (yMode === "collections" && yCollectionIds.length > 0) ||
     (yMode === "tags" && yTags.length > 0) ||
@@ -315,8 +319,8 @@ const SELECTION_MODES = [
   { value: "collections", label: es.nuevaBxgy.modoColecciones },
   { value: "tags", label: es.nuevaBxgy.modoTags },
   { value: "vendors", label: es.nuevaBxgy.modoVendedor },
+  // Sin «Toda la tienda»: ver la nota en app.campaigns.new.bxgy.tsx.
   { value: "productTypes", label: es.nuevaBxgy.modoTipo },
-  { value: "all", label: es.nuevaBxgy.modoTienda },
 ];
 
 const Y_SELECTION_MODES = [
@@ -412,6 +416,18 @@ function SelectionPanel({
             onChange={(e) => onModeChange(e.target.value)}
             style={inputStyle}
           >
+            {/* Una campaña guardada antes de retirar «Toda la tienda» trae un modo
+                que ya no está en la lista. Un <select> controlado con un `value`
+                sin `<option>` que le corresponda muestra la PRIMERA opción
+                mientras el estado sigue valiendo "all": la pantalla diría
+                «Productos específicos» y se guardaría el catálogo entero. Se añade
+                la opción deshabilitada para que el select diga la verdad y obligue
+                a elegir otra. */}
+            {!modes.some((m) => m.value === selectionMode) && (
+              <option value={selectionMode} disabled>
+                {es.nuevaBxgy.modoTienda} (ya no disponible)
+              </option>
+            )}
             {modes.map((m) => (
               <option key={m.value} value={m.value}>
                 {m.label}
@@ -494,21 +510,21 @@ function SelectionPanel({
       {selectionMode === "productTypes" && (
         <StringChips values={selectedProductTypes} onRemove={onRemoveType} />
       )}
-      {selectionMode === "all" && (
-        <div
-          style={{
-            marginTop: "12px",
-            background: "#f1f8f5",
-            border: "1px solid #b5e3d8",
-            borderRadius: "6px",
-            padding: "10px 14px",
-            fontSize: "13px",
-            color: "#007a5a",
-          }}
-        >
-          ✓ {es.nuevaBxgy.msgTodaTienda}
-        </div>
-      )}
+      {/* Ver la nota del mismo bloque en app.campaigns.new.bxgy.tsx. */}
+      {selectionMode !== "collections" &&
+        selectionMode !== "same-as-x" &&
+        selectionMode !== "all" && (
+          <div
+            style={{
+              marginTop: "12px",
+              fontSize: "12px",
+              color: "#6d7175",
+              lineHeight: 1.5,
+            }}
+          >
+            {es.nuevaBxgy.ayudaTodaLaTienda}
+          </div>
+        )}
       {selectionMode === "same-as-x" && (
         <div
           style={{
@@ -590,6 +606,10 @@ export default function EditBxgyCampaign() {
   const [yQuantity, setYQuantity] = useState(cfg.yQuantity ?? 1);
   const [yPickerMode, setYPickerMode] = useState<"tags" | "vendors" | "productTypes" | null>(null);
 
+  // Se mira el estado ACTUAL, no lo que traía el loader: en cuanto el merchant
+  // elige otro modo el aviso desaparece y el guardado se desbloquea solo.
+  const modoLegado = xMode === "all" || yMode === "all";
+
   const [discountType, setDiscountType] = useState<"free" | "percentage">(
     cfg.discountType === "freeShipping" ? "free" : (cfg.discountType ?? "free")
   );
@@ -657,6 +677,27 @@ export default function EditBxgyCampaign() {
       </div>
 
       {errors.general && <GeneralErrorBanner message={errors.general} limitExceeded={actionData?.limitExceeded} />}
+
+      {/* Campaña guardada con el modo «Toda la tienda», ya retirado. Se avisa y se
+          bloquea el guardado hasta que elija otro modo. La última frase del texto
+          importa: sin ella el merchant puede creer que se le rompió la campaña y
+          borrarla, cuando en Shopify sigue funcionando igual que siempre. */}
+      {modoLegado && (
+        <div
+          style={{
+            background: "#fff8e1",
+            border: "1px solid #f9a825",
+            borderRadius: "8px",
+            padding: "12px 16px",
+            fontSize: "14px",
+            color: "#a05c00",
+            marginBottom: "16px",
+            lineHeight: 1.5,
+          }}
+        >
+          {es.nuevaBxgy.avisoModoLegado}
+        </div>
+      )}
 
       <Form method="post">
         <input
@@ -1003,7 +1044,16 @@ export default function EditBxgyCampaign() {
             {es.nuevaBxgy.btnCancelar}
           </Link>
           <div style={{ marginLeft: "auto", display: "flex", gap: "10px" }}>
-            <Btn type="submit" name="intent" value="draft" variant="secondary" size="md" disabled={isSubmitting}>
+            {/* Con el modo legado los dos guardados quedan bloqueados: cualquiera
+                de ellos reenviaría `all` y volvería a mandar el catálogo entero. */}
+            <Btn
+              type="submit"
+              name="intent"
+              value="draft"
+              variant="secondary"
+              size="md"
+              disabled={isSubmitting || modoLegado}
+            >
               {es.nuevaBxgy.btnBorrador}
             </Btn>
             <Btn
@@ -1012,10 +1062,18 @@ export default function EditBxgyCampaign() {
               value="activate"
               variant="primary"
               size="md"
-              disabled={isSubmitting}
+              disabled={isSubmitting || modoLegado}
               style={isSubmitting ? { background: "#4d9e8a" } : undefined}
             >
-              {isSubmitting ? es.editarBxgy.btnCargando : es.editarBxgy.btnGuardar}
+              {/* El rótulo tiene que decir lo que el botón HACE. Con la campaña en
+                  borrador este submit envía `intent=activate`, que crea el descuento
+                  en Shopify — llamarlo «Guardar cambios» escondía la única forma de
+                  publicar la campaña y la dejaba atrapada en borrador. */}
+              {isSubmitting
+                ? es.editarBxgy.btnCargando
+                : campaign.status === "ACTIVE"
+                ? es.editarBxgy.btnGuardar
+                : es.campanas.acciones.activarCampana}
             </Btn>
           </div>
         </ActionBar>

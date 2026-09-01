@@ -73,6 +73,8 @@ export const es = {
     acciones: {
       editar: "Editar",
       pausar: "Pausar",
+      activar: "Activar",
+      activarCampana: "Activar campaña",
       reactivar: "Reactivar",
       eliminar: "Eliminar",
       siEliminar: "Sí, eliminar",
@@ -229,6 +231,9 @@ export const es = {
     modoTags: "Tags de producto",
     modoVendedor: "Vendedor",
     modoTipo: "Tipo de producto",
+    // `modoTienda` ya NO se ofrece como opción en BxGy (Shopify topa en 250 los
+    // productos de una oferta Compra X, obtén Y). Se conserva la clave porque el
+    // aviso de campañas legadas todavía necesita nombrar el modo antiguo.
     modoTienda: "Toda la tienda",
     btnSeleccionarProductos: "Seleccionar productos",
     btnSeleccionarColecciones: "Seleccionar colecciones",
@@ -236,6 +241,15 @@ export const es = {
     btnSeleccionarVendedores: "Seleccionar vendedores",
     btnSeleccionarTipos: "Seleccionar tipos de producto",
     msgTodaTienda: "Se aplicará a todos los productos de la tienda.",
+    // ── Límite de 250 productos por oferta BxGy ──────────────────────────────
+    ayudaTodaLaTienda:
+      "¿Querés que aplique a toda la tienda? Creá en Shopify una colección que incluya todos tus productos y elegila acá. Es mejor que una lista fija: los productos que agregues después entran solos.",
+    errLimiteProductos: (n: number) =>
+      `Esta selección alcanza a ${n} productos y Shopify permite como máximo 250 en una oferta Compra X, obtén Y. Elegí una colección en su lugar: no tiene ese límite y se actualiza sola cuando agregues productos.`,
+    errModoTiendaNoDisponible:
+      "«Toda la tienda» ya no está disponible en Compra X, obtén Y: Shopify limita a 250 los productos que puede llevar este tipo de oferta. Elegí una colección en su lugar.",
+    avisoModoLegado:
+      "Esta campaña usaba «Toda la tienda», una opción que ya no está disponible: Shopify limita a 250 los productos que puede llevar una oferta Compra X, obtén Y, y tu catálogo los supera. Elegí una colección para continuar. Mientras no la edites, la campaña sigue funcionando como hasta ahora.",
     excluirToggle: "Excluir productos de X",
     excluirHelper: "Excluye productos específicos que NO activarán la regla",
     btnExcluirProductos: "Seleccionar exclusiones",
@@ -366,6 +380,8 @@ export const es = {
     limiteCampanasTipo: (tipo: string, current: number, limit: number) =>
       `Tienes ${current} de ${limit} campañas ${tipo} activas en tu plan. Pausa una para activar esta, o actualiza tu plan.`,
     verPlanes: "Ver planes",
+    cobroNoConfigurado:
+      "El cambio de plan no está disponible en este momento. Escribinos y lo resolvemos.",
     dashCard: {
       titulo: "Tu plan actual",
       campanas: "Campañas",

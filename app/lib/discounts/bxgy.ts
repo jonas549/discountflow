@@ -4,13 +4,27 @@
 import { prisma } from "../db";
 import {
   getProductsByFilter,
-  getAllProductVariants,
 } from "../shopify/admin-api";
+import { es } from "../../i18n";
 import type { SelectionMode } from "./percentage";
 import type { BxgyCampaignConfig } from "./bxgy-client";
 
 export type { BxgyCampaignConfig };
 export type BxgyYMode = SelectionMode | "same-as-x";
+
+/**
+ * Tope de Shopify para `DiscountProductsInput.productsToAdd` en una oferta BxGy.
+ * Superarlo devuelve: «The input array size of N is greater than the maximum
+ * allowed of 250».
+ *
+ * 🔴 Es exclusivo de BxGy. Porcentaje y Rango no pasan por aquí (editan precios
+ * de variantes) y Escalonados tampoco (manda su lista en un metafield JSON).
+ *
+ * Las COLECCIONES no cuentan contra este tope: viajan como ids de colección
+ * (`collections.add`), una sola entrada por colección, y Shopify las resuelve en
+ * vivo. Por eso son la salida recomendada para catálogos grandes.
+ */
+export const MAX_PRODUCTOS_BXGY = 250;
 
 type AdminClient = {
   graphql: (q: string, o?: { variables: unknown }) => Promise<Response>;
@@ -24,7 +38,9 @@ function buildDiscountItems(
   collectionIds: string[]
 ): Record<string, unknown> {
   // NOTE: { all: true } is NOT supported for BXGY discounts (Shopify API limitation).
-  // "all" mode must be resolved to explicit product IDs before calling this function.
+  // Por eso el modo "toda la tienda" se retiró de BxGy: obligaba a resolver el
+  // catálogo a ids explícitos, y esa lista topa en MAX_PRODUCTOS_BXGY.
+  // Las colecciones son la alternativa: viajan como ids de colección, sin tope.
   if (mode === "collections" && collectionIds.length > 0)
     return { collections: { add: collectionIds } };
   if (productIds.length > 0)
@@ -37,10 +53,11 @@ async function resolveToProductIds(
   mode: SelectionMode,
   rawItems: string[]
 ): Promise<string[]> {
-  if (mode === "all") {
-    const all = await getAllProductVariants(admin);
-    return all.map((p) => p.productId);
-  }
+  // «Toda la tienda» ya no se ofrece en BxGy: resolvía el catálogo entero a ids
+  // explícitos y cualquier tienda con más de 250 productos rompía. Se rechaza
+  // también aquí, y no solo en el formulario, porque la ruta no es la única
+  // puerta de entrada (un POST a mano llegaría igual).
+  if (mode === "all") throw new Error(es.nuevaBxgy.errModoTiendaNoDisponible);
   if (mode === "tags" && rawItems.length > 0) {
     const q = rawItems.map((t) => `tag:"${t}"`).join(" OR ");
     return (await getProductsByFilter(admin, q)).map((p) => p.productId);
@@ -58,8 +75,11 @@ async function resolveToProductIds(
 
 // Resolve X and Y items to the format needed by the Shopify API.
 async function resolveItems(admin: AdminClient, config: BxgyCampaignConfig) {
-  // Resolve X product IDs. "all", tags, vendors, productTypes must be resolved to explicit IDs
-  // because { all: true } is not supported by the BXGY Shopify API.
+  // tags, vendors y productTypes se resuelven a ids explícitos. "all" sigue en la
+  // condición a propósito: una campaña legada guardada con ese modo entra aquí y
+  // `resolveToProductIds` lanza con un mensaje claro en vez de rehacer el
+  // catálogo entero. Si la campaña legada ya trae sus ids resueltos y son 250 o
+  // menos, sigue funcionando: solo la corta el guard del tope.
   let xProductIds = config.xProductIds;
   if (
     (config.xMode === "all" || config.xMode === "tags" || config.xMode === "vendors" || config.xMode === "productTypes") &&
@@ -81,10 +101,26 @@ async function resolveItems(admin: AdminClient, config: BxgyCampaignConfig) {
     yProductIds = await resolveToProductIds(admin, yMode, config.yRawItems);
   }
 
+  // Guard del tope de Shopify. Se comprueba ANTES de llamar a la mutación para
+  // que el merchant lea qué pasó y qué hacer, en vez del error crudo de la API
+  // («The input array size of 1065 is greater than the maximum allowed of 250»),
+  // que además llegaba después de resolver el catálogo entero.
+  //
+  // Solo aplica a las listas de PRODUCTOS. Una selección por colecciones pasa por
+  // aquí con la lista vacía y nunca topa, que es justo la salida que ofrece el
+  // mensaje.
+  exigirDentroDelTope(xProductIds);
+  if (config.yMode !== "same-as-x") exigirDentroDelTope(yProductIds);
+
   const xItems = buildDiscountItems(config.xMode, xProductIds, config.xCollectionIds);
   const yItems = buildDiscountItems(yMode, yProductIds, yCollectionIds);
 
   return { xItems, yItems, xProductIds, yProductIds };
+}
+
+function exigirDentroDelTope(productIds: string[]): void {
+  if (productIds.length > MAX_PRODUCTOS_BXGY)
+    throw new Error(es.nuevaBxgy.errLimiteProductos(productIds.length));
 }
 
 function discountEffect(config: BxgyCampaignConfig) {

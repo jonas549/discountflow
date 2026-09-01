@@ -129,8 +129,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const errors: ActionErrors = {};
   if (!name) errors.name = es.nuevaBxgy.errNombre;
 
+  // Rechazo en el servidor del modo retirado. El desplegable ya no lo ofrece,
+  // pero el formulario no es la única puerta: un POST a mano entraría igual.
+  if (xMode === "all") errors.xProducts = es.nuevaBxgy.errModoTiendaNoDisponible;
+  if (yMode === "all") errors.yProducts = es.nuevaBxgy.errModoTiendaNoDisponible;
+
   const xHasSelection =
-    xMode === "all" ||
     (xMode === "products" && xProducts.length > 0) ||
     (xMode === "collections" && xCollectionIds.length > 0) ||
     (xMode === "tags" && xTags.length > 0) ||
@@ -140,7 +144,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   const yHasSelection =
     yMode === "same-as-x" ||
-    yMode === "all" ||
     (yMode === "products" && yProducts.length > 0) ||
     (yMode === "collections" && yCollectionIds.length > 0) ||
     (yMode === "tags" && yTags.length > 0) ||
@@ -248,13 +251,17 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 type ProductItem = { id: string; title: string; variants: Array<{ id: string }> };
 type CollectionItem = { id: string; title: string };
 
+// 🔴 «Toda la tienda» NO está aquí, a diferencia de Porcentaje, Rango y
+// Escalonados. Shopify no acepta `{ all: true }` en una oferta BxGy, así que
+// había que resolver el catálogo a ids explícitos y topa en 250: en cualquier
+// tienda con más productos la campaña fallaba SIEMPRE. Una colección consigue lo
+// mismo sin ese límite y, además, se mantiene al día sola.
 const SELECTION_MODES = [
   { value: "products", label: es.nuevaBxgy.modoProductos },
   { value: "collections", label: es.nuevaBxgy.modoColecciones },
   { value: "tags", label: es.nuevaBxgy.modoTags },
   { value: "vendors", label: es.nuevaBxgy.modoVendedor },
   { value: "productTypes", label: es.nuevaBxgy.modoTipo },
-  { value: "all", label: es.nuevaBxgy.modoTienda },
 ];
 
 const Y_SELECTION_MODES = [
@@ -439,19 +446,18 @@ function SelectionPanel({
       {selectionMode === "productTypes" && (
         <StringChips values={selectedProductTypes} onRemove={onRemoveType} />
       )}
-      {selectionMode === "all" && (
+      {/* Orientación, no error: sustituye a la opción «Toda la tienda» que se
+          retiró. Se oculta si ya eligió colecciones, que es lo que recomienda. */}
+      {selectionMode !== "collections" && selectionMode !== "same-as-x" && (
         <div
           style={{
             marginTop: "12px",
-            background: "#f1f8f5",
-            border: "1px solid #b5e3d8",
-            borderRadius: "6px",
-            padding: "10px 14px",
-            fontSize: "13px",
-            color: "#007a5a",
+            fontSize: "12px",
+            color: "#6d7175",
+            lineHeight: 1.5,
           }}
         >
-          ✓ {es.nuevaBxgy.msgTodaTienda}
+          {es.nuevaBxgy.ayudaTodaLaTienda}
         </div>
       )}
       {selectionMode === "same-as-x" && (
@@ -533,9 +539,7 @@ function BxgyPreview({
   const discountBadgeBg = discountType === "free" ? "#d3f5e2" : "#fff3cd";
 
   const xDesc =
-    xMode === "all"
-      ? "toda la tienda"
-      : xMode === "products" && xProductCount > 0
+    xMode === "products" && xProductCount > 0
       ? `${xProductCount} producto${xProductCount !== 1 ? "s" : ""}`
       : xMode === "collections"
       ? "colecciones"
@@ -550,8 +554,6 @@ function BxgyPreview({
   const yDesc =
     yMode === "same-as-x"
       ? xDesc
-      : yMode === "all"
-      ? "toda la tienda"
       : yMode === "products" && yProductCount > 0
       ? `${yProductCount} producto${yProductCount !== 1 ? "s" : ""}`
       : yMode === "collections"
@@ -563,7 +565,7 @@ function BxgyPreview({
     { label: es.nuevaBxgy.resumenTipo, value: es.nuevaBxgy.resumenTipoBxgy },
     {
       label: es.nuevaBxgy.resumenCompra,
-      value: xProductCount > 0 || xMode === "all" ? `${xMinQuantity} × ${xDesc}` : es.nuevaBxgy.sinDefinir,
+      value: xDesc !== "—" ? `${xMinQuantity} × ${xDesc}` : es.nuevaBxgy.sinDefinir,
     },
     {
       label: es.nuevaBxgy.resumenRecibe,
