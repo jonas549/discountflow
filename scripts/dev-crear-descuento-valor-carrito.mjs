@@ -47,8 +47,29 @@ async function gql(shop, token, query, variables) {
     body: JSON.stringify({ query, variables }),
   });
   const json = await res.json();
-  if (json.errors?.length)
-    throw new Error("GraphQL: " + json.errors.map((e) => e.message).join(", "));
+
+  // 🔴 `errors` NO SIEMPRE ES UN ARRAY.
+  //
+  // Con un token vencido Shopify devuelve `{"errors": "[API] Invalid API key
+  // or access token"}` — una cadena. El `.map` de antes reventaba con
+  // "json.errors.map is not a function" y el error de verdad quedaba tapado
+  // detras del fallo del manejador de errores. Pasó el 2026-09-05 y costó una
+  // ronda entera.
+  if (json.errors) {
+    const detalle = Array.isArray(json.errors)
+      ? json.errors.map((e) => e.message).join(", ")
+      : String(json.errors);
+    if (res.status === 401)
+      throw new Error(
+        "El token de la tienda de dev esta vencido (HTTP 401). " +
+          "   Corre `shopify app dev` y abri la app una vez para renovarlo."
+      );
+    throw new Error(`GraphQL (HTTP ${res.status}): ${detalle}`);
+  }
+  if (!json.data)
+    throw new Error(
+      `Respuesta sin datos (HTTP ${res.status}): ${JSON.stringify(json).slice(0, 300)}`
+    );
   return json.data;
 }
 
@@ -63,9 +84,23 @@ async function main() {
     process.exit(1);
   }
 
-  const sesion = await prisma.session.findFirst();
-  if (!sesion) throw new Error("No hay sesión: instalá la app en la dev store.");
-  const { shop, accessToken } = sesion;
+  // 🔴 La sesión MAS NUEVA, no una cualquiera.
+  //
+  // `findFirst()` sin orden devuelve la fila que quiera Postgres, y en la base
+  // de dev conviven sesiones de instalaciones anteriores con tokens muertos.
+  // El token bueno es el que renueva `shopify app dev`, que es el de mayor
+  // `expires`.
+  const tienda = await prisma.shop.findFirst({
+    select: { domain: true, accessToken: true },
+  });
+  const sesion = await prisma.session.findFirst({
+    where: { shop: tienda.domain },
+    orderBy: { expires: "desc" },
+  });
+  const shop = tienda.domain;
+  const accessToken = sesion?.accessToken || tienda.accessToken;
+  if (!accessToken)
+    throw new Error("No hay sesión: instalá la app en la dev store.");
   console.log("Tienda:", shop);
 
   // ── Localizar la Function ──

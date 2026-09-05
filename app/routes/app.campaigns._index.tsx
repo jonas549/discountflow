@@ -813,6 +813,91 @@ function MockupPack() {
   );
 }
 
+/**
+ * Mockup del descuento por monto de compra.
+ *
+ * 🔴 Tiene que leerse distinto del de packs y del de escalonados, porque el tipo
+ * ES distinto: acá el descuento no depende de CUÁNTOS productos lleve el
+ * comprador sino de CUÁNTO DINERO hay en el carrito. Por eso la fila no muestra
+ * cuadritos de producto sino un importe y una barra que se llena: el eje es el
+ * monto. Mismo lenguaje visual que las otras cinco (fondo #f8fafb, píldora
+ * verde), distinta lectura de un vistazo.
+ */
+function MockupValorCarrito() {
+  const niveles = [
+    { monto: "$50", llenado: 40, pct: "5%" },
+    { monto: "$100", llenado: 70, pct: "10%" },
+    { monto: "$200", llenado: 100, pct: "15%" },
+  ];
+  return (
+    <div
+      style={{
+        background: "#f8fafb",
+        border: "1px solid #e1e3e5",
+        borderRadius: "8px",
+        padding: "12px 14px",
+        marginBottom: "16px",
+      }}
+    >
+      {niveles.map((n, i) => (
+        <div
+          key={n.monto}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            padding: "3px 0",
+            borderBottom: i < niveles.length - 1 ? "1px solid #edeef0" : "none",
+          }}
+        >
+          <span
+            style={{
+              fontSize: "10px",
+              fontWeight: 700,
+              color: "#6d7175",
+              width: "30px",
+              flex: "0 0 auto",
+            }}
+          >
+            {n.monto}
+          </span>
+          <div
+            style={{
+              flex: 1,
+              height: "8px",
+              borderRadius: "4px",
+              background: "#e1e3e5",
+              overflow: "hidden",
+            }}
+          >
+            <div
+              style={{
+                width: `${n.llenado}%`,
+                height: "8px",
+                borderRadius: "4px",
+                background: "#2e7d32",
+              }}
+            />
+          </div>
+          <span
+            style={{
+              background: "#e8f5e9",
+              color: "#2e7d32",
+              fontSize: "9px",
+              fontWeight: "700",
+              padding: "1px 6px",
+              borderRadius: "8px",
+              flex: "0 0 auto",
+            }}
+          >
+            {n.pct}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─── Campaign type card ───────────────────────────────────────────────────────
 
 type CampaignCardProps = {
@@ -1232,7 +1317,7 @@ export default function Campaigns() {
             href="/app/campaigns/new/pack"
           />
           <CampaignCard
-            mockup={<MockupPack />}
+            mockup={<MockupValorCarrito />}
             title={es.campanas.valorCarrito.titulo}
             description={es.campanas.valorCarrito.descripcion}
             ejemplo={es.campanas.valorCarrito.ejemplo}

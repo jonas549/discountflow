@@ -12,6 +12,7 @@ import {
   type CartValueCampaignConfig,
   CART_VALUE_DEFAULT_MESSAGE,
 } from "./cart-value-client.ts";
+import { es } from "../../i18n.ts";
 
 export type ParsedCartValueForm = ReturnType<typeof parseCartValueForm>;
 
@@ -48,13 +49,13 @@ export function parseCartValueForm(fd: FormData) {
 
 export function validateCartValueForm(f: ParsedCartValueForm): CartValueFormErrors {
   const errors: CartValueFormErrors = {};
-  if (!f.name) errors.name = "Poné un nombre para identificar la campaña.";
+  if (!f.name) errors.name = es.nuevoValorCarrito.errNombre;
 
   const v = validateCartValue(f.valueType, f.tiers);
   if (v.errors.length > 0) errors.tiers = v.errors.join(" ");
 
   if (f.startsAt && f.endsAt && new Date(f.endsAt) <= new Date(f.startsAt))
-    errors.dates = "La fecha de fin tiene que ser posterior a la de inicio.";
+    errors.dates = es.nuevoValorCarrito.errFechas;
 
   return errors;
 }

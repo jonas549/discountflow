@@ -23,6 +23,7 @@ import {
   validateCartValueForm,
   buildCartValueConfig,
 } from "../lib/discounts/cart-value-form";
+import { es } from "../i18n";
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
@@ -147,13 +148,13 @@ export default function EditCartValueCampaign() {
   const navigation = useNavigation();
 
   return (
-    <s-page heading="Editar campaña por monto de compra">
+    <s-page heading={es.nuevoValorCarrito.tituloEditar}>
       <div style={{ marginBottom: "4px" }}>
         <Link
           to="/app/campaigns"
           style={{ fontSize: "13px", color: "#006fbb", textDecoration: "none" }}
         >
-          ← Volver a campañas
+          {es.nuevoValorCarrito.volver}
         </Link>
       </div>
 
@@ -172,7 +173,11 @@ export default function EditCartValueCampaign() {
         limitExceeded={actionData?.limitExceeded}
         isSubmitting={navigation.state === "submitting"}
         showDraftButton={campaign.status === "DRAFT"}
-        primaryLabel={campaign.status === "DRAFT" ? "Activar campaña" : "Guardar cambios"}
+        primaryLabel={
+          campaign.status === "DRAFT"
+            ? es.nuevoValorCarrito.btnActivar
+            : es.nuevoValorCarrito.btnGuardar
+        }
       />
     </s-page>
   );

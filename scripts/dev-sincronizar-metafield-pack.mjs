@@ -45,13 +45,10 @@ async function gql(shop, token, query, variables) {
       : JSON.stringify(json.errors);
     if (res.status === 401)
       throw new Error(
-        "El token de la tienda de dev esta vencido (HTTP 401).
-" +
-          "   Corre `shopify app dev`, abri la app una vez, y volve a lanzar este script.
-" +
-          "   Alternativa sin script: guardar la campana de pack desde el admin de la
-" +
-          "   app escribe el metafield por el mismo camino."
+        "El token de la tienda de dev esta vencido (HTTP 401). " +
+          "Corre `shopify app dev`, abri la app una vez, y volve a lanzar este " +
+          "script. Alternativa sin script: guardar la campana de pack desde el " +
+          "admin de la app escribe el metafield por el mismo camino."
       );
     throw new Error(`GraphQL (HTTP ${res.status}): ${detalle}`);
   }
@@ -210,9 +207,17 @@ async function main() {
   console.log(`✓ leído de vuelta · ${mf.type} · ${mf.value.length} bytes`);
   console.log(igual ? "✓ el contenido coincide" : "🔴 el contenido NO coincide");
 
+  // 🔴 El build se LEE del bloque, no se escribe a mano acá: un número copiado
+  // se queda viejo al primer cambio y manda a buscar algo que ya no existe.
+  const bloque = fs.readFileSync(
+    join(raiz, "extensions/pack-widget/blocks/pack-builder.liquid"),
+    "utf8"
+  );
+  const build = (bloque.match(/data-df-build="(\d+)"/) || [])[1] ?? "?";
+
   console.log(
     "\nAhora, en la tienda de dev, Ctrl+U sobre la página del pack y buscá\n" +
-      "«DiscountFlow». Tiene que decir BUILD 11 y metafield = app.metafields\n" +
+      `«DiscountFlow». Tiene que decir BUILD ${build} y metafield = app.metafields\n` +
       "(o shop.metafields). Si dice «ninguna», Liquid no lo está viendo.\n"
   );
 }

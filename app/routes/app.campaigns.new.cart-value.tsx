@@ -131,13 +131,13 @@ export default function NewCartValueCampaign() {
   const navigation = useNavigation();
 
   return (
-    <s-page heading="Nueva campaña por monto de compra">
+    <s-page heading={es.nuevoValorCarrito.titulo}>
       <div style={{ marginBottom: "4px" }}>
         <Link
           to="/app/campaigns"
           style={{ fontSize: "13px", color: "#006fbb", textDecoration: "none" }}
         >
-          ← Volver a campañas
+          {es.nuevoValorCarrito.volver}
         </Link>
       </div>
 
@@ -156,7 +156,7 @@ export default function NewCartValueCampaign() {
         limitExceeded={actionData?.limitExceeded}
         isSubmitting={navigation.state === "submitting"}
         showDraftButton
-        primaryLabel="Activar campaña"
+        primaryLabel={es.nuevoValorCarrito.btnActivar}
       />
     </s-page>
   );

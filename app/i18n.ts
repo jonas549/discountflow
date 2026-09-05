@@ -509,6 +509,94 @@ export const es = {
     errFechas: "La fecha de fin debe ser posterior a la de inicio.",
   },
 
+  nuevoValorCarrito: {
+    titulo: "Nueva campaña por monto de compra",
+    tituloEditar: "Editar descuento por monto",
+    volver: "← Volver a campañas",
+
+    secInfoGeneral: "Información general",
+    nombreLabel: "Nombre de la campaña",
+    nombreHelper: "Solo lo ves tú, para identificarla en tu lista.",
+    nombrePlaceholder: "Ej. Ahorro por monto de compra",
+    mensajeLabel: "Texto que ve el comprador",
+    mensajeHelper: "Aparece junto al descuento en el carrito y el checkout.",
+
+    secModo: "¿En qué se descuenta?",
+    modoPorcentaje: "Porcentaje",
+    modoMonto: "Monto fijo",
+    modoPorcentajeDesc: "Un % del subtotal del carrito.",
+    modoMontoDesc: "Una cantidad de dinero, sea cual sea el carrito.",
+
+    secNiveles: "Niveles por monto de carrito",
+    nivelesHelper:
+      "Definí desde qué monto de carrito aplica cada descuento. Por encima del último nivel el descuento se mantiene.",
+    // 🔴 Decisión de producto del 2026-09-05 (opción B). Se dice acá, junto al
+    // campo donde el merchant escribe el número, porque es donde la diferencia
+    // le cambia la cuenta.
+    nivelesUmbral:
+      "El monto se mide sobre el subtotal DESPUÉS de otros descuentos de producto.",
+    nivelDesde: "Desde",
+    nivelDescontar: "descontar",
+    btnAgregarNivel: "+ Agregar nivel",
+    btnQuitarNivel: "Quitar",
+
+    secExclusiones: "Cuándo NO aplicar este descuento",
+    exclusionesHelper:
+      "Si el comprador tiene en el carrito un pack de los que marques, este descuento no se aplica. Los que dejes sin marcar se suman al descuento del pack.",
+    exclusionNoAplicar: "No aplicar si está aplicando",
+    exclusionesSoloPacks:
+      "Solo aparecen packs: son las únicas campañas que dejan una marca en las líneas del carrito, y sin esa marca no hay forma de saber desde el checkout si están aplicando.",
+    avisoBloqueantes: (campanas: string) =>
+      `Estas campañas anulan este descuento y no se puede evitar desde acá: ${campanas}. Si alguna está aplicando en el carrito, el descuento por monto no se suma.`,
+
+    secProgramacion: "Programar campaña",
+    fechaInicioLabel: "Fecha de inicio",
+    fechaInicioHelper: "Vacío = empieza de inmediato.",
+    fechaFinLabel: "Fecha de fin",
+    fechaFinHelper: "Vacío = sin fecha de fin.",
+
+    previewTitulo: "Vista previa",
+    previewHelper: "Qué pasa en un carrito de cada monto.",
+    previewSinNiveles: "Agregá un nivel para ver la vista previa.",
+    previewCarrito: "Carrito",
+    previewSubtotal: "Subtotal",
+    previewAhorro: "Ahorro",
+    previewTotal: "Total",
+    previewEjemplo: (monto: string) => `Ejemplo con un carrito de ${monto}`,
+
+    resumenTitulo: "Resumen",
+    resumenNombre: "Nombre",
+    resumenTipo: "Tipo",
+    resumenTipoValorCarrito: "Monto de compra",
+    resumenModo: "Modo",
+    resumenNiveles: "Niveles",
+    resumenDesde: "Aplica desde",
+    resumenMaximo: "Descuento máximo",
+    resumenExcluye: "Excluye",
+    resumenSinExclusiones: "Ninguna",
+    resumenExcluyePacks: (n: number) =>
+      n === 1 ? "1 pack" : `${n} packs`,
+    resumenInicio: "Inicio",
+    resumenFin: "Fin",
+    resumenInmediato: "Inmediato",
+    resumenSinFin: "Sin fecha de fin",
+    sinDefinir: "Sin definir",
+
+    avisoCarrito:
+      "El descuento se calcula en el carrito y el checkout. Los precios de las páginas de producto no cambian.",
+    avisoSinBloque:
+      "No hace falta tocar el tema: este tipo de campaña no usa ningún bloque en la tienda.",
+
+    btnCancelar: "Cancelar",
+    btnBorrador: "Guardar borrador",
+    btnActivar: "Activar campaña",
+    btnGuardar: "Guardar cambios",
+    btnCargando: "Guardando…",
+
+    errNombre: "Ponle un nombre a la campaña.",
+    errFechas: "La fecha de fin debe ser posterior a la de inicio.",
+  },
+
   nuevoPack: {
     titulo: "Nueva campaña de pack",
     tituloEditar: "Editar pack",
