@@ -697,6 +697,21 @@ export function estadoLabel(status: string): string {
   return map[status] ?? status;
 }
 
+/**
+ * El nombre que el merchant lee para cada tipo de campaña.
+ *
+ * 🔴 UN TIPO NUEVO SE AGREGA ACÁ, Y NO ES OPCIONAL.
+ *
+ * Ha fallado dos veces igual: PACK primero y CART_VALUE después salieron al
+ * listado, al panel y a analítica escritos EN CRUDO —«CART_VALUE»— porque el
+ * `?? type` del final devuelve la constante del enum sin quejarse. Es un
+ * fallback silencioso, del mismo tipo que este repo ya arregló cuatro veces en
+ * otros sitios: nunca rompe, solo queda feo delante del merchant.
+ *
+ * `i18n.test.ts` recorre el enum `CampaignType` de Prisma y exige que TODOS los
+ * valores estén acá. El `?? type` se conserva solo por si llega un tipo de una
+ * versión más nueva de la base: mejor un texto feo que una pantalla en blanco.
+ */
 export function tipoLabel(type: string): string {
   const map: Record<string, string> = {
     PERCENTAGE: "Porcentaje",
@@ -704,6 +719,7 @@ export function tipoLabel(type: string): string {
     BXGY: "Compra X, obtén Y",
     TIERED: "Escalonado",
     PACK: "Pack armable",
+    CART_VALUE: "Monto de compra",
   };
   return map[type] ?? type;
 }

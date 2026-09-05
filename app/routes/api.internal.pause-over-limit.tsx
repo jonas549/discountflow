@@ -26,6 +26,7 @@ import { unauthenticated } from "../shopify.server";
 import { PLAN_LIMITS, type Plan } from "../lib/billing/plan-limits";
 import { revertPercentageDiscount } from "../lib/discounts/percentage";
 import { revertRangeDiscount } from "../lib/discounts/range";
+import { tipoLabel } from "../i18n";
 
 type CampaignPlan = {
   campaignId: string;
@@ -338,7 +339,7 @@ export default function PauseOverLimitPanel() {
                 {shop.toPause.map((c) => (
                   <tr key={c.campaignId} style={{ borderTop: "1px solid #f1f2f3" }}>
                     <td style={{ padding: "10px 8px 10px 0", fontWeight: 600 }}>{c.name}</td>
-                    <td style={{ padding: "10px 8px", color: "#6d7175" }}>{c.type}</td>
+                    <td style={{ padding: "10px 8px", color: "#6d7175" }}>{tipoLabel(c.type)}</td>
                     <td style={{ padding: "10px 8px" }}>{c.variants.toLocaleString("en-US")}</td>
                     <td style={{ padding: "10px 8px", color: "#6d7175" }}>{c.products}</td>
                     <td style={{ padding: "10px 0 10px 8px", textAlign: "right" }}>
