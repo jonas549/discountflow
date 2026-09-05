@@ -1,0 +1,91 @@
+{
+  "payload": {
+    "export": "cart-lines-discounts-generate-run",
+    "target": "cart.lines.discounts.generate.run",
+    "input": {
+      "cart": {
+        "lines": [
+          {
+            "id": "gid://shopify/CartLine/0",
+            "quantity": 1,
+            "cost": {
+              "amountPerQuantity": {
+                "amount": "85.00"
+              },
+              "compareAtAmountPerQuantity": {
+                "amount": "100.00"
+              }
+            },
+            "packId": null
+          },
+          {
+            "id": "gid://shopify/CartLine/1",
+            "quantity": 2,
+            "cost": {
+              "amountPerQuantity": {
+                "amount": "40.00"
+              },
+              "compareAtAmountPerQuantity": null
+            },
+            "packId": null
+          }
+        ]
+      },
+      "discount": {
+        "discountClasses": [
+          "PRODUCT"
+        ],
+        "configFallback": null,
+        "config": {
+          "jsonValue": {
+            "percent": 10,
+            "message": "Descuento sobre el precio original"
+          }
+        }
+      }
+    },
+    "output": {
+      "operations": [
+        {
+          "productDiscountsAdd": {
+            "candidates": [
+              {
+                "message": "Descuento sobre el precio original",
+                "targets": [
+                  {
+                    "cartLine": {
+                      "id": "gid://shopify/CartLine/0"
+                    }
+                  }
+                ],
+                "value": {
+                  "fixedAmount": {
+                    "amount": 10,
+                    "appliesToEachItem": true
+                  }
+                }
+              },
+              {
+                "message": "Descuento sobre el precio original",
+                "targets": [
+                  {
+                    "cartLine": {
+                      "id": "gid://shopify/CartLine/1"
+                    }
+                  }
+                ],
+                "value": {
+                  "fixedAmount": {
+                    "amount": 4,
+                    "appliesToEachItem": true
+                  }
+                }
+              }
+            ],
+            "selectionStrategy": "ALL"
+          }
+        }
+      ]
+    }
+  }
+}

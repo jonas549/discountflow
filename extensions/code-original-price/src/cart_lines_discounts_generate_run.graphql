@@ -1,0 +1,54 @@
+query CartInput {
+  cart {
+    lines {
+      id
+      quantity
+
+      cost {
+        # El precio que paga hoy el comprador.
+        amountPerQuantity {
+          amount
+        }
+
+        # 🔴 EL PRECIO ORIGINAL. ES TODO EL TIPO DE CAMPAÑA.
+        #
+        # El schema lo documenta como "el precio compareAt de una unidad ANTES
+        # de cualquier descuento". Cubre los dos casos que importan, y por el
+        # mismo campo:
+        #
+        #   · Rebaja de una campaña NUESTRA: `percentage.ts` y `range.ts`
+        #     escriben `compareAtPrice = precio original` al aplicar. Ya lo
+        #     estábamos guardando donde la Function puede leerlo, así que no
+        #     hace falta ningún metafield.
+        #   · Rebaja MANUAL con precio comparativo: lo escribió el merchant.
+        #
+        # Puede venir NULO, y es legítimo: producto sin rebaja, merchant que no
+        # usa el campo, o valor oculto al comprador (mercados, B2B). Ahí el
+        # precio actual ES el precio y el cupón se calcula sobre él.
+        compareAtAmountPerQuantity {
+          amount
+        }
+      }
+
+      # La marca del widget de packs, para la exclusión entre campañas. Mismo
+      # mecanismo que en `order-discount`: si el merchant dijo "cuando este pack
+      # aplique, el cupón no", esto es lo que permite saberlo sin adivinar.
+      packId: attribute(key: "_df_pack") {
+        value
+      }
+    }
+  }
+
+  discount {
+    discountClasses
+    # Los dos namespaces, igual que las otras tres Functions: el reservado de la
+    # app ($app:...) y uno plano. La app escribe en el plano porque
+    # MetafieldInput solo admite alfanuméricos, guiones y guiones bajos.
+    config: metafield(namespace: "$app:discountflow", key: "original-price-config") {
+      jsonValue
+    }
+    configFallback: metafield(namespace: "discountflow", key: "original-price-config") {
+      jsonValue
+    }
+  }
+}

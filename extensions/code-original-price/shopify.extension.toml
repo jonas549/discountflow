@@ -1,0 +1,36 @@
+api_version = "2026-04"
+
+[[extensions]]
+name = "t:name"
+handle = "code-original-price"
+type = "function"
+uid = "fdfa42fe-3d28-75bb-e1bc-bd6484ba7f4d0b1c1c9e"
+description = "t:description"
+
+  # Cupón que descuenta sobre el PRECIO ORIGINAL, no sobre el rebajado.
+  #
+  # Caso real: el merchant le da un cupón a un influencer. Si el producto ya
+  # está rebajado, Shopify calcula el cupón sobre el precio rebajado y el
+  # merchant regala dos veces. Producto de $100 a $50 con un cupón del 10%:
+  # Shopify da $5, el merchant quiere dar $10.
+  #
+  # 🔴 POR QUÉ UNA CUARTA EXTENSIÓN Y NO DENTRO DE `order-discount`
+  #
+  # Las dos usan el mismo target, `cart.lines.discounts.generate.run`, y una
+  # extensión exporta UN handler por target. Meterlas juntas obligaría a un
+  # único handler que ramifica por el metafield — y entonces un fallo del cupón
+  # podría romper los descuentos por monto de compra de una tienda viva. Es la
+  # misma regla que separó `order-discount` de `tiered-discount` y
+  # `pack-discount`: no mezclar superficies de fallo.
+  #
+  # ⚠️ Al ser una extensión NUEVA, `shopify app dev` tiene que reiniciarse una
+  # vez para registrarla en la tienda. No es un paso que se pueda automatizar
+  # desde fuera del proceso del CLI.
+  [[extensions.targeting]]
+  target = "cart.lines.discounts.generate.run"
+  input_query = "src/cart_lines_discounts_generate_run.graphql"
+  export = "cart-lines-discounts-generate-run"
+
+  [extensions.build]
+  command = ""
+  path = "dist/function.wasm"
