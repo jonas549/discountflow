@@ -193,6 +193,16 @@
       run();
       setTimeout(run, 350);
       setTimeout(run, 1200);
+      // El armador también quiere enterarse: si el comprador quita una línea
+      // desde el cajón del carrito, su selección tiene que reflejarlo sin
+      // recargar. Se avisa con un evento en vez de que el widget instale su
+      // propio interceptor: un solo parcheo en la página, y solo cuando hay un
+      // bloque de aviso que lo justifique.
+      try {
+        document.dispatchEvent(new CustomEvent("df:pack-cart-changed"));
+      } catch (e) {
+        /* navegador sin CustomEvent: el aviso sigue funcionando igual */
+      }
     }, 60);
   }
 

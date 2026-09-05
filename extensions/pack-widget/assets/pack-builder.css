@@ -18,9 +18,9 @@
  *     los inputs, que los navegadores estilan por su cuenta si no se les dice.
  *
  *  3. **`currentColor` para todo lo cromático.** Bordes y fondos suaves se
- *     derivan del color del texto del tema con `color-mix`, con un `rgba` de
- *     reserva delante para los navegadores que no lo soporten. Consecuencia
- *     buena y gratis: en un tema oscuro se adapta solo, sin media queries.
+ *     derivan del color del texto del tema con `color-mix`, dentro de un
+ *     `@supports` y con grises neutros como reserva. Consecuencia buena y
+ *     gratis: en un tema oscuro se adapta solo, sin media queries.
  *
  *  4. **Los botones llevan las clases del tema** (`button`/`btn` y sus
  *     variantes `--secondary`), aplicadas desde el JS. Dawn y los temas OS 2.0
@@ -35,15 +35,21 @@
  */
 
 .df-pack {
-  /* Superficies derivadas del color del texto del tema. Las dos declaraciones
-     son intencionales: la primera es la reserva, la segunda gana donde
-     `color-mix` está soportado. */
+  /* Superficies derivadas del color del texto del tema.
+   *
+   * 🔴 Acá había un bug. Estaban declaradas dos veces —`rgba` de reserva y
+   * `color-mix` encima— con la idea de que el navegador que no entienda
+   * `color-mix` descarte la segunda y use la primera. Eso funciona con
+   * propiedades NORMALES, pero NO con custom properties: su valor se guarda
+   * como texto sin validar, así que la segunda gana siempre; la validación
+   * ocurre al sustituir el `var()`, y si el resultado es inválido la propiedad
+   * NO cae a la declaración anterior, sino a su valor inicial. Traducción: en
+   * un navegador sin `color-mix`, bordes y fondos quedaban TRANSPARENTES.
+   *
+   * La forma correcta es `@supports`, más abajo. Acá solo los valores seguros. */
   --df-line: rgba(128, 128, 128, 0.32);
-  --df-line: color-mix(in srgb, currentColor 26%, transparent);
   --df-soft: rgba(128, 128, 128, 0.1);
-  --df-soft: color-mix(in srgb, currentColor 8%, transparent);
   --df-dim: rgba(128, 128, 128, 0.75);
-  --df-dim: color-mix(in srgb, currentColor 68%, transparent);
 
   font: inherit;
   color: inherit;
@@ -52,6 +58,17 @@
   gap: 1.75em;
   align-items: start;
   padding: 1.25em 0;
+}
+
+/* Donde `color-mix` existe, las superficies se derivan del color del TEMA en
+   vez de un gris fijo: se adapta a temas oscuros sin una sola media query. */
+@supports (color: color-mix(in srgb, currentColor 50%, transparent)) {
+  .df-pack,
+  .df-pack-notice {
+    --df-line: color-mix(in srgb, currentColor 26%, transparent);
+    --df-soft: color-mix(in srgb, currentColor 8%, transparent);
+    --df-dim: color-mix(in srgb, currentColor 68%, transparent);
+  }
 }
 
 .df-pack *,
@@ -115,41 +132,36 @@
   font-weight: 600;
 }
 
-/*
- * 🔴 La barra: alturas en píxeles EXPLÍCITAS y relleno por `transform`.
- *
- * La versión anterior daba al carril `height: 4px` y al relleno `height: 100%`
- * con un `width` en porcentaje. Se quedaba vacía en la tienda. Un porcentaje
- * de altura depende de que el padre tenga altura definida en el momento del
- * cálculo, y un reset del tema (o un `display` distinto del esperado) basta
- * para que resuelva a cero. Ahora:
- *
- *   · el carril y el relleno tienen su propia altura en px — nadie depende de nadie;
- *   · el relleno ocupa el 100% del ancho y se recorta con `scaleX()`, que no
- *     puede resolver a "auto";
- *   · el color es `currentColor`, así que no hay custom property que pueda
- *     quedar sin resolver.
- */
 .df-pack__bar {
-  position: relative;
-  height: 6px;
-  min-height: 6px;
   border-radius: 999px;
   background: var(--df-soft);
   overflow: hidden;
 }
 
+/*
+ * 🔴 LA GEOMETRÍA DE LA BARRA VIVE EN EL JS, COMO ESTILO EN LÍNEA.
+ *
+ * No es capricho: es la tercera versión. La primera usaba `width` en % con
+ * `height: 100%`; la segunda, `transform: scaleX()`. Las dos se veían VACÍAS en
+ * la tienda de dev, con los números correctos. Dos técnicas distintas fallando
+ * igual dejan de apuntar a la técnica y empiezan a apuntar al entorno: algo del
+ * tema —un reset, una regla de movimiento reducido, un `[class*=bar]`— la
+ * estaba anulando, y perseguirlo a ciegas es una partida que no se gana.
+ *
+ * Un estilo EN LÍNEA gana a cualquier hoja del tema sin necesidad de
+ * `!important`. Así que el alto, el ancho y el color del relleno los escribe el
+ * JS directamente en el elemento, y acá no queda ni una propiedad geométrica
+ * que un tema pueda pisar. La regla que sigue es solo la transición, que si el
+ * tema la anula no rompe nada: la barra salta en vez de deslizarse.
+ */
 .df-pack__bar-fill {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 6px;
-  border-radius: 999px;
-  background: currentColor;
-  transform-origin: left center;
-  transform: scaleX(0);
-  transition: transform 0.35s ease;
+  transition: width 0.35s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .df-pack__bar-fill {
+    transition: none;
+  }
 }
 
 /* ── Catálogo ── */
@@ -359,9 +371,6 @@
 @media (prefers-reduced-motion: reduce) {
   .df-pack__spinner {
     animation-duration: 2s;
-  }
-  .df-pack__bar-fill {
-    transition: none;
   }
 }
 

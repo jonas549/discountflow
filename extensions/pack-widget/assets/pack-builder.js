@@ -19,6 +19,12 @@
   /** Tope para que el spinner nunca sea eterno. Ver el vigilante en `load`. */
   var TIEMPO_MAXIMO_MS = 10000;
 
+  /** Alto de la barra de progreso, en píxeles. Se escribe EN LÍNEA. Ver abajo. */
+  var ALTO_BARRA = 6;
+
+  /** Los widgets vivos de la página, para poder resincronizarlos. */
+  var widgets = [];
+
   /**
    * Las clases con las que el TEMA pinta un botón.
    *
@@ -69,6 +75,14 @@
     this.headingOverride = root.dataset.heading || "";
     this.columns = parseInt(root.dataset.columns, 10) || 2;
     this.selected = [];
+    /**
+     * Los productos de este pack que YA están en el carrito.
+     *
+     * Se usa para dos cosas: precargar la selección al abrir la página, y
+     * cambiar el texto del botón — «agregar» y «actualizar» no son lo mismo
+     * para quien ya armó su pack.
+     */
+    this.enCarrito = [];
     this.pack = null;
     this.busy = false;
   }
@@ -116,8 +130,10 @@
           return;
         }
         self.pack = data.pack;
-        self.render();
-        self.refreshPrices();
+        return self.leerCarrito().then(function () {
+          self.render();
+          self.refreshPrices();
+        });
       })
       .catch(function (err) {
         listo();
@@ -126,6 +142,58 @@
             "correcta (Partner Dashboard → App setup → App proxy).",
           err
         );
+      });
+  };
+
+  /**
+   * Precarga la selección con el pack que el comprador YA tiene en el carrito.
+   *
+   * Sin esto, alguien que armó su pack, fue al carrito y volvió se encontraba el
+   * widget en cero —«0 productos», botón deshabilitado— mientras el carrito, en
+   * la misma pantalla, mostraba su pack con el descuento aplicado. Dos verdades
+   * distintas sobre lo mismo en la misma página.
+   *
+   * Se leen solo las líneas marcadas con ESTA campaña y cuyo producto siga en el
+   * catálogo curado: si el merchant sacó un producto del pack, no se precarga
+   * algo que ya no forma parte de él.
+   *
+   * ⚠️ En la Ajax Cart API `properties` es un OBJETO. En el payload REST del
+   * pedido (el webhook de atribución) es un ARRAY de {name, value}. Es el mismo
+   * dato con dos formas según por dónde se lea.
+   */
+  PackWidget.prototype.leerCarrito = function () {
+    var self = this;
+    return Promise.resolve()
+      .then(function () {
+        return fetch("/cart.js", { headers: { Accept: "application/json" } });
+      })
+      .then(function (r) {
+        return r.ok ? r.json() : null;
+      })
+      .then(function (cart) {
+        if (!cart || !cart.items || !cart.items.length) return;
+
+        var enCatalogo = {};
+        (self.pack.items || []).forEach(function (it) {
+          enCatalogo[it.productId] = true;
+        });
+
+        var attr = self.pack.attribute;
+        var yaEstan = [];
+        cart.items.forEach(function (l) {
+          if (!l.properties || l.properties[attr] !== self.pack.campaignId) return;
+          var gid = "gid://shopify/Product/" + l.product_id;
+          if (!enCatalogo[gid]) return;
+          if (yaEstan.indexOf(gid) === -1) yaEstan.push(gid);
+        });
+
+        if (!yaEstan.length) return;
+        self.enCarrito = yaEstan;
+        self.selected = yaEstan.slice();
+      })
+      .catch(function () {
+        // Si el carrito no se puede leer, se empieza vacío. Es peor experiencia,
+        // no un error: el comprador puede armar su pack igual.
       });
   };
 
@@ -268,15 +336,38 @@
       }, 1);
       var fraccion = Math.max(0, Math.min(1, p.distinctProducts / tope));
 
+      var porcentaje = Math.round(fraccion * 100);
+
+      // 🔴 TODA la geometría va EN LÍNEA, no en la hoja de estilos.
+      //
+      // Es la tercera versión de esta barra. La primera usaba `width` en % con
+      // `height: 100%`; la segunda, `transform: scaleX()`. Las dos se veían
+      // vacías en la tienda, con los números correctos. Cuando dos técnicas
+      // distintas fallan igual, el problema deja de ser la técnica: algo del
+      // tema las estaba anulando. Un estilo en línea gana a cualquier hoja del
+      // tema sin `!important`, así que esto ya no depende de qué CSS tenga el
+      // merchant.
       var pista = el("div", "df-pack__bar");
+      pista.style.position = "relative";
+      pista.style.display = "block";
+      pista.style.width = "100%";
+      pista.style.height = ALTO_BARRA + "px";
+      pista.style.minHeight = ALTO_BARRA + "px";
+      pista.style.overflow = "hidden";
+      pista.style.borderRadius = "999px";
+
       var relleno = el("div", "df-pack__bar-fill");
-      // `scaleX` y no `width`: un porcentaje de ancho combinado con una altura
-      // porcentual puede resolver a cero según el reset del tema, que es
-      // justamente por lo que la barra se quedaba vacía. Un transform no
-      // depende del layout del padre.
-      relleno.style.transform = "scaleX(" + fraccion + ")";
+      relleno.style.display = "block";
+      relleno.style.height = ALTO_BARRA + "px";
+      relleno.style.minHeight = ALTO_BARRA + "px";
+      relleno.style.width = porcentaje + "%";
+      relleno.style.background = "currentColor";
+      relleno.style.borderRadius = "999px";
+      // Sin `position: absolute`: así no depende de que el carril sea un bloque
+      // contenedor, que es una condición más que un tema puede alterar.
+
       // Expuesto en el DOM para poder depurarlo sin reproducir el estado.
-      pista.setAttribute("data-df-progress", String(Math.round(fraccion * 100)));
+      pista.setAttribute("data-df-progress", String(porcentaje));
       pista.setAttribute("role", "progressbar");
       pista.setAttribute("aria-valuemin", "0");
       pista.setAttribute("aria-valuemax", String(tope));
@@ -400,9 +491,27 @@
       panel.appendChild(t);
     }
 
+    var yaHayPack = this.enCarrito.length > 0;
+    if (yaHayPack) {
+      panel.appendChild(
+        el(
+          "p",
+          "df-pack__hint",
+          "Ya tenés " +
+            this.enCarrito.length +
+            (this.enCarrito.length === 1 ? " producto" : " productos") +
+            " de este pack en el carrito."
+        )
+      );
+    }
+
     var cta = el("button", "df-pack__cta " + themeBtn(true));
     cta.type = "button";
-    cta.textContent = this.busy ? "Agregando…" : this.ctaLabel;
+    cta.textContent = this.busy
+      ? "Agregando…"
+      : yaHayPack
+      ? "Actualizar mi pack"
+      : this.ctaLabel;
     cta.disabled = !p.applies || this.busy;
     cta.addEventListener("click", function () {
       self.addToCart();
@@ -521,7 +630,23 @@
     for (var i = 0; i < roots.length; i++) {
       if (roots[i].dataset.dfPackReady) continue;
       roots[i].dataset.dfPackReady = "1";
-      new PackWidget(roots[i]).load();
+      var w = new PackWidget(roots[i]);
+      widgets.push(w);
+      w.load();
+    }
+  }
+
+  /** Vuelve a leer el carrito y repinta, sin rehacer la carga entera. */
+  function resincronizar() {
+    for (var i = 0; i < widgets.length; i++) {
+      (function (w) {
+        if (!w.pack) return;
+        w.enCarrito = [];
+        w.selected = [];
+        w.leerCarrito().then(function () {
+          w.render();
+        });
+      })(widgets[i]);
     }
   }
 
@@ -531,4 +656,15 @@
 
   // El editor de temas re-renderiza las secciones sin recargar la página.
   document.addEventListener("shopify:section:load", init);
+
+  // Lo emite el bloque de aviso cuando detecta una mutación del carrito. Cubre
+  // el caso de quitar una línea desde el cajón del carrito, en la misma página.
+  document.addEventListener("df:pack-cart-changed", resincronizar);
+
+  // Volver con el botón atrás desde /cart restaura la página desde la caché sin
+  // ejecutar nada: sin esto, el widget mostraría la selección de antes de que el
+  // comprador editara su carrito.
+  window.addEventListener("pageshow", function (e) {
+    if (e && e.persisted) resincronizar();
+  });
 })();
