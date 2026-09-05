@@ -225,22 +225,42 @@ test("🔴 el widget no usa `position: fixed` en ningún sitio", () => {
   );
 });
 
-test("🔴 en móvil el botón de comprar existe y está en el flujo", () => {
+test("🔴 en móvil la barra del pie es sticky y cuelga del widget entero", () => {
   // El fallo que lo motivó: en el móvil de la tienda no aparecía NINGÚN botón
-  // de agregar al carrito. Había que scrollear entre las tarjetas y no había
-  // forma de completar la compra. El botón estaba en el DOM; lo que fallaba era
-  // el `position: fixed` de su envoltorio.
+  // de agregar al carrito. El botón estaba en el DOM; lo que fallaba era el
+  // `position: fixed` de su envoltorio.
+  //
+  // Sticky solo se desplaza dentro de su bloque contenedor. Si la barra colgara
+  // del panel —que en móvil está arriba— se despegaría a los dos dedos de
+  // scroll. Por eso el `aside` se anula con `display: contents`: así el bloque
+  // contenedor de la barra pasa a ser el widget entero.
   const css = fs.readFileSync(path.join(SRC, "pack-styles.css"), "utf8");
   const movil = css.slice(css.indexOf("@media (max-width: 749px)"));
-  assert.doesNotMatch(
+
+  assert.match(
     movil,
-    /\.df-pack__cta-wrap\s*\{[^}]*position:/,
-    "el envoltorio del botón no puede sacarse del flujo en móvil"
+    /\.df-pack__aside\s*\{[^}]*display:\s*contents/,
+    "sin `display: contents` la barra cuelga del panel y no tiene recorrido"
   );
-  // Y el panel que lo contiene va ARRIBA, así que se ve sin scrollear.
-  const oPanel = movil.match(/\.df-pack__summary\s*\{\s*order:\s*(\d+)/);
-  const oGrid = movil.match(/\.df-pack__grid\s*\{\s*order:\s*(\d+)/);
-  assert.ok(oPanel && oGrid && Number(oPanel[1]) < Number(oGrid[1]));
+  const barra = movil.match(/\.df-pack__cta-wrap\s*\{([^}]*)\}/);
+  assert.ok(barra, "falta la regla móvil de la barra");
+  assert.match(barra![1], /position:\s*sticky/);
+  assert.match(barra![1], /bottom:\s*0/);
+
+  // z-index bajo a propósito: si el tema tiene su propia barra al pie, gana la
+  // del tema. Un 9999 nuestro taparía el carrito pegajoso del merchant.
+  const z = barra![1].match(/z-index:\s*(\d+)/);
+  assert.ok(z, "la barra tiene que declarar z-index");
+  assert.ok(
+    Number(z![1]) <= 10,
+    `z-index ${z![1]}: tiene que ser bajo para que gane la interfaz del tema`
+  );
+
+  // El orden: panel arriba, productos, barra al final.
+  const orden = (sel: string) =>
+    Number(movil.match(new RegExp(`\\.${sel}\\s*\\{[^}]*order:\\s*(\\d+)`))![1]);
+  assert.ok(orden("df-pack__summary") < orden("df-pack__grid"));
+  assert.ok(orden("df-pack__grid") < orden("df-pack__cta-wrap"));
 });
 
 test("🔴 en móvil la tarjeta es una FILA de tres columnas", () => {
@@ -263,15 +283,24 @@ test("🔴 en móvil la tarjeta es una FILA de tres columnas", () => {
   );
 });
 
-test("el panel del resumen vuelve al flujo en móvil, encima de los productos", () => {
+test("el `top` del escritorio no se cuela en móvil", () => {
+  // El primer bug de esta pantalla: la regla de escritorio dejaba `top: 1em` y
+  // la móvil ponía `bottom: 0` sin anularlo. Un elemento posicionado con `top` Y
+  // `bottom` a la vez no se coloca: se ESTIRA. Hoy el `top` vive en `.df-pack__aside`
+  // y en móvil ese elemento deja de generar caja, así que no puede alcanzar a
+  // nadie — pero si alguien devolviera el `top` al panel o a la barra, esto lo
+  // caza.
   const css = fs.readFileSync(path.join(SRC, "pack-styles.css"), "utf8");
   const movil = css.slice(css.indexOf("@media (max-width: 749px)"));
-  assert.match(movil, /\.df-pack__summary\s*\{[^}]*position:\s*static/);
-  assert.match(movil, /\.df-pack__summary\s*\{[^}]*top:\s*auto/);
-  const oPanel = movil.match(/\.df-pack__summary\s*\{\s*order:\s*(\d+)/);
-  const oGrid = movil.match(/\.df-pack__grid\s*\{\s*order:\s*(\d+)/);
-  assert.ok(oPanel && oGrid, "los dos tienen que declarar `order` en móvil");
-  assert.ok(Number(oPanel![1]) < Number(oGrid![1]), "el panel va encima");
+  for (const sel of ["df-pack__summary", "df-pack__cta-wrap"]) {
+    const regla = movil.match(new RegExp(`\\.${sel}\\s*\\{([^}]*)\\}`));
+    if (regla) assert.doesNotMatch(regla[1], /(^|[;{\s])top\s*:/, `${sel} declara top en móvil`);
+  }
+  assert.match(
+    css.slice(0, css.indexOf("@media (max-width: 749px)")),
+    /\.df-pack__aside\s*\{[^}]*position:\s*sticky[^}]*top:\s*1em/,
+    "el `top` del escritorio vive en el aside"
+  );
 });
 
 test("el botón del pack es UNO solo, dentro de su envoltorio", () => {

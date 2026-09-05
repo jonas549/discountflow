@@ -26,6 +26,8 @@ export type AdminClient = {
 
 export type OpCampaign = {
   id: string;
+  /** La tienda dueña. La necesita la sincronización del metafield del widget. */
+  shopId: string;
   name: string;
   type: string;
   status: string;

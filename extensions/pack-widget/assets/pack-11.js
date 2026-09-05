@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════════════
- * DiscountFlow · widget de packs · BUILD 10
+ * DiscountFlow · widget de packs · BUILD 11
  *
  * GENERADO — NO EDITAR A MANO.
  * Fuentes: app/lib/discounts/pack-calc.ts + scripts/pack-widget-src/*.js
@@ -33,7 +33,6 @@ var DiscountFlowPackCalc = (() => {
   // app/lib/discounts/pack-calc.ts
   var pack_calc_exports = {};
   __export(pack_calc_exports, {
-    MAX_PACK_CATALOG: () => MAX_PACK_CATALOG,
     MAX_PACK_PERCENT: () => MAX_PACK_PERCENT,
     MAX_PACK_TIERS: () => MAX_PACK_TIERS,
     MIN_PACK_PERCENT: () => MIN_PACK_PERCENT,
@@ -45,13 +44,11 @@ var DiscountFlowPackCalc = (() => {
     packMinimumProducts: () => packMinimumProducts,
     resolveNextPackTier: () => resolveNextPackTier,
     resolvePackTier: () => resolvePackTier,
-    savingsCents: () => savingsCents,
-    validatePack: () => validatePack
+    savingsCents: () => savingsCents
   });
   var MIN_PACK_PRODUCTS = 2;
   var MIN_PACK_PERCENT = 0;
   var MAX_PACK_PERCENT = 99;
-  var MAX_PACK_CATALOG = 24;
   var MAX_PACK_TIERS = 5;
   function normalizePackCatalog(raw) {
     if (!Array.isArray(raw)) return [];
@@ -209,66 +206,15 @@ var DiscountFlowPackCalc = (() => {
       total: (subtotalCents - savingsTotalCents) / 100
     };
   }
-  function validatePack(mode, catalog, tiers) {
-    const errors = [];
-    const warnings = [];
-    if (catalog.length === 0) {
-      errors.push("Eleg\xED al menos un producto para el pack.");
-    } else if (catalog.length < MIN_PACK_PRODUCTS) {
-      errors.push(
-        `Un pack necesita al menos ${MIN_PACK_PRODUCTS} productos para que el comprador pueda armarlo.`
-      );
-    }
-    if (catalog.length > MAX_PACK_CATALOG) {
-      errors.push(
-        `El pack admite hasta ${MAX_PACK_CATALOG} productos. Elegiste ${catalog.length}.`
-      );
-    }
-    if (mode === "PER_PRODUCT") {
-      const conDescuento = catalog.filter((p) => {
-        var _a;
-        return ((_a = p.percent) != null ? _a : 0) > 0;
-      });
-      if (conDescuento.length === 0)
-        errors.push("Ning\xFAn producto tiene descuento: el pack no rebajar\xEDa nada.");
-      else if (conDescuento.length < catalog.length)
-        warnings.push(
-          `${catalog.length - conDescuento.length} de ${catalog.length} productos est\xE1n al 0%: entran al pack pero no rebajan.`
-        );
-    } else {
-      if (tiers.length === 0) {
-        errors.push("Agreg\xE1 al menos un nivel de descuento por tama\xF1o del pack.");
-      } else {
-        if (tiers.length > MAX_PACK_TIERS)
-          errors.push(`M\xE1ximo ${MAX_PACK_TIERS} niveles. Definiste ${tiers.length}.`);
-        if (tiers.every((t) => t.percent <= 0))
-          errors.push("Todos los niveles est\xE1n al 0%: el pack no rebajar\xEDa nada.");
-        const tope = tiers[tiers.length - 1];
-        if (tope.minProducts > catalog.length)
-          warnings.push(
-            `El nivel de ${tope.minProducts} productos es inalcanzable: el pack solo ofrece ${catalog.length}.`
-          );
-        for (let i = 1; i < tiers.length; i++) {
-          if (tiers[i].percent < tiers[i - 1].percent) {
-            warnings.push(
-              `El nivel de ${tiers[i].minProducts} productos descuenta menos que el anterior. Revis\xE1 que sea intencional.`
-            );
-            break;
-          }
-        }
-      }
-    }
-    return { errors, warnings };
-  }
   return __toCommonJS(pack_calc_exports);
 })();
 
 
 /* Marca de versión en tiempo de ejecución. La de verdad, la que se puede
    comprobar SIN ejecutar nada, está en el HTML del bloque. */
-window.DF_PACK_BUILD = 10;
+window.DF_PACK_BUILD = 11;
 try {
-  console.log("[DiscountFlow] widget de packs · build 10 cargado");
+  console.log("[DiscountFlow] widget de packs · build 11 cargado");
 } catch (e) {}
 
 /* DiscountFlow — widget «Armá tu pack».
@@ -370,15 +316,65 @@ try {
       : "button button--secondary btn btn--secondary";
   }
 
-  function money(cents, currency) {
+  /**
+   * El `money_format` del tema, tal como lo publica Liquid. Ej: `${{amount}}`.
+   *
+   * 🔴 Existe porque el widget formateaba el dinero con `Intl` mientras el resto
+   * de la tienda lo formatea con el formato del merchant. En una tienda chilena
+   * eso daba «$18,990.00» al lado de «$18.990» en la misma pantalla. Ahora el
+   * bloque lo pasa en `data-money-format` y acá se aplica igual que en el tema.
+   * Si no llegara, se cae a `Intl`, que es lo que había.
+   */
+  var formatoDelTema = "";
+
+  function separar(valor, decimales, miles, decimal) {
+    var texto = Math.abs(valor).toFixed(decimales);
+    var partes = texto.split(".");
+    partes[0] = partes[0].replace(/\B(?=(\d{3})+(?!\d))/g, miles);
+    return (valor < 0 ? "-" : "") + (partes.length > 1 ? partes[0] + decimal + partes[1] : partes[0]);
+  }
+
+  /** Los marcadores que documenta Shopify para `money_format`. */
+  function aplicarFormatoDelTema(valor, formato) {
+    return formato.replace(/\{\{\s*(\w+)\s*\}\}/g, function (_, clave) {
+      switch (clave) {
+        case "amount":
+          return separar(valor, 2, ",", ".");
+        case "amount_no_decimals":
+          return separar(valor, 0, ",", ".");
+        case "amount_with_comma_separator":
+          return separar(valor, 2, ".", ",");
+        case "amount_no_decimals_with_comma_separator":
+          return separar(valor, 0, ".", ",");
+        case "amount_with_apostrophe_separator":
+          return separar(valor, 2, "'", ".");
+        case "amount_no_decimals_with_space_separator":
+          return separar(valor, 0, " ", ".");
+        case "amount_with_space_separator":
+          return separar(valor, 2, " ", ",");
+        default:
+          return "";
+      }
+    });
+  }
+
+  /** `valor` va en UNIDADES de la moneda, no en centavos. */
+  function money(valor, currency) {
+    if (formatoDelTema && formatoDelTema.indexOf("{{") > -1) {
+      try {
+        return aplicarFormatoDelTema(valor, formatoDelTema);
+      } catch (e) {
+        /* se cae a Intl */
+      }
+    }
     try {
       return new Intl.NumberFormat(document.documentElement.lang || "es", {
         style: "currency",
         currency: currency || "USD",
         maximumFractionDigits: 2,
-      }).format(cents);
+      }).format(valor);
     } catch (e) {
-      return String(Math.round(cents));
+      return String(Math.round(valor));
     }
   }
 
@@ -401,7 +397,14 @@ try {
     this.ctaLabel = root.dataset.cta || "Agregar pack al carrito";
     this.headingOverride = root.dataset.heading || "";
     this.columns = parseInt(root.dataset.columns, 10) || 2;
+    // El formato de dinero del tema, para que el widget no escriba los números
+    // de otra forma que el resto de la tienda. Es global porque `money()` no
+    // pertenece a ningún widget, y en una página con dos bloques el formato es
+    // el mismo: sale de la tienda, no del bloque.
+    if (root.dataset.moneyFormat) formatoDelTema = root.dataset.moneyFormat;
     this.selected = [];
+    /** ¿Se pudo leer /cart.js en el último intento? Lo usa la revalidación. */
+    this.carritoLeido = false;
     /**
      * Los productos de este pack que YA están en el carrito.
      *
@@ -414,7 +417,180 @@ try {
     this.busy = false;
   }
 
+  /**
+   * Los datos que el bloque Liquid dejó escritos en la página.
+   *
+   * 🔴 ES EL CAMINO NORMAL. El bloque se pinta entero en el servidor y deja acá
+   * la configuración del pack con los precios YA RESUELTOS por Liquid. No hay
+   * petición, no hay estado de carga, y el widget no depende de que nuestro
+   * servidor conteste para que el comprador vea algo.
+   *
+   * Devuelve null si no está —tienda sin el metafield escrito, o campaña que no
+   * figura en él—, y entonces se usa el app proxy, que es el camino viejo con su
+   * «Cargando tu pack…».
+   */
+  PackWidget.prototype.leerIncrustado = function () {
+    try {
+      if (!this.root.querySelector) return null;
+      var nodo = this.root.querySelector("[data-df-pack-data]");
+      if (!nodo) return null;
+      var datos = JSON.parse(nodo.textContent);
+      if (!datos || !datos.items || !datos.items.length) return null;
+      return datos;
+    } catch (e) {
+      console.error("[DiscountFlow] los datos incrustados del pack no se pudieron leer.", e);
+      return null;
+    }
+  };
+
   PackWidget.prototype.load = function () {
+    var datos = this.leerIncrustado();
+    if (datos) {
+      this.pack = {
+        campaignId: datos.campaignId,
+        heading: datos.heading,
+        mode: datos.mode,
+        tiers: datos.tiers || [],
+        minProducts: datos.minProducts,
+        attribute: datos.attribute,
+        currency: datos.currency,
+        items: datos.items,
+      };
+      // La selección también viene del servidor: Liquid la sacó de `cart.items`.
+      this.enCarrito = (datos.seleccionados || []).slice();
+      this.selected = this.enCarrito.slice();
+      this.render();
+      this.revalidar();
+      return Promise.resolve();
+    }
+    return this.cargarDesdeProxy();
+  };
+
+  /**
+   * Comprueba en SEGUNDO PLANO que lo pintado siga siendo verdad. Sin spinner:
+   * ya hay un widget usable en pantalla y esto solo lo corrige si algo difiere.
+   *
+   * Dos cosas se revisan, por dos motivos distintos:
+   *
+   *   · El CARRITO, contra /cart.js. El tema puede haber servido esta página
+   *     desde una caché con un carrito viejo, y entonces la preselección que
+   *     escribió Liquid no sería la del comprador.
+   *   · El CATÁLOGO, contra el app proxy. El metafield que lee Liquid puede
+   *     quedarse cacheado horas del lado de Shopify; el proxy sale de Postgres
+   *     y siempre está al día.
+   */
+  PackWidget.prototype.revalidar = function () {
+    var self = this;
+    var antes = this.huella();
+    var previaEnCarrito = this.enCarrito.slice();
+    var previaSeleccion = this.selected.slice();
+
+    this.carritoLeido = false;
+    this.enCarrito = [];
+    this.selected = [];
+
+    return this.leerCarrito()
+      .then(function () {
+        if (!self.carritoLeido) {
+          // /cart.js no contesto. Lo que pinto Liquid vale mas que nada.
+          self.enCarrito = previaEnCarrito;
+          self.selected = previaSeleccion;
+        }
+        return self.pedirAlProxy().catch(function () {
+          // Si el proxy no contesta no pasa nada: lo pintado sigue siendo
+          // válido. Es una comprobación, no una dependencia.
+          return null;
+        });
+      })
+      .then(function (fresco) {
+        if (fresco) self.adoptar(fresco);
+        if (self.huella() !== antes) self.render();
+      })
+      .catch(function (err) {
+        console.error("[DiscountFlow] la revalidación del pack falló.", err);
+      });
+  };
+
+  /** Un resumen de lo que se está mostrando, para saber si cambió algo. */
+  PackWidget.prototype.huella = function () {
+    var items = (this.pack && this.pack.items) || [];
+    return JSON.stringify([
+      this.pack ? this.pack.heading : null,
+      this.pack ? this.pack.minProducts : null,
+      this.pack ? this.pack.tiers : null,
+      items.map(function (i) {
+        return [i.productId, i.percent || 0, i.price];
+      }),
+      this.selected.slice().sort(),
+    ]);
+  };
+
+  /**
+   * Adopta el catálogo del proxy CONSERVANDO los precios de Liquid.
+   *
+   * El proxy sirve la foto que guardó el admin, que puede tener el precio viejo;
+   * Liquid resolvió el precio en vivo. Así que el proxy manda en QUÉ productos
+   * hay y con qué porcentaje, y Liquid manda en CUÁNTO valen.
+   */
+  PackWidget.prototype.adoptar = function (fresco) {
+    var viejos = {};
+    ((this.pack && this.pack.items) || []).forEach(function (i) {
+      viejos[i.productId] = i;
+    });
+
+    this.pack.heading = this.headingOverride || fresco.heading;
+    this.pack.mode = fresco.mode;
+    this.pack.tiers = fresco.tiers || [];
+    this.pack.minProducts = fresco.minProducts;
+    this.pack.items = (fresco.items || []).map(function (nuevo) {
+      var viejo = viejos[nuevo.productId];
+      if (!viejo) return nuevo;
+      // El porcentaje es configuración: manda el proxy. El precio y la variante
+      // son del storefront: manda lo que resolvió Liquid.
+      return {
+        productId: viejo.productId,
+        handle: viejo.handle,
+        title: viejo.title,
+        variantId: viejo.variantId,
+        liveVariantId: viejo.liveVariantId,
+        available: viejo.available,
+        price: viejo.price,
+        image: viejo.image,
+        percent: nuevo.percent,
+      };
+    });
+
+    // Lo que ya no esté en el catálogo deja de estar elegido.
+    var enCatalogo = {};
+    this.pack.items.forEach(function (i) {
+      enCatalogo[i.productId] = true;
+    });
+    this.selected = this.selected.filter(function (id) {
+      return enCatalogo[id];
+    });
+    this.enCarrito = this.enCarrito.filter(function (id) {
+      return enCatalogo[id];
+    });
+  };
+
+  /** Pide la configuración al app proxy. Devuelve el pack o null. */
+  PackWidget.prototype.pedirAlProxy = function () {
+    var url =
+      this.proxy + (this.campaignId ? "?campaign=" + encodeURIComponent(this.campaignId) : "");
+    return Promise.resolve()
+      .then(function () {
+        return fetch(url, { headers: { Accept: "application/json" } });
+      })
+      .then(function (r) {
+        if (!r.ok) throw new Error("proxy " + r.status);
+        return r.json();
+      })
+      .then(function (data) {
+        return data && data.pack ? data.pack : null;
+      });
+  };
+
+  PackWidget.prototype.cargarDesdeProxy = function () {
     var self = this;
     var url = this.proxy + (this.campaignId ? "?campaign=" + encodeURIComponent(this.campaignId) : "");
 
@@ -498,7 +674,13 @@ try {
         return r.ok ? r.json() : null;
       })
       .then(function (cart) {
-        if (!cart || !cart.items || !cart.items.length) return;
+        if (!cart) return;
+        // Se marca ANTES de mirar el contenido: un carrito vacio tambien es una
+        // lectura buena, y la revalidacion necesita distinguir "esta vacio" de
+        // "no se pudo leer". Sin esto, un /cart.js caido borraria la seleccion
+        // que Liquid ya habia pintado bien.
+        self.carritoLeido = true;
+        if (!cart.items || !cart.items.length) return;
 
         var enCatalogo = {};
         (self.pack.items || []).forEach(function (it) {
@@ -903,10 +1085,45 @@ try {
 
     // El botón va dentro de un envoltorio propio. Un solo botón, no una copia:
     // dos botones serían dos manejadores y dos estados que mantener en
-    // sintonía. El envoltorio es además el punto de anclaje previsto para la
-    // barra del pie en móvil, que está PROPUESTA y no decidida — hasta que se
-    // decida, el botón vive en el flujo, dentro del panel.
+    // sintonía. En móvil ese envoltorio ES la barra del pie (`position: sticky`,
+    // ver el CSS).
     var ctaWrap = el("div", "df-pack__cta-wrap");
+
+    // Los números de la barra del pie: ahorro, precio tachado y total. Solo se
+    // ven en móvil; en escritorio los da la tabla del panel, que está a la vista
+    // todo el tiempo. Se pintan siempre para que la barra no cambie de alto al
+    // pasar del carrito vacío al carrito con pack.
+    var barTotal = el("div", "df-pack__bar-total");
+    var barIzq = el("div", "df-pack__bar-left");
+    if (p.applies && p.savings > 0) {
+      barIzq.appendChild(
+        el("span", "df-pack__bar-save", "Ahorrás " + money(p.savings, pack.currency))
+      );
+      barIzq.appendChild(
+        el("span", "df-pack__bar-strike", money(p.subtotal, pack.currency))
+      );
+    } else {
+      barIzq.appendChild(
+        el(
+          "span",
+          "df-pack__bar-label",
+          faltan > 0
+            ? textoFaltan
+            : p.distinctProducts === 1
+            ? "1 producto"
+            : p.distinctProducts + " productos"
+        )
+      );
+    }
+    barTotal.appendChild(barIzq);
+    barTotal.appendChild(
+      el(
+        "span",
+        "df-pack__bar-value",
+        money(p.applies ? p.total : p.subtotal, pack.currency)
+      )
+    );
+    ctaWrap.appendChild(barTotal);
 
     var cta = el("button", "df-pack__cta " + themeBtn(true));
     cta.type = "button";
@@ -920,9 +1137,22 @@ try {
       self.addToCart();
     });
     ctaWrap.appendChild(cta);
-    panel.appendChild(ctaWrap);
 
-    root.appendChild(panel);
+    // 🔴 EL BOTÓN NO CUELGA DEL PANEL: cuelga del `aside`, hermano suyo.
+    //
+    // Es lo que hace posible la barra pegajosa del móvil. `position: sticky`
+    // solo puede desplazarse DENTRO de su bloque contenedor: si el botón viviera
+    // dentro del panel —que en móvil está arriba del todo— su recorrido sería el
+    // alto del panel y la barra se despegaría a los dos dedos de scroll.
+    //
+    // En escritorio el `aside` es la columna derecha pegada arriba, igual que
+    // antes. En móvil se anula con `display: contents`, el panel y la barra
+    // pasan a ser hijos directos del widget, y el recorrido de la barra es el
+    // widget entero: se ve mientras el comprador mira el pack y se va con él.
+    var aside = el("div", "df-pack__aside");
+    aside.appendChild(panel);
+    aside.appendChild(ctaWrap);
+    root.appendChild(aside);
   };
 
   /**

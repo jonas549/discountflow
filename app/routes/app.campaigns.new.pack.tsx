@@ -14,6 +14,7 @@ import {
   findPackOverlaps,
 } from "../lib/discounts/pack";
 import { DEFAULT_PACK_TIERS, PACK_MODO_POR_DEFECTO } from "../lib/discounts/pack-client";
+import { sincronizarMetafieldDeWidget } from "../lib/discounts/pack-widget-metafield.server";
 import {
   parsePackForm,
   validatePackForm,
@@ -127,6 +128,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       );
     }
   }
+
+  // El metafield que el bloque de tema lee para pintarse sin pedir nada. No
+  // lanza nunca: si falla, el widget cae al app proxy y sigue funcionando.
+  await sincronizarMetafieldDeWidget(admin, shop.id);
 
   // Si algún producto del pack ya está cubierto por otra campaña activa, se
   // manda al merchant a la pantalla de edición, que es donde el aviso se ve.

@@ -38,7 +38,7 @@
    la hoja que sirve el CDN es la actual sin abrir la pestaña de red. */
 .df-pack,
 .df-pack-notice {
-  --df-build: 10;
+  --df-build: 11;
 }
 
 .df-pack {
@@ -275,6 +275,23 @@
 
 /* ── Resumen ── */
 
+/*
+ * La columna derecha: el panel y la barra del botón, juntos.
+ *
+ * Existe por la barra pegajosa del móvil. `position: sticky` solo se desplaza
+ * dentro de su BLOQUE CONTENEDOR, así que la barra tiene que colgar de algo tan
+ * alto como el widget entero, no del panel. En escritorio este `aside` es la
+ * columna pegada arriba de siempre; en móvil se anula con `display: contents`
+ * (ver el final del archivo) y sus dos hijos pasan a ser hijos del widget.
+ */
+.df-pack__aside {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85em;
+  position: sticky;
+  top: 1em;
+}
+
 .df-pack__summary {
   border: 1px solid var(--df-line);
   border-radius: 0.4em;
@@ -282,8 +299,6 @@
   display: flex;
   flex-direction: column;
   gap: 0.85em;
-  position: sticky;
-  top: 1em;
 }
 
 .df-pack__panel-head {
@@ -447,10 +462,15 @@
 }
 
 /* El envoltorio del botón. Existe para que el botón sea UNO solo y no una
-   copia, y es el punto de anclaje previsto para la barra del pie en móvil —
-   propuesta, todavía no decidida. Hoy no hace nada más que envolver. */
+   copia, y en móvil ES la barra del pie. */
 .df-pack__cta-wrap {
   display: block;
+}
+
+/* Los números de la barra del pie: en escritorio los da la tabla del panel, que
+   está a la vista todo el tiempo, así que acá sobran. */
+.df-pack__bar-total {
+  display: none;
 }
 
 .df-pack__cta {
@@ -549,10 +569,9 @@
  *    eso el «fijo» se ancla a la sección, que mide varios miles de píxeles, y
  *    la barra queda en su fondo: existe, y no se ve nunca.
  *
- * Por eso hoy el botón vive EN EL FLUJO, dentro del panel, que en móvil está
- * arriba del todo y por tanto se ve sin scrollear. La barra del pie está
- * PROPUESTA con `position: sticky`, que no depende de antepasados
- * transformados; hasta que se decida, esto no lleva ni un `position: fixed`.
+ * La barra del pie es hoy `position: sticky`, que se mide contra el contenedor
+ * de scroll y no contra un antepasado transformado. En este archivo no queda ni
+ * un `position: fixed`, y hay un test que lo comprueba.
  * ───────────────────────────────────────────────────────────────────────── */
 
 @media (max-width: 749px) {
@@ -562,6 +581,21 @@
     display: flex;
     flex-direction: column;
     gap: 1.25em;
+  }
+
+  /* 🔴 El `aside` DESAPARECE como caja.
+   *
+   * `display: contents` quita la caja y deja a sus hijos —el panel y la barra—
+   * como hijos directos del widget. Dos consecuencias, las dos necesarias:
+   * el panel puede colocarse arriba con `order` mientras la barra queda al
+   * final, y el bloque contenedor de la barra pasa a ser el widget ENTERO, que
+   * es lo que le da recorrido para pegarse.
+   *
+   * Si un navegador no lo soportara, el `aside` seguiría siendo una caja con el
+   * panel y el botón dentro, arriba de los productos: se ve y se puede comprar.
+   * El fallo degrada, no rompe. */
+  .df-pack__aside {
+    display: contents;
   }
 
   .df-pack__head {
@@ -578,11 +612,80 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  /* El panel vuelve al flujo. `top: auto` NO es decorativo: anula el `top: 1em`
-     del escritorio, que es lo que rompió esta pantalla la primera vez. */
-  .df-pack__summary {
-    position: static;
-    top: auto;
+  /* ── La barra del pie ──
+   *
+   * `position: sticky`, NO `fixed`. Ver el comentario grande de arriba: `fixed`
+   * se ancla a cualquier antepasado con `transform` y por eso desaparecía.
+   *
+   * Sticky hace justo lo que se pidió, y sin una línea de JavaScript: la barra
+   * flota al pie de la pantalla mientras el widget siga abriéndose debajo, y en
+   * cuanto el comprador llega al final del pack se queda quieta y se va con la
+   * sección. No flota nunca sobre el pie de página ni sobre la sección
+   * siguiente.
+   *
+   * `z-index: 2` a propósito, no 9999: si el tema tiene su propia barra al pie
+   * —carrito pegajoso, aviso de cookies— gana la del tema. Es su tienda. */
+  .df-pack__cta-wrap {
+    order: 4;
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6em;
+    /* La única superficie que NO puede ser translúcida: se le pasa el contenido
+       por debajo. Toma el fondo del tema si lo publica como custom property; si
+       no, blanco. */
+    background: #fff;
+    background: rgb(var(--color-background, 255 255 255));
+    border-top: 1px solid var(--df-line);
+    box-shadow: 0 -2px 14px rgba(0, 0, 0, 0.12);
+    /* Sangrados negativos para que la barra llegue a los bordes de la pantalla
+       aunque la sección del tema tenga su propio padding lateral. */
+    margin: 0 -1em;
+    padding: 0.7em 1em calc(0.7em + env(safe-area-inset-bottom, 0px));
+  }
+
+  .df-pack__bar-total {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 0.8em;
+  }
+
+  .df-pack__bar-left {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    line-height: 1.3;
+  }
+
+  .df-pack__bar-save {
+    font-size: 0.85em;
+    font-weight: 600;
+  }
+
+  .df-pack__bar-strike {
+    font-size: 0.85em;
+    color: var(--df-dim);
+    text-decoration: line-through;
+  }
+
+  .df-pack__bar-label {
+    font-size: 0.85em;
+    color: var(--df-dim);
+  }
+
+  .df-pack__bar-value {
+    font-size: 1.35em;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  /* La tabla de totales es del panel de escritorio: en móvil los números están
+     en la barra, que se ve siempre. Repetirlos sería ruido. */
+  .df-pack__totals {
+    display: none;
   }
 
   /* ── La fila compacta del catálogo ──

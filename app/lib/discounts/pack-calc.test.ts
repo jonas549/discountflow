@@ -17,12 +17,11 @@ import {
   resolveNextPackTier,
   packMinimumProducts,
   savingsCents,
-  validatePack,
   MIN_PACK_PRODUCTS,
-  MAX_PACK_CATALOG,
   type PackOutcome,
   type PackApplicableLine,
 } from "./pack-calc.ts";
+import { validatePack, MAX_PACK_CATALOG } from "./pack-validate.ts";
 
 // Catálogo del wireframe (modo A: cada producto con su %).
 const CATALOGO_A = [

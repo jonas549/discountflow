@@ -5,9 +5,27 @@
   elija (home, ficha de producto, landing).
 
   ─────────────────────────────────────────────────────────────────────────────
-  🔴 DOS COSAS QUE NO SE TOCAN SIN LEER ESTO
+  🔴 TRES COSAS QUE NO SE TOCAN SIN LEER ESTO
 
-  1. EL NÚMERO DE BUILD VA EN EL NOMBRE DEL ARCHIVO (`pack-10.js`).
+  1. ESTE BLOQUE SE PINTA ENTERO EN EL SERVIDOR. NO HAY ESTADO DE CARGA.
+
+     Hasta el 2026-09-05 el bloque salía vacío con un «Cargando tu pack…» y el
+     JavaScript pedía la configuración al app proxy. Eso significaba una vuelta
+     a nuestro servidor antes de que el comprador viera nada.
+
+     Ahora los datos salen de dos sitios, y los dos son del servidor de Shopify:
+
+       · QUÉ pack y QUÉ productos → el metafield de la app (`app.metafields`).
+         Cambia solo cuando el merchant edita la campaña.
+       · PRECIO, TÍTULO, FOTO, VARIANTE → `all_products[handle]`, resuelto en
+         cada renderizado, así que está EN VIVO. Nunca de una foto guardada.
+
+     El reparto no es casual: hay reportes de que Shopify cachea los metafields
+     de app en Liquid durante horas. Con esto, lo peor que puede envejecer es la
+     LISTA de productos; el precio no. Y un widget viejo no puede cobrar mal: el
+     dinero lo decide la Function con el metafield del DESCUENTO, en el checkout.
+
+  2. EL NÚMERO DE BUILD VA EN EL NOMBRE DEL ARCHIVO (`pack-11.js`).
 
      Durante tres rondas el widget se quedó en «Cargando tu pack…» porque el
      navegador recibía un JavaScript viejo. La causa de fondo era el nombre:
@@ -16,15 +34,11 @@
      seguía sirviendo la copia vieja y un `Ctrl+Shift+R` no la alcanzaba.
 
      Con el build en el nombre, cada versión es una URL distinta: no hay nada
-     que cachear. Y si el tema sirviera este Liquid viejo apuntando a un archivo
-     que ya no existe, el navegador da un 404 VISIBLE en vez de silencio.
-
-     Al subir el build hay que cambiarlo en este archivo: el comentario de
+     que cachear. Al subirlo hay que cambiarlo acá: el comentario de
      diagnóstico, el `data-df-build` y los `asset_url`.
-     `pack-widget-build.test.ts` lo comprueba, y además comprueba que el archivo
-     pedido EXISTA de verdad en `assets/`.
+     `pack-widget-build.test.ts` lo comprueba.
 
-  2. LOS DOS BLOQUES PIDEN EXACTAMENTE LOS MISMOS ASSETS.
+  3. LOS DOS BLOQUES PIDEN EXACTAMENTE LOS MISMOS ASSETS.
 
      Fallo documentado de Shopify: con varios bloques de una misma theme app
      extension activos, los assets del segundo en adelante pueden no servirse.
@@ -37,50 +51,389 @@
     · En temas vintage no aparece.
 {% endcomment %}
 
+{%- liquid
+  comment
+    El metafield, por las dos rutas que documenta Shopify. La oficial es
+    `app.metafields`; los reportes de la comunidad dicen que en una theme app
+    extension a veces solo responde `shop.metafields` con el namespace completo.
+    No se puede zanjar leyendo: se prueban las dos y el diagnóstico dice cuál
+    contestó.
+  endcomment
+  assign df_cfg = nil
+  assign df_fuente = 'ninguna'
+
+  assign df_via_app = app.metafields.discountflow.pack_widget
+  if df_via_app != blank
+    assign df_cfg = df_via_app.value
+    assign df_fuente = 'app.metafields'
+  else
+    assign df_via_shop = shop.metafields["$app:discountflow"].pack_widget
+    if df_via_shop != blank
+      assign df_cfg = df_via_shop.value
+      assign df_fuente = 'shop.metafields'
+    endif
+  endif
+
+  assign df_id = block.settings.campaign_id | strip
+  if df_id == blank
+    assign df_id = df_cfg.default
+  endif
+
+  assign df_pack = nil
+  if df_cfg != nil and df_id != blank
+    assign df_pack = df_cfg.packs[df_id]
+  endif
+-%}
+
+{%- liquid
+  comment
+    Qué productos de ESTE pack ya están en el carrito. Sale de `cart.items`, o
+    sea del servidor: el widget nace con la selección puesta, sin pedir nada.
+    El JavaScript lo vuelve a comprobar contra /cart.js en segundo plano, por si
+    el tema sirviera esta página desde una caché con un carrito viejo.
+  endcomment
+  assign df_sel = ','
+  if df_pack != nil
+    for df_line in cart.items
+      assign df_marca = df_line.properties[df_pack.attribute]
+      if df_marca == df_id
+        assign df_sel = df_sel | append: df_line.product_id | append: ','
+      endif
+    endfor
+  endif
+-%}
+
 {%- comment -%}
   🔴 EL DIAGNÓSTICO, Y NO DEPENDE DE QUE EL JAVASCRIPT SE EJECUTE.
 
   Sale en el código fuente de la página (Ctrl+U). Buscá "DiscountFlow" y vas a
-  ver el build que sirve el tema y la URL exacta del archivo. Si el JS no
-  arranca, ESTA línea sigue estando: es la única que no depende de él.
+  ver el build que sirve el tema y de dónde salió la configuración. Si el JS no
+  arranca, ESTA línea sigue estando.
 {%- endcomment -%}
-<!-- DiscountFlow · widget de packs · BUILD 10
-     js  = {{ 'pack-10.js' | asset_url }}
-     css = {{ 'pack-10.css' | asset_url }}
+<!-- DiscountFlow · widget de packs · BUILD 11
+     js        = {{ 'pack-11.js' | asset_url }}
+     css       = {{ 'pack-11.css' | asset_url }}
+     metafield = {{ df_fuente }}
+     campana   = {{ df_id | default: '(ninguna)' }}
      Si el build de acá no es el que esperás, el tema sirve una versión vieja
-     del bloque. Si lo es pero el JS no corre, abrí la URL de arriba. -->
+     del bloque. Si metafield dice "ninguna", el widget cae al app proxy. -->
 
-{{ 'pack-10.css' | asset_url | stylesheet_tag }}
+{{ 'pack-11.css' | asset_url | stylesheet_tag }}
 
-<div
-  class="df-pack"
-  data-df-pack
-  data-df-build="10"
-  data-df-js="{{ 'pack-10.js' | asset_url }}"
-  data-campaign="{{ block.settings.campaign_id | escape }}"
-  data-proxy="/apps/discountflow/pack"
-  data-heading="{{ block.settings.heading | escape }}"
-  data-cta="{{ block.settings.cta_label | escape }}"
-  data-columns="{{ block.settings.columns }}"
-  {{ block.shopify_attributes }}
->
+{%- if df_pack == nil -%}
   {%- comment -%}
-    Estado inicial: el widget lo reemplaza en cuanto responde el proxy. Si el
-    JavaScript no corriera, el comprador ve un mensaje honesto en vez de un
-    hueco vacío.
+    Sin metafield legible: el camino viejo. El JavaScript pide la configuración
+    al app proxy y pinta. Es el ÚNICO camino que todavía muestra un estado de
+    carga, y a propósito: acá sí hay una vuelta a la red antes de saber qué
+    pintar, y disimularlo sería peor.
   {%- endcomment -%}
-  <div class="df-pack__loading" data-df-pack-loading>
-    <span class="df-pack__spinner" aria-hidden="true"></span>
-    <span>Cargando tu pack…</span>
+  <div
+    class="df-pack"
+    data-df-pack
+    data-df-build="11"
+    data-df-js="{{ 'pack-11.js' | asset_url }}"
+    data-campaign="{{ block.settings.campaign_id | escape }}"
+    data-proxy="/apps/discountflow/pack"
+    data-heading="{{ block.settings.heading | escape }}"
+    data-cta="{{ block.settings.cta_label | escape }}"
+    data-columns="{{ block.settings.columns }}"
+    data-money-format="{{ shop.money_format | strip_html | escape }}"
+    data-df-fuente="{{ df_fuente }}"
+    {{ block.shopify_attributes }}
+  >
+    <div class="df-pack__loading" data-df-pack-loading>
+      <span class="df-pack__spinner" aria-hidden="true"></span>
+      <span>Cargando tu pack…</span>
+    </div>
+    <noscript>
+      <p class="df-pack__empty">Activá JavaScript para armar tu pack.</p>
+    </noscript>
   </div>
 
-  <noscript>
-    <p class="df-pack__empty">Activá JavaScript para armar tu pack.</p>
-  </noscript>
-</div>
+{%- else -%}
+  {%- liquid
+    comment
+      Se resuelven los productos ANTES de pintar nada, para poder contar cuántos
+      sobrevivieron. `all_products` solo da 20 handles POR PÁGINA: si el tema ya
+      gastó parte del cupo en otra sección, acá faltarán. El bloque lo marca con
+      `data-df-incompleto` y el JavaScript lo repara contra el app proxy — sin
+      estado de carga, porque ya hay algo en pantalla.
+    endcomment
+    assign df_resueltos = 0
+    assign df_elegidos = 0
+    for df_item in df_pack.items
+      assign df_p = all_products[df_item.handle]
+      if df_p != blank and df_p.title != blank
+        assign df_resueltos = df_resueltos | plus: 1
+        assign df_busca = ',' | append: df_p.id | append: ','
+        if df_sel contains df_busca
+          assign df_elegidos = df_elegidos | plus: 1
+        endif
+      endif
+    endfor
+
+    assign df_esperados = df_pack.items | size
+    assign df_completo = false
+    if df_resueltos == df_esperados
+      assign df_completo = true
+    endif
+
+    assign df_titulo = block.settings.heading | strip
+    if df_titulo == blank
+      assign df_titulo = df_pack.heading
+    endif
+
+    comment
+      El tope de la barra de progreso: el nivel más alto. Es GEOMETRÍA, no
+      dinero — el porcentaje de descuento no se calcula acá. Ver el comentario
+      del <script> de datos, al final.
+    endcomment
+    assign df_tope = 1
+    for df_t in df_pack.tiers
+      if df_t.minProducts > df_tope
+        assign df_tope = df_t.minProducts
+      endif
+    endfor
+    assign df_avance = df_elegidos | times: 100.0 | divided_by: df_tope | round
+    if df_avance > 100
+      assign df_avance = 100
+    endif
+
+    assign df_faltan = df_pack.minProducts | minus: df_elegidos
+    if df_faltan < 0
+      assign df_faltan = 0
+    endif
+    assign df_plural = 's'
+    if df_faltan == 1
+      assign df_plural = ''
+    endif
+  -%}
+
+  <div
+    class="df-pack"
+    data-df-pack
+    data-df-build="11"
+    data-df-js="{{ 'pack-11.js' | asset_url }}"
+    data-campaign="{{ df_id | escape }}"
+    data-proxy="/apps/discountflow/pack"
+    data-heading="{{ block.settings.heading | escape }}"
+    data-cta="{{ block.settings.cta_label | escape }}"
+    data-columns="{{ block.settings.columns }}"
+    data-money-format="{{ shop.money_format | strip_html | escape }}"
+    data-df-fuente="{{ df_fuente }}"
+    data-df-resueltos="{{ df_resueltos }}/{{ df_esperados }}"
+    {% unless df_completo %}data-df-incompleto="1"{% endunless %}
+    {{ block.shopify_attributes }}
+  >
+    <div class="df-pack__head">
+      <h2 class="df-pack__title">{{ df_titulo }}</h2>
+      {%- if df_pack.mode == 'PACK_SIZE' and df_pack.tiers.size > 0 -%}
+        <p class="df-pack__subtitle">
+          {%- for df_t in df_pack.tiers -%}
+            {{ df_t.minProducts }} → {{ df_t.percent }}%{%- unless forloop.last %} · {% endunless -%}
+          {%- endfor -%}
+        </p>
+      {%- else -%}
+        <p class="df-pack__subtitle">Cada producto tiene su propio descuento.</p>
+      {%- endif -%}
+    </div>
+
+    {%- if df_pack.mode == 'PACK_SIZE' -%}
+      <div class="df-pack__progress">
+        {%- comment -%}
+          El texto («Sumá 2 y ahorrás 10%») lo escribe el JavaScript: nombra un
+          PORCENTAJE, y los porcentajes los resuelve `pack-calc`. La barra, que
+          es solo geometría, sí sale pintada del servidor.
+
+          Y va EN LÍNEA, igual que en el JavaScript: se vio vacía dos veces con
+          reglas de hoja de estilos que el tema anulaba.
+        {%- endcomment -%}
+        <span class="df-pack__progress-text"></span>
+        <div
+          class="df-pack__bar"
+          data-df-progress="{{ df_avance }}"
+          role="progressbar"
+          aria-valuemin="0"
+          aria-valuemax="{{ df_tope }}"
+          aria-valuenow="{{ df_elegidos }}"
+          style="position:relative;display:block;width:100%;height:6px;min-height:6px;overflow:hidden;border-radius:999px"
+        >
+          <div
+            class="df-pack__bar-fill"
+            style="display:block;height:6px;min-height:6px;width:{{ df_avance }}%;background:currentColor;border-radius:999px"
+          ></div>
+        </div>
+      </div>
+    {%- endif -%}
+
+    <div class="df-pack__grid" style="--df-pack-cols: {{ block.settings.columns }}">
+      {%- for df_item in df_pack.items -%}
+        {%- assign df_p = all_products[df_item.handle] -%}
+        {%- if df_p != blank and df_p.title != blank -%}
+          {%- liquid
+            assign df_busca = ',' | append: df_p.id | append: ','
+            assign df_esta = false
+            if df_sel contains df_busca
+              assign df_esta = true
+            endif
+            assign df_v = df_p.selected_or_first_available_variant
+            if df_v == nil
+              assign df_v = df_p.variants.first
+            endif
+            if df_esta
+              assign df_etiqueta = 'Quitar del pack'
+              assign df_icono = '−'
+              assign df_clases = 'button btn'
+            else
+              assign df_etiqueta = 'Agregar al pack'
+              assign df_icono = '+'
+              assign df_clases = 'button button--secondary btn btn--secondary'
+            endif
+          -%}
+          <div class="df-pack__card{% if df_esta %} is-selected{% endif %}">
+            <div class="df-pack__media">
+              {%- if df_p.featured_image -%}
+                <img
+                  src="{{ df_p.featured_image | image_url: width: 400 }}"
+                  alt="{{ df_p.title | escape }}"
+                  loading="lazy"
+                >
+              {%- endif -%}
+            </div>
+            <div class="df-pack__body">
+              <span class="df-pack__name">{{ df_p.title }}</span>
+              <div class="df-pack__pricerow">
+                <span class="df-pack__price">{{ df_v.price | money }}</span>
+                {%- if df_pack.mode == 'PER_PRODUCT' and df_item.percent > 0 -%}
+                  <span class="df-pack__off">{{ df_item.percent }}% OFF</span>
+                {%- endif -%}
+              </div>
+            </div>
+            <button
+              type="button"
+              class="df-pack__toggle {{ df_clases }}"
+              aria-pressed="{% if df_esta %}true{% else %}false{% endif %}"
+              aria-label="{{ df_etiqueta }}: {{ df_p.title | escape }}"
+            >
+              <span class="df-pack__toggle-icon">{{ df_icono }}</span>
+              <span class="df-pack__toggle-label">{{ df_etiqueta }}</span>
+            </button>
+          </div>
+        {%- endif -%}
+      {%- endfor -%}
+    </div>
+
+    <div class="df-pack__aside">
+      <div class="df-pack__summary">
+        <div class="df-pack__panel-head">
+          <span class="df-pack__panel-title">Tu pack</span>
+          <span class="df-pack__count">
+            {%- if df_elegidos == 1 -%}1 producto{%- else -%}{{ df_elegidos }} productos{%- endif -%}
+          </span>
+        </div>
+        {%- if df_elegidos == 0 -%}
+          <div class="df-pack__empty-box">
+            <span class="df-pack__empty-title">Tu pack está vacío</span>
+            <p class="df-pack__hint">Agregá {{ df_faltan }} producto{{ df_plural }} más para activar el descuento.</p>
+          </div>
+        {%- endif -%}
+      </div>
+
+      <div class="df-pack__cta-wrap">
+        <div class="df-pack__bar-total">
+          <div class="df-pack__bar-left">
+            <span class="df-pack__bar-label">
+              {%- if df_faltan > 0 -%}
+                Agregá {{ df_faltan }} producto{{ df_plural }} más para activar el descuento.
+              {%- elsif df_elegidos == 1 -%}
+                1 producto
+              {%- else -%}
+                {{ df_elegidos }} productos
+              {%- endif -%}
+            </span>
+          </div>
+          <span class="df-pack__bar-value"></span>
+        </div>
+        <button
+          type="button"
+          class="df-pack__cta button btn"
+          {% if df_faltan > 0 %}disabled{% endif %}
+        >
+          {%- if df_elegidos > 0 -%}
+            Actualizar mi pack
+          {%- else -%}
+            {{ block.settings.cta_label | default: 'Agregar pack al carrito' }}
+          {%- endif -%}
+        </button>
+      </div>
+    </div>
+
+    {%- comment -%}
+      🔴 LOS DATOS, PARA QUE EL JAVASCRIPT NO TENGA QUE PEDIR NADA.
+
+      Acá viaja la configuración del pack y los precios YA RESUELTOS por Liquid.
+      El JavaScript los lee de este nodo: cero peticiones, cero spinner.
+
+      Lo que NO hay acá, y es deliberado: ni un porcentaje aplicado, ni un
+      ahorro, ni un total. El descuento lo calcula `pack-calc`, el MISMO módulo
+      que corre en el checkout. Si Liquid hiciera esa cuenta habría dos
+      calculadoras, y el día que difirieran el comprador vería un precio en la
+      tienda y pagaría otro. Liquid resuelve estructura y precios; la aritmética
+      del descuento tiene un solo dueño.
+    {%- endcomment -%}
+    <script type="application/json" data-df-pack-data>
+      {
+        "campaignId": {{ df_pack.campaignId | json }},
+        "heading": {{ df_titulo | json }},
+        "mode": {{ df_pack.mode | json }},
+        "tiers": {{ df_pack.tiers | json }},
+        "minProducts": {{ df_pack.minProducts | json }},
+        "attribute": {{ df_pack.attribute | json }},
+        "currency": {{ df_pack.currency | json }},
+        "completo": {{ df_completo | json }},
+        "seleccionados": [
+          {%- assign df_coma = false -%}
+          {%- for df_item in df_pack.items -%}
+            {%- assign df_p = all_products[df_item.handle] -%}
+            {%- if df_p != blank and df_p.title != blank -%}
+              {%- assign df_busca = ',' | append: df_p.id | append: ',' -%}
+              {%- if df_sel contains df_busca -%}
+                {%- if df_coma %},{% endif %}{{ df_item.productId | json }}
+                {%- assign df_coma = true -%}
+              {%- endif -%}
+            {%- endif -%}
+          {%- endfor -%}
+        ],
+        "items": [
+          {%- assign df_coma2 = false -%}
+          {%- for df_item in df_pack.items -%}
+            {%- assign df_p = all_products[df_item.handle] -%}
+            {%- if df_p != blank and df_p.title != blank -%}
+              {%- assign df_v = df_p.selected_or_first_available_variant -%}
+              {%- if df_v == nil %}{% assign df_v = df_p.variants.first %}{% endif -%}
+              {%- if df_coma2 %},{% endif %}
+              {
+                "productId": {{ df_item.productId | json }},
+                "handle": {{ df_item.handle | json }},
+                "title": {{ df_p.title | json }},
+                "variantId": "gid://shopify/ProductVariant/{{ df_v.id }}",
+                "liveVariantId": {{ df_v.id | json }},
+                "available": {{ df_v.available | json }},
+                "price": {{ df_v.price | default: 0 | divided_by: 100.0 }},
+                "image": {% if df_p.featured_image %}{{ df_p.featured_image | image_url: width: 400 | json }}{% else %}null{% endif %},
+                "percent": {{ df_item.percent | default: 0 }}
+              }
+              {%- assign df_coma2 = true -%}
+            {%- endif -%}
+          {%- endfor -%}
+        ]
+      }
+    </script>
+  </div>
+{%- endif -%}
 
 {% comment %} Un solo archivo, y el mismo en los DOS bloques. Ver arriba. {% endcomment %}
-<script src="{{ 'pack-10.js' | asset_url }}" defer></script>
+<script src="{{ 'pack-11.js' | asset_url }}" defer></script>
 
 {% schema %}
 {

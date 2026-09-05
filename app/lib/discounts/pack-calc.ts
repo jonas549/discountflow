@@ -118,14 +118,11 @@ export const MIN_PACK_PRODUCTS = 2;
 export const MIN_PACK_PERCENT = 0;
 export const MAX_PACK_PERCENT = 99;
 
-/**
- * Tope de productos que el merchant puede curar en un pack.
- *
- * No es una limitación técnica del descuento: es del widget. El bloque los
- * pinta todos a la vez y el comprador tiene que poder recorrerlos. Cuarenta
- * tarjetas ya son una lista imposible de leer en un móvil.
- */
-export const MAX_PACK_CATALOG = 24;
+/* El tope de productos del catálogo (`MAX_PACK_CATALOG`) NO vive acá a
+ * propósito: está en `pack-validate.ts`. Este archivo se compila DENTRO del
+ * Wasm de la Function, así que tocarlo obliga a desplegar la Function; y ese
+ * tope es del widget y del formulario, no del descuento. Ver el comentario de
+ * `pack-validate.ts`. */
 
 /** Máximo de niveles en modo PACK_SIZE. Más de esto nadie lo entiende. */
 export const MAX_PACK_TIERS = 5;
@@ -424,65 +421,3 @@ export function buildPackPreview(
   };
 }
 
-// ─── Validación (formulario del admin) ────────────────────────────────────────
-
-export type PackValidation = { errors: string[]; warnings: string[] };
-
-export function validatePack(
-  mode: PackMode,
-  catalog: PackProduct[],
-  tiers: PackTier[]
-): PackValidation {
-  const errors: string[] = [];
-  const warnings: string[] = [];
-
-  if (catalog.length === 0) {
-    errors.push("Elegí al menos un producto para el pack.");
-  } else if (catalog.length < MIN_PACK_PRODUCTS) {
-    errors.push(
-      `Un pack necesita al menos ${MIN_PACK_PRODUCTS} productos para que el comprador pueda armarlo.`
-    );
-  }
-
-  if (catalog.length > MAX_PACK_CATALOG) {
-    errors.push(
-      `El pack admite hasta ${MAX_PACK_CATALOG} productos. Elegiste ${catalog.length}.`
-    );
-  }
-
-  if (mode === "PER_PRODUCT") {
-    const conDescuento = catalog.filter((p) => (p.percent ?? 0) > 0);
-    if (conDescuento.length === 0)
-      errors.push("Ningún producto tiene descuento: el pack no rebajaría nada.");
-    else if (conDescuento.length < catalog.length)
-      warnings.push(
-        `${catalog.length - conDescuento.length} de ${catalog.length} productos están al 0%: entran al pack pero no rebajan.`
-      );
-  } else {
-    if (tiers.length === 0) {
-      errors.push("Agregá al menos un nivel de descuento por tamaño del pack.");
-    } else {
-      if (tiers.length > MAX_PACK_TIERS)
-        errors.push(`Máximo ${MAX_PACK_TIERS} niveles. Definiste ${tiers.length}.`);
-      if (tiers.every((t) => t.percent <= 0))
-        errors.push("Todos los niveles están al 0%: el pack no rebajaría nada.");
-
-      const tope = tiers[tiers.length - 1];
-      if (tope.minProducts > catalog.length)
-        warnings.push(
-          `El nivel de ${tope.minProducts} productos es inalcanzable: el pack solo ofrece ${catalog.length}.`
-        );
-
-      for (let i = 1; i < tiers.length; i++) {
-        if (tiers[i].percent < tiers[i - 1].percent) {
-          warnings.push(
-            `El nivel de ${tiers[i].minProducts} productos descuenta menos que el anterior. Revisá que sea intencional.`
-          );
-          break;
-        }
-      }
-    }
-  }
-
-  return { errors, warnings };
-}

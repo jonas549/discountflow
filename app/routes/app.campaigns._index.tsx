@@ -10,6 +10,7 @@ import { Plus } from "lucide-react";
 import { authenticate } from "../shopify.server";
 import { prisma } from "../lib/db";
 import { getOrCreateShop } from "../lib/shopify/shop.server";
+import { sincronizarMetafieldDeWidget } from "../lib/discounts/pack-widget-metafield.server";
 import {
   revertPercentageDiscount,
   reactivatePercentageDiscount,
@@ -423,6 +424,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       }
       await prisma.campaign.delete({ where: { id: campaignId } });
     }
+
+    // Un unico punto para las tres acciones (pausar, activar, borrar): el
+    // metafield describe TODOS los packs activos de la tienda, asi que se
+    // recalcula entero desde Postgres y no hace falta saber cual cambio.
+    // No lanza nunca: si falla, el widget cae al app proxy.
+    if (campaign.type === "PACK")
+      await sincronizarMetafieldDeWidget(admin, shop.id);
   } catch (err) {
     // Se registra en el servidor ADEMÁS de devolverlo: en Vercel Hobby los logs
     // duran 1 hora, así que un fallo que solo viaje al navegador y el merchant no

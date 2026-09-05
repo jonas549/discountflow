@@ -116,7 +116,7 @@ export async function runJobBatch(
     ? await prisma.campaign.findUnique({
         where: { id: job.campaignId },
         select: {
-          id: true, name: true, type: true, status: true,
+          id: true, shopId: true, name: true, type: true, status: true,
           config: true, startsAt: true, endsAt: true,
           shop: { select: { domain: true } },
         },
@@ -134,6 +134,7 @@ export async function runJobBatch(
     admin: await deps.getAdmin(campaign.shop.domain),
     campaign: {
       id: campaign.id,
+      shopId: campaign.shopId,
       name: campaign.name,
       type: campaign.type as string,
       status: campaign.status as string,

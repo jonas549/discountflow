@@ -20,15 +20,14 @@ import {
   normalizePackCatalog,
   normalizePackTiers,
   packMinimumProducts,
-  validatePack,
   MIN_PACK_PERCENT,
   MAX_PACK_PERCENT,
   MIN_PACK_PRODUCTS,
-  MAX_PACK_CATALOG,
   type PackMode,
   type PackTier,
   type PackApplicableLine,
 } from "../lib/discounts/pack-calc";
+import { validatePack, MAX_PACK_CATALOG } from "../lib/discounts/pack-validate";
 import type { PackFormProduct } from "../lib/discounts/pack-form";
 import { PACK_MODOS_OFRECIDOS } from "../lib/discounts/pack-client";
 import { es } from "../i18n";

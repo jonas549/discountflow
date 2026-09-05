@@ -3,32 +3,31 @@
 // Ruta pública en el STOREFRONT: `/apps/discountflow/pack?campaign=<id>`
 // Shopify la reenvía firmada a esta ruta (ver `[app_proxy]` en el .toml).
 //
-// ─── Por qué un app proxy y no un metafield ──────────────────────────────────
+// ─── 🔴 ESTO YA NO ES EL CAMINO NORMAL ───────────────────────────────────────
 //
-// El widget necesita el catálogo curado, los porcentajes y los precios. Las
-// alternativas eran:
+// Hasta el 2026-09-05 el widget SIEMPRE pedía acá su configuración, y por eso
+// mostraba «Cargando tu pack…» en cada visita. Hoy el bloque de tema se pinta
+// completo en el servidor leyendo el metafield de la app (ver
+// `pack-widget-metafield.server.ts`), y esta ruta quedó para tres casos:
 //
-//   · Metafield de tienda leído por Liquid → exige visibilidad de storefront y
-//     una definición de metafield, y hay que reescribirlo en cada guardado.
-//   · Llamar a la Admin API desde el widget → imposible, es una credencial de
-//     servidor.
-//   · App proxy (esto) → la fuente es Postgres, siempre está al día, y no
-//     necesita NINGÚN scope nuevo, así que ningún merchant reautoriza.
+//   1. La tienda todavía no tiene el metafield escrito (campaña anterior al
+//      cambio, o app recién instalada).
+//   2. El bloque apunta a una campaña que no está en el metafield.
+//   3. El bloque resolvió MENOS productos de los que debía — `all_products` solo
+//      da 20 handles POR PÁGINA y el tema puede estar gastando parte del cupo.
 //
-// ⚠️ Cada carga de la página del merchant que tenga el bloque es una invocación
-// de Vercel. En Hobby eso cuenta. Por eso la respuesta se cachea y NO llama a la
-// Admin API: todo sale de la foto que guardó el admin al guardar la campaña.
+// Y, siempre, para la revalidación en segundo plano: el widget ya pintado
+// pregunta acá y se corrige solo si algo difiere. Sin estado de carga en ningún
+// camino.
+//
+// ⚠️ Cada llamada es una invocación de Vercel. En Hobby eso cuenta. Por eso la
+// respuesta se cachea y NO llama a la Admin API: todo sale de la foto que
+// guardó el admin al guardar la campaña.
 
 import type { LoaderFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 import { prisma } from "../lib/db";
-import {
-  PACK_LINE_ATTRIBUTE,
-  packMinimum,
-  type PackCampaignConfig,
-  type PackWidgetPayload,
-} from "../lib/discounts/pack-client";
-import { normalizePackTiers } from "../lib/discounts/pack-calc";
+import { packsActivosDeLaTienda } from "../lib/discounts/pack-widget-payload.server";
 
 const SIN_PACK = { pack: null } as const;
 
@@ -63,42 +62,16 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   });
   if (!shop) return json(SIN_PACK, 404);
 
-  const ahora = new Date();
-  const campaign = await prisma.campaign.findFirst({
-    where: {
-      shopId: shop.id,
-      type: "PACK",
-      status: "ACTIVE",
-      ...(campaignId ? { id: campaignId } : {}),
-      // Una campaña programada para el futuro no debe pintarse todavía, y una
-      // vencida tampoco. Se comprueba acá porque el cron que debería cerrarlas
-      // NO EXISTE (deuda conocida: `vercel.json` declara /api/cron/sync-campaigns
-      // y la ruta no está). Sin esto, un pack con `endsAt` pasado seguiría
-      // ofreciéndose en la tienda aunque su descuento ya no aplicara — el
-      // comprador armaría el pack y no vería el descuento en el carrito.
-      OR: [{ startsAt: null }, { startsAt: { lte: ahora } }],
-      AND: [{ OR: [{ endsAt: null }, { endsAt: { gt: ahora } }] }],
-    },
-    orderBy: { createdAt: "desc" },
-    select: { id: true, config: true },
-  });
+  // La consulta vive en `pack-widget-payload.server.ts` porque el metafield del
+  // tema entrega EXACTAMENTE lo mismo por otro camino. Dos consultas distintas
+  // para el mismo dato es como se llega a que el primer pintado diga una cosa y
+  // la revalidacion diga otra.
+  const packs = await packsActivosDeLaTienda(shop.id, shop.currency);
+  const pack = campaignId
+    ? packs.find((p) => p.campaignId === campaignId)
+    : packs[0];
 
-  if (!campaign) return json(SIN_PACK);
+  if (!pack) return json(SIN_PACK);
 
-  const config = campaign.config as PackCampaignConfig;
-  const items = config.items ?? [];
-  if (items.length === 0) return json(SIN_PACK);
-
-  const payload: PackWidgetPayload = {
-    campaignId: campaign.id,
-    heading: config.heading || "Armá tu pack",
-    mode: config.mode ?? "PER_PRODUCT",
-    tiers: normalizePackTiers(config.tiers),
-    minProducts: packMinimum(config),
-    attribute: PACK_LINE_ATTRIBUTE,
-    currency: shop.currency,
-    items,
-  };
-
-  return json({ pack: payload });
+  return json({ pack });
 };

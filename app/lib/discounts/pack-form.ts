@@ -5,11 +5,11 @@ import type { PackFormErrors } from "../../components/PackCampaignForm";
 import {
   normalizePackCatalog,
   normalizePackTiers,
-  validatePack,
   type PackMode,
   type PackProduct,
   type PackTier,
 } from "./pack-calc";
+import { validatePack } from "./pack-validate";
 import type { PackCampaignConfig, PackItemSnapshot } from "./pack-client";
 import { PACK_DEFAULT_MESSAGE } from "./pack-client";
 import { es } from "../../i18n";

@@ -51,6 +51,8 @@ import type { PackCampaignConfig } from "../../discounts/pack-client.ts";
 const bxgyOps = () => import("../../discounts/bxgy.ts");
 const tieredOps = () => import("../../discounts/tiered.ts");
 const packOps = () => import("../../discounts/pack.ts");
+// Mismo motivo que los tres de arriba: importa `../db` sin extension.
+const packWidget = () => import("../../discounts/pack-widget-metafield.server.ts");
 import { JobFatalError } from "../errors.ts";
 import { applyPercentCents, centsToString, toCents } from "../money.ts";
 import type {
@@ -484,6 +486,7 @@ export const reactivateHandler: JobHandler = {
         ctx.campaign.endsAt
       );
       await pk.activatePackDiscount(ctx.admin, id);
+      await (await packWidget()).sincronizarMetafieldDeWidget(ctx.admin, ctx.campaign.shopId);
     } else {
       await (await bxgyOps()).activateBxgyDiscount(ctx.admin, id);
     }
@@ -517,9 +520,10 @@ export const revertHandler: JobHandler = {
     if (!id) throw new JobFatalError("La campaña no tiene un descuento de Shopify asociado.");
     if (ctx.campaign.type === "TIERED")
       await (await tieredOps()).deactivateTieredDiscount(ctx.admin, id);
-    else if (ctx.campaign.type === "PACK")
+    else if (ctx.campaign.type === "PACK") {
       await (await packOps()).deactivatePackDiscount(ctx.admin, id);
-    else await (await bxgyOps()).deactivateBxgyDiscount(ctx.admin, id);
+      await (await packWidget()).sincronizarMetafieldDeWidget(ctx.admin, ctx.campaign.shopId);
+    } else await (await bxgyOps()).deactivateBxgyDiscount(ctx.admin, id);
     await markSingleDone(ctx);
     return { succeeded: units, failures: [] };
   },
@@ -561,6 +565,10 @@ export const deleteHandler: JobHandler = {
         // El descuento puede haber sido borrado ya desde el admin de Shopify.
       }
     }
+    // Tambien cuando el descuento ya no estaba: del metafield hay que quitar la
+    // campana, no el descuento.
+    if (ctx.campaign.type === "PACK")
+      await (await packWidget()).sincronizarMetafieldDeWidget(ctx.admin, ctx.campaign.shopId);
     await markSingleDone(ctx);
     return { succeeded: units, failures: [] };
   },

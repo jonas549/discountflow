@@ -381,3 +381,174 @@ test("🔴 el botón de agregar al carrito SIEMPRE está en el DOM", async () =>
     assert.equal(cta!.disabled, carrito.length < 2);
   }
 });
+
+// ─── 5. El primer pintado sin pedir nada ─────────────────────────────────────
+//
+// El bloque Liquid deja la configuración y los precios ya resueltos dentro de la
+// página. Estas pruebas fijan que el widget la use y que NO dependa del app
+// proxy para tener algo en pantalla — que es lo que producía el «Cargando tu
+// pack…» en cada visita.
+
+const DATOS_INCRUSTADOS = {
+  campaignId: CAMPANA,
+  heading: "Armá tu rutina",
+  mode: "PACK_SIZE",
+  tiers: [
+    { minProducts: 2, percent: 10 },
+    { minProducts: 3, percent: 20 },
+    { minProducts: 4, percent: 30 },
+  ],
+  minProducts: 2,
+  attribute: "_df_pack",
+  currency: "CLP",
+  completo: true,
+  seleccionados: [] as string[],
+  items: [1, 2, 3, 4, 5].map((i) => ({
+    productId: P(i),
+    handle: `p${i}`,
+    title: `Producto ${i}`,
+    variantId: `gid://shopify/ProductVariant/${100 + i}`,
+    liveVariantId: 100 + i,
+    available: true,
+    price: 7000,
+    image: null,
+    percent: 0,
+  })),
+};
+
+/** Un entorno mínimo con el nodo de datos que deja Liquid. */
+function entorno(
+  datos: unknown,
+  fetchFalso: (url: string) => Promise<unknown>,
+  formatoDinero?: string
+) {
+  const raiz = crearNodo("div");
+  raiz.dataset.campaign = CAMPANA;
+  raiz.dataset.proxy = "/apps/discountflow/pack";
+  raiz.dataset.columns = "2";
+  if (formatoDinero) raiz.dataset.moneyFormat = formatoDinero;
+
+  const nodoDatos = crearNodo("script");
+  nodoDatos.textContent = JSON.stringify(datos);
+  (raiz as unknown as { querySelector: (s: string) => Nodo | null }).querySelector = (
+    sel: string
+  ) => (sel === "[data-df-pack-data]" ? nodoDatos : null);
+
+  const win: Record<string, unknown> = {};
+  win.window = win;
+  win.document = {
+    querySelectorAll: (sel: string) => (sel === "[data-df-pack]" ? [raiz] : []),
+    querySelector: () => null,
+    addEventListener: () => {},
+    createElement: crearNodo,
+    readyState: "complete",
+    documentElement: { lang: "es" },
+  };
+  win.setTimeout = setTimeout;
+  win.clearTimeout = clearTimeout;
+  win.Intl = Intl;
+  win.addEventListener = () => {};
+  win.fetch = fetchFalso;
+  return { raiz, win };
+}
+
+async function correr(win: Record<string, unknown>) {
+  const todo = fs.readFileSync(path.join(ASSETS, JS_GENERADO), "utf8");
+  new Function(
+    "window",
+    "document",
+    "setTimeout",
+    "clearTimeout",
+    "fetch",
+    "Intl",
+    todo.replace(
+      "window.DF_PACK_BUILD",
+      "window.DiscountFlowPackCalc = DiscountFlowPackCalc; window.DF_PACK_BUILD"
+    )
+  )(win, win.document, win.setTimeout, win.clearTimeout, win.fetch, Intl);
+
+  for (let i = 0; i < 30; i++) await Promise.resolve();
+  await new Promise((r) => setTimeout(r, 20));
+}
+
+/** Responde el carrito y deja elegir si el app proxy contesta o se cae. */
+function redFalsa(lineas: number[], proxyRoto = false) {
+  return (url: string) => {
+    if (String(url).indexOf("/apps/discountflow/pack") === 0) {
+      if (proxyRoto) return Promise.reject(new Error("proxy caído"));
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ pack: PACK }) });
+    }
+    if (String(url) === "/cart.js")
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            items: lineas.map((i) => ({
+              key: `k${i}`,
+              product_id: i,
+              quantity: 1,
+              price: 700000,
+              properties: { _df_pack: CAMPANA },
+            })),
+          }),
+      });
+    return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
+  };
+}
+
+test("🔴 con los datos de Liquid el widget se pinta aunque el proxy esté caído", async () => {
+  // Es la prueba del cambio entero: el primer pintado no depende de nuestro
+  // servidor. Antes, sin proxy, el bloque se quedaba en «Cargando tu pack…».
+  const { raiz, win } = entorno(DATOS_INCRUSTADOS, redFalsa([], true));
+  await correr(win);
+
+  assert.equal(raiz.hidden, false, "el widget no puede esconderse");
+  assert.ok(buscar(raiz, "df-pack__grid"), "falta el catálogo");
+  assert.equal(buscarTodos(raiz, "df-pack__card").length, 5, "los cinco productos");
+  assert.ok(buscar(raiz, "df-pack__cta"), "falta el botón de comprar");
+  assert.ok(buscar(raiz, "df-pack__empty-box"), "falta la caja de vacío");
+
+  const t = textos(raiz).join(" | ");
+  assert.match(t, /Armá tu rutina/);
+  assert.doesNotMatch(t, /Cargando/, "🔴 no puede quedar ningún estado de carga");
+});
+
+test("🔴 la preselección de Liquid se respeta si /cart.js no contesta", async () => {
+  // Liquid ya leyó el carrito en el servidor. Si la comprobación de fondo falla,
+  // lo pintado vale más que nada: borrar la selección sería empeorar.
+  const datos = { ...DATOS_INCRUSTADOS, seleccionados: [P(1), P(2), P(3)] };
+  const { raiz, win } = entorno(datos, () => Promise.reject(new Error("sin red")));
+  await correr(win);
+
+  assert.match(textos(raiz).join(" | "), /3 productos/, "la selección del servidor sobrevive");
+  assert.equal(buscarTodos(raiz, "df-pack__item").length, 3);
+});
+
+test("el carrito real gana sobre lo que pintó Liquid", async () => {
+  // El caso inverso: la página pudo servirse de una caché del tema con un
+  // carrito viejo. Si /cart.js contesta, manda /cart.js.
+  const datos = { ...DATOS_INCRUSTADOS, seleccionados: [P(1), P(2), P(3)] };
+  const { raiz, win } = entorno(datos, redFalsa([1]));
+  await correr(win);
+
+  assert.match(textos(raiz).join(" | "), /1 producto/);
+  assert.equal(buscarTodos(raiz, "df-pack__item").length, 1);
+});
+
+test("🔴 el dinero se escribe con el formato del TEMA, no con el nuestro", async () => {
+  // El widget usaba `Intl` mientras la tienda usa `money_format`. En una tienda
+  // chilena eso ponía «$7,000.00» al lado de «$7.000» en la misma pantalla.
+  const datos = { ...DATOS_INCRUSTADOS, seleccionados: [P(1), P(2)] };
+  const { raiz, win } = entorno(
+    datos,
+    redFalsa([1, 2]),
+    "${{amount_no_decimals_with_comma_separator}}"
+  );
+  await correr(win);
+
+  const t = textos(raiz).join(" | ");
+  assert.match(t, /\$7\.000/, "7000 con el formato chileno es $7.000");
+  assert.doesNotMatch(t, /7,000\.00/, "eso sería Intl, no el tema");
+  // Dos productos al 10%: 14.000 − 1.400 = 12.600.
+  assert.match(t, /\$12\.600/);
+});

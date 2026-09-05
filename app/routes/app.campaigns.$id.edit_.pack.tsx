@@ -8,6 +8,7 @@ import {
 import { authenticate } from "../shopify.server";
 import { prisma } from "../lib/db";
 import { getOrCreateShop } from "../lib/shopify/shop.server";
+import { sincronizarMetafieldDeWidget } from "../lib/discounts/pack-widget-metafield.server";
 import { rejectIfCampaignBusy } from "../lib/jobs/enqueue.server";
 import {
   createPackDiscount,
@@ -170,6 +171,12 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
       );
     }
   }
+
+  // El metafield que el bloque de tema lee para pintarse sin pedir nada. Se
+  // reescribe SIEMPRE, tambien cuando la campana es un borrador: si el merchant
+  // acaba de pausarla o de sacarle productos, el widget tiene que dejar de
+  // ofrecerlos. No lanza nunca.
+  await sincronizarMetafieldDeWidget(admin, shop.id);
 
   return redirect("/app/campaigns");
 };
