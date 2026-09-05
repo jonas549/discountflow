@@ -31,6 +31,7 @@ const FORMULARIOS = [
   ["Escalonado", "app/components/TieredCampaignForm.tsx"],
   ["Pack", "app/components/PackCampaignForm.tsx"],
   ["Monto de compra", "app/components/CartValueCampaignForm.tsx"],
+  ["Cupon sobre precio original", "app/components/OriginalPriceCampaignForm.tsx"],
 ] as const;
 
 /**
@@ -115,7 +116,7 @@ test("🔴 cada tipo de campaña tiene SU PROPIA ilustración", () => {
   const src = leer("app/routes/app.campaigns._index.tsx");
 
   const usados = [...src.matchAll(/mockup=\{<(\w+) \/>\}/g)].map((m) => m[1]);
-  assert.ok(usados.length >= 6, `se esperaban 6 tarjetas de tipo, hay ${usados.length}`);
+  assert.ok(usados.length >= 7, `se esperaban 7 tarjetas de tipo, hay ${usados.length}`);
 
   const repetidos = usados.filter((m, i) => usados.indexOf(m) !== i);
   assert.deepEqual(
@@ -134,7 +135,7 @@ test("las ilustraciones comparten el mismo lenguaje visual", () => {
   // borde, misma píldora verde.
   const src = leer("app/routes/app.campaigns._index.tsx");
   const nombres = [...src.matchAll(/function (Mockup\w+)\(/g)].map((m) => m[1]);
-  assert.ok(nombres.length >= 6, `se esperaban 6 mockups, hay ${nombres.length}`);
+  assert.ok(nombres.length >= 7, `se esperaban 7 mockups, hay ${nombres.length}`);
 
   for (const n of nombres) {
     const desde = src.indexOf(`function ${n}(`);

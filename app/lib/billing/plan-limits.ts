@@ -10,7 +10,12 @@ export type Plan = (typeof PLANS)[number];
  * PERCENTAGE y RANGE quedan fuera a propósito: están en todos los planes y se
  * topan por cantidad de variantes, que es otro eje.
  */
-export type TypeLimitedCampaign = "BXGY" | "TIERED" | "PACK" | "CART_VALUE";
+export type TypeLimitedCampaign =
+  | "BXGY"
+  | "TIERED"
+  | "PACK"
+  | "CART_VALUE"
+  | "CODE_ORIGINAL_PRICE";
 
 /**
  * Qué puede hacer un plan con un tipo de campaña.
@@ -45,6 +50,7 @@ export const PLAN_LIMITS = {
       TIERED: { incluido: false },
       PACK: { incluido: false },
       CART_VALUE: { incluido: false },
+      CODE_ORIGINAL_PRICE: { incluido: false },
     },
     price: 0,
     trialDays: 0,
@@ -63,6 +69,8 @@ export const PLAN_LIMITS = {
       // desde LITE con un tope bajo. Si la tabla real dice otra cosa, se cambia
       // este renglon y el de `plan-limits.test.ts`: no hay un tercer sitio.
       CART_VALUE: { incluido: true, max: 2 },
+      // Decision de Jonas del 2026-09-05: solo ESSENTIAL y PROFESSIONAL.
+      CODE_ORIGINAL_PRICE: { incluido: false },
     },
     price: 9.99,
     trialDays: 0,
@@ -78,6 +86,8 @@ export const PLAN_LIMITS = {
       // Sin sublímite propio: lo acota el tope general de 50 campañas.
       PACK: { incluido: true, max: null },
       CART_VALUE: { incluido: true, max: null },
+      // Sin sublimite propio: un merchant puede tener un cupon por influencer.
+      CODE_ORIGINAL_PRICE: { incluido: true, max: null },
     },
     price: 27.99,
     trialDays: 0,
@@ -92,6 +102,8 @@ export const PLAN_LIMITS = {
       TIERED: { incluido: true, max: null },
       PACK: { incluido: true, max: null },
       CART_VALUE: { incluido: true, max: null },
+      // Sin sublimite propio: un merchant puede tener un cupon por influencer.
+      CODE_ORIGINAL_PRICE: { incluido: true, max: null },
     },
     price: 44.99,
     trialDays: 0,
@@ -109,7 +121,8 @@ export function esTipoLimitadoPorPlan(type: string): type is TypeLimitedCampaign
     type === "BXGY" ||
     type === "TIERED" ||
     type === "PACK" ||
-    type === "CART_VALUE"
+    type === "CART_VALUE" ||
+    type === "CODE_ORIGINAL_PRICE"
   );
 }
 

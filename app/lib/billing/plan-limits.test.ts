@@ -28,13 +28,19 @@ import {
  *   null       → incluido, sin sublímite propio
  */
 const TABLA: Record<Plan, Record<TypeLimitedCampaign, false | number | null>> = {
-  FREE: { BXGY: false, TIERED: false, PACK: false, CART_VALUE: false },
-  LITE: { BXGY: 4, TIERED: 2, PACK: false, CART_VALUE: 2 },
-  ESSENTIAL: { BXGY: 10, TIERED: 10, PACK: null, CART_VALUE: null },
-  PROFESSIONAL: { BXGY: null, TIERED: null, PACK: null, CART_VALUE: null },
+  FREE: { BXGY: false, TIERED: false, PACK: false, CART_VALUE: false, CODE_ORIGINAL_PRICE: false },
+  LITE: { BXGY: 4, TIERED: 2, PACK: false, CART_VALUE: 2, CODE_ORIGINAL_PRICE: false },
+  ESSENTIAL: { BXGY: 10, TIERED: 10, PACK: null, CART_VALUE: null, CODE_ORIGINAL_PRICE: null },
+  PROFESSIONAL: { BXGY: null, TIERED: null, PACK: null, CART_VALUE: null, CODE_ORIGINAL_PRICE: null },
 };
 
-const TIPOS: TypeLimitedCampaign[] = ["BXGY", "TIERED", "PACK", "CART_VALUE"];
+const TIPOS: TypeLimitedCampaign[] = [
+  "BXGY",
+  "TIERED",
+  "PACK",
+  "CART_VALUE",
+  "CODE_ORIGINAL_PRICE",
+];
 
 test("la regla de cada plan coincide con la tabla de planes decidida", () => {
   for (const plan of PLANS) {

@@ -9,6 +9,8 @@ import type {
   CampanasQuePuedenChocar,
 } from "../../components/CartValueCampaignForm";
 
+export type { PackParaExcluir, CampanasQuePuedenChocar };
+
 /**
  * Qué otras campañas activas pueden interferir con un descuento por monto.
  *

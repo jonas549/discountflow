@@ -23,7 +23,9 @@
       "routes/auth.login": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/auth.$": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/_index": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/app.campaigns.$id.edit_.original-price": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/app.campaigns.$id.edit_.cart-value": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/app.campaigns.new.original-price": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/app.campaigns.$id.edit_.tiered": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/app.campaigns.$id.edit_.range": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/app.campaigns.$id.edit_.bxgy": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
@@ -174,11 +176,29 @@
         "path": "app",
         "config": {}
       },
+      "routes/app.campaigns.$id.edit_.original-price": {
+        "id": "routes/app.campaigns.$id.edit_.original-price",
+        "parentId": "routes/app",
+        "file": "app/routes/app.campaigns.$id.edit_.original-price.tsx",
+        "path": "campaigns/:id/edit/original-price",
+        "config": {
+          "runtime": "nodejs"
+        }
+      },
       "routes/app.campaigns.$id.edit_.cart-value": {
         "id": "routes/app.campaigns.$id.edit_.cart-value",
         "parentId": "routes/app",
         "file": "app/routes/app.campaigns.$id.edit_.cart-value.tsx",
         "path": "campaigns/:id/edit/cart-value",
+        "config": {
+          "runtime": "nodejs"
+        }
+      },
+      "routes/app.campaigns.new.original-price": {
+        "id": "routes/app.campaigns.new.original-price",
+        "parentId": "routes/app",
+        "file": "app/routes/app.campaigns.new.original-price.tsx",
+        "path": "campaigns/new/original-price",
         "config": {
           "runtime": "nodejs"
         }
@@ -451,11 +471,23 @@
         "file": "routes/app.tsx",
         "path": "app"
       },
+      "routes/app.campaigns.$id.edit_.original-price": {
+        "id": "routes/app.campaigns.$id.edit_.original-price",
+        "parentId": "routes/app",
+        "file": "routes/app.campaigns.$id.edit_.original-price.tsx",
+        "path": "campaigns/:id/edit/original-price"
+      },
       "routes/app.campaigns.$id.edit_.cart-value": {
         "id": "routes/app.campaigns.$id.edit_.cart-value",
         "parentId": "routes/app",
         "file": "routes/app.campaigns.$id.edit_.cart-value.tsx",
         "path": "campaigns/:id/edit/cart-value"
+      },
+      "routes/app.campaigns.new.original-price": {
+        "id": "routes/app.campaigns.new.original-price",
+        "parentId": "routes/app",
+        "file": "routes/app.campaigns.new.original-price.tsx",
+        "path": "campaigns/new/original-price"
       },
       "routes/app.campaigns.$id.edit_.tiered": {
         "id": "routes/app.campaigns.$id.edit_.tiered",
@@ -653,9 +685,19 @@
             "path": "app",
             "children": [
               {
+                "id": "routes/app.campaigns.$id.edit_.original-price",
+                "file": "routes/app.campaigns.$id.edit_.original-price.tsx",
+                "path": "campaigns/:id/edit/original-price"
+              },
+              {
                 "id": "routes/app.campaigns.$id.edit_.cart-value",
                 "file": "routes/app.campaigns.$id.edit_.cart-value.tsx",
                 "path": "campaigns/:id/edit/cart-value"
+              },
+              {
+                "id": "routes/app.campaigns.new.original-price",
+                "file": "routes/app.campaigns.new.original-price.tsx",
+                "path": "campaigns/new/original-price"
               },
               {
                 "id": "routes/app.campaigns.$id.edit_.tiered",

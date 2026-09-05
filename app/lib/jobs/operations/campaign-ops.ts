@@ -37,6 +37,7 @@ import {
 import type { TieredCampaignConfig } from "../../discounts/tiered-client.ts";
 import type { PackCampaignConfig } from "../../discounts/pack-client.ts";
 import type { CartValueCampaignConfig } from "../../discounts/cart-value-client.ts";
+import type { OriginalPriceCampaignConfig } from "../../discounts/original-price-client.ts";
 
 // bxgy.ts y tiered.ts se cargan de forma DINÁMICA, no con un import estático.
 //
@@ -55,6 +56,7 @@ const packOps = () => import("../../discounts/pack.ts");
 // Mismo motivo que los tres de arriba: importa `../db` sin extension.
 const packWidget = () => import("../../discounts/pack-widget-metafield.server.ts");
 const cartValueOps = () => import("../../discounts/cart-value.ts");
+const cuponOps = () => import("../../discounts/original-price.ts");
 import { JobFatalError } from "../errors.ts";
 import { applyPercentCents, centsToString, toCents } from "../money.ts";
 import type {
@@ -503,6 +505,22 @@ export const reactivateHandler: JobHandler = {
         ctx.campaign.endsAt
       );
       await cv.activateCartValueDiscount(ctx.admin, id);
+    } else if (ctx.campaign.type === "CODE_ORIGINAL_PRICE") {
+      // Igual que los otros tres: se reescribe la configuracion antes de
+      // activar, para que el descuento refleje lo ultimo que guardo el merchant
+      // y no lo que habia cuando se creo. Aca ademas eso incluye el CODIGO, que
+      // el merchant puede haber cambiado mientras la campana estaba pausada.
+      const cp = await cuponOps();
+      await cp.updateOriginalPriceDiscount(
+        ctx.admin,
+        ctx.campaign.id,
+        ctx.campaign.name,
+        id,
+        ctx.campaign.config as OriginalPriceCampaignConfig,
+        ctx.campaign.startsAt,
+        ctx.campaign.endsAt
+      );
+      await cp.activateOriginalPriceDiscount(ctx.admin, id);
     } else {
       await (await bxgyOps()).activateBxgyDiscount(ctx.admin, id);
     }
@@ -541,6 +559,8 @@ export const revertHandler: JobHandler = {
       await (await packWidget()).sincronizarMetafieldDeWidget(ctx.admin, ctx.campaign.shopId);
     } else if (ctx.campaign.type === "CART_VALUE")
       await (await cartValueOps()).deactivateCartValueDiscount(ctx.admin, id);
+    else if (ctx.campaign.type === "CODE_ORIGINAL_PRICE")
+      await (await cuponOps()).deactivateOriginalPriceDiscount(ctx.admin, id);
     else await (await bxgyOps()).deactivateBxgyDiscount(ctx.admin, id);
     await markSingleDone(ctx);
     return { succeeded: units, failures: [] };
@@ -580,6 +600,8 @@ export const deleteHandler: JobHandler = {
           await (await packOps()).deletePackDiscount(ctx.admin, id);
         else if (ctx.campaign.type === "CART_VALUE")
           await (await cartValueOps()).deleteCartValueDiscount(ctx.admin, id);
+        else if (ctx.campaign.type === "CODE_ORIGINAL_PRICE")
+          await (await cuponOps()).deleteOriginalPriceDiscount(ctx.admin, id);
         else await (await bxgyOps()).deleteBxgyDiscount(ctx.admin, id);
       } catch {
         // El descuento puede haber sido borrado ya desde el admin de Shopify.

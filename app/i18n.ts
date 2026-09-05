@@ -60,6 +60,12 @@ export const es = {
         "El comprador elige productos de una lista que vos curás y ve el descuento crecer en vivo.",
       ejemplo: "Arma tu rutina: 2 productos 10%, 3 productos 20%",
     },
+    cupon: {
+      titulo: "Cupón sobre precio original",
+      descripcion:
+        "El código de tu influencer descuenta sobre el precio de lista, no sobre el ya rebajado. Dejás de regalar dos veces.",
+      ejemplo: "Producto de $100 hoy a $85: el cupón del 10% descuenta $10, no $8,50",
+    },
     valorCarrito: {
       titulo: "Descuento por monto de compra",
       descripcion:
@@ -509,6 +515,95 @@ export const es = {
     errFechas: "La fecha de fin debe ser posterior a la de inicio.",
   },
 
+  nuevoCupon: {
+    titulo: "Nuevo cupón sobre precio original",
+    tituloEditar: "Editar cupón sobre precio original",
+    volver: "← Volver a campañas",
+
+    secInfoGeneral: "Información general",
+    nombreLabel: "Nombre de la campaña",
+    nombreHelper:
+      "Solo lo ves tú. Poné el nombre del influencer para reconocerlo en la analítica.",
+    nombrePlaceholder: "Ej. Cupón de María",
+    mensajeLabel: "Texto que ve el comprador",
+    mensajeHelper: "Aparece junto al descuento en el carrito y el checkout.",
+
+    secCodigo: "El código",
+    codigoLabel: "Código del cupón",
+    codigoHelper:
+      "Es lo que escribe el comprador. Letras, números, punto, guion y guion bajo. Se guarda en mayúsculas.",
+    codigoPlaceholder: "MARIA10",
+    codigoUno:
+      "Un código por campaña. Si querés medir a cada influencer por separado, creá una campaña para cada uno: la analítica es por campaña.",
+
+    secDescuento: "El descuento",
+    porcentajeLabel: "Porcentaje sobre el precio original",
+    porcentajeHelper:
+      "Se calcula sobre el precio comparativo (el tachado), no sobre el precio rebajado.",
+    comoFunciona:
+      "Si un producto de $100 está hoy a $85, un cupón normal de Shopify descontaría $8,50. Éste descuenta $10, que es el 10% del precio original.",
+    sinComparativo:
+      "En los productos sin precio comparativo no hay precio original que recuperar: el cupón se calcula sobre el precio actual, como uno normal.",
+
+    secExclusiones: "Cuándo NO aplicar este descuento",
+    exclusionesHelper:
+      "Si el comprador tiene en el carrito un pack de los que marques, este cupón no se aplica. Los que dejes sin marcar se suman al descuento del pack.",
+    exclusionNoAplicar: "No aplicar si está aplicando",
+    exclusionesSoloPacks:
+      "Solo aparecen packs: son las únicas campañas que dejan una marca en las líneas del carrito, y sin esa marca no hay forma de saber desde el checkout si están aplicando.",
+    avisoBloqueantes: (campanas: string) =>
+      `Estas campañas anulan este cupón y no se puede evitar desde acá: ${campanas}. Si alguna está aplicando en el carrito, el cupón no se suma.`,
+
+    secProgramacion: "Programar campaña",
+    fechaInicioLabel: "Fecha de inicio",
+    fechaInicioHelper: "Vacío = empieza de inmediato.",
+    fechaFinLabel: "Fecha de fin",
+    fechaFinHelper: "Vacío = sin fecha de fin.",
+
+    previewTitulo: "Vista previa",
+    previewHelper: "Un producto de $100 rebajado hoy a $85.",
+    previewPrecioLista: "Precio de lista",
+    previewPrecioHoy: "Precio hoy",
+    previewCupon: "Este cupón",
+    previewCuponNormal: "Un cupón normal",
+    previewPaga: "El comprador paga",
+    previewExtra: (monto: string) => `${monto} más de descuento que un cupón normal.`,
+
+    resumenTitulo: "Resumen",
+    resumenNombre: "Nombre",
+    resumenTipo: "Tipo",
+    resumenTipoCupon: "Cupón sobre precio original",
+    resumenCodigo: "Código",
+    resumenDescuento: "Descuento",
+    resumenBase: "Se calcula sobre",
+    resumenBaseValor: "El precio comparativo",
+    resumenExcluye: "Excluye",
+    resumenSinExclusiones: "Ninguna",
+    resumenExcluyePacks: (n: number) => (n === 1 ? "1 pack" : `${n} packs`),
+    resumenInicio: "Inicio",
+    resumenFin: "Fin",
+    resumenInmediato: "Inmediato",
+    resumenSinFin: "Sin fecha de fin",
+    sinDefinir: "Sin definir",
+
+    avisoCarrito:
+      "El descuento se aplica cuando el comprador escribe el código en el carrito o el checkout. Los precios de las páginas de producto no cambian.",
+    avisoSinBloque:
+      "No hace falta tocar el tema: este tipo de campaña no usa ningún bloque en la tienda.",
+
+    btnCancelar: "Cancelar",
+    btnBorrador: "Guardar borrador",
+    btnActivar: "Activar campaña",
+    btnGuardar: "Guardar cambios",
+    btnCargando: "Guardando…",
+
+    errNombre: "Ponle un nombre a la campaña.",
+    errCodigoVacio: "Escribí el código que va a usar el comprador.",
+    errCodigoFormato:
+      "El código puede llevar letras, números, punto, guion y guion bajo, y necesita al menos 3 caracteres.",
+    errFechas: "La fecha de fin debe ser posterior a la de inicio.",
+  },
+
   nuevoValorCarrito: {
     titulo: "Nueva campaña por monto de compra",
     tituloEditar: "Editar descuento por monto",
@@ -720,6 +815,7 @@ export function tipoLabel(type: string): string {
     TIERED: "Escalonado",
     PACK: "Pack armable",
     CART_VALUE: "Monto de compra",
+    CODE_ORIGINAL_PRICE: "Cupón sobre precio original",
   };
   return map[type] ?? type;
 }

@@ -60,6 +60,7 @@ enum CampaignType {
   TIERED
   PACK
   CART_VALUE
+  CODE_ORIGINAL_PRICE
 }
 
 enum CampaignStatus {

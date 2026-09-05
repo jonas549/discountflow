@@ -23,6 +23,17 @@ import {
   type CartValueCampaignConfig,
 } from "../lib/discounts/cart-value-client";
 import {
+  createOriginalPriceDiscount,
+  updateOriginalPriceDiscount,
+  activateOriginalPriceDiscount,
+  deactivateOriginalPriceDiscount,
+  deleteOriginalPriceDiscount,
+} from "../lib/discounts/original-price";
+import {
+  originalPriceLabel,
+  type OriginalPriceCampaignConfig,
+} from "../lib/discounts/original-price-client";
+import {
   revertPercentageDiscount,
   reactivatePercentageDiscount,
 } from "../lib/discounts/percentage";
@@ -219,6 +230,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const packId = (campaign.config as PackCampaignConfig).shopifyDiscountId;
   // CART_VALUE es el primero de clase ORDER, pero se gestiona igual.
   const cartValueId = (campaign.config as CartValueCampaignConfig).shopifyDiscountId;
+  // 🔴 CODE_ORIGINAL_PRICE es de CODIGO, no automatico: sus mutaciones son
+  // `discountCode*` y no `discountAutomatic*`. Ver `original-price.ts`.
+  const cuponId = (campaign.config as OriginalPriceCampaignConfig).shopifyDiscountId;
 
   try {
     // ── Camino con barra de progreso ──────────────────────────────────────────
@@ -273,6 +287,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         await deactivatePackDiscount(admin, exigirDescuento(packId));
       } else if (campaign.type === "CART_VALUE") {
         await deactivateCartValueDiscount(admin, exigirDescuento(cartValueId));
+      } else if (campaign.type === "CODE_ORIGINAL_PRICE") {
+        await deactivateOriginalPriceDiscount(admin, exigirDescuento(cuponId));
       }
       await prisma.campaign.update({ where: { id: campaignId }, data: { status: "PAUSED" } });
     } else if (actionType === "activate" && campaign.status === "DRAFT") {
@@ -380,6 +396,28 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             campaign.endsAt
           );
         }
+      } else if (campaign.type === "CODE_ORIGINAL_PRICE") {
+        if (cuponId) {
+          await updateOriginalPriceDiscount(
+            admin,
+            campaignId,
+            campaign.name,
+            cuponId,
+            campaign.config as OriginalPriceCampaignConfig,
+            campaign.startsAt,
+            campaign.endsAt
+          );
+          await activateOriginalPriceDiscount(admin, cuponId);
+        } else {
+          await createOriginalPriceDiscount(
+            admin,
+            campaignId,
+            campaign.name,
+            campaign.config as OriginalPriceCampaignConfig,
+            campaign.startsAt,
+            campaign.endsAt
+          );
+        }
       } else {
         return Response.json(
           {
@@ -458,6 +496,18 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           campaign.endsAt
         );
         await activateCartValueDiscount(admin, idCv);
+      } else if (campaign.type === "CODE_ORIGINAL_PRICE") {
+        const idCupon = exigirDescuento(cuponId);
+        await updateOriginalPriceDiscount(
+          admin,
+          campaignId,
+          campaign.name,
+          idCupon,
+          campaign.config as OriginalPriceCampaignConfig,
+          campaign.startsAt,
+          campaign.endsAt
+        );
+        await activateOriginalPriceDiscount(admin, idCupon);
       }
       await prisma.campaign.update({ where: { id: campaignId }, data: { status: "ACTIVE" } });
     } else if (actionType === "delete") {
@@ -474,6 +524,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           try { await deletePackDiscount(admin, packId); } catch { /* discount may already be gone */ }
         } else if (campaign.type === "CART_VALUE" && cartValueId) {
           try { await deleteCartValueDiscount(admin, cartValueId); } catch { /* discount may already be gone */ }
+        } else if (campaign.type === "CODE_ORIGINAL_PRICE" && cuponId) {
+          try { await deleteOriginalPriceDiscount(admin, cuponId); } catch { /* discount may already be gone */ }
         }
       }
       await prisma.campaign.delete({ where: { id: campaignId } });
@@ -894,6 +946,89 @@ function MockupValorCarrito() {
           </span>
         </div>
       ))}
+    </div>
+  );
+}
+
+/**
+ * Mockup del cupon sobre precio original.
+ *
+ * 🔴 Tiene que leerse distinto de los otros cinco, porque el tipo ES distinto:
+ * aca no hay niveles ni cantidades. Hay UN codigo y una comparacion — de que
+ * precio se calcula el descuento. Por eso la ilustracion es un codigo arriba y
+ * dos lineas debajo: el precio tachado, que es la base que usamos, y el precio
+ * de hoy, que es la base que usaria Shopify. Mismo lenguaje visual que las
+ * otras (fondo #f8fafb, pildora verde), distinta lectura de un vistazo.
+ */
+function MockupCupon() {
+  return (
+    <div
+      style={{
+        background: "#f8fafb",
+        border: "1px solid #e1e3e5",
+        borderRadius: "8px",
+        padding: "12px 14px",
+        marginBottom: "16px",
+      }}
+    >
+      {/* El codigo: es lo primero que reconoce el merchant. */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "8px",
+          paddingBottom: "8px",
+          borderBottom: "1px solid #edeef0",
+        }}
+      >
+        <span
+          style={{
+            fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+            fontSize: "11px",
+            fontWeight: 700,
+            color: "#202223",
+            background: "#ffffff",
+            border: "1px dashed #c9cccf",
+            borderRadius: "4px",
+            padding: "2px 8px",
+            letterSpacing: "0.08em",
+          }}
+        >
+          MARIA10
+        </span>
+        <span
+          style={{
+            background: "#e8f5e9",
+            color: "#2e7d32",
+            fontSize: "9px",
+            fontWeight: "700",
+            padding: "1px 6px",
+            borderRadius: "8px",
+          }}
+        >
+          10%
+        </span>
+      </div>
+
+      {/* Las dos bases: la que usamos (tachada, la de lista) y la de hoy. */}
+      <div style={{ display: "flex", alignItems: "center", gap: "8px", paddingTop: "8px" }}>
+        <span
+          style={{
+            fontSize: "12px",
+            color: "#2e7d32",
+            fontWeight: 700,
+            textDecoration: "line-through",
+          }}
+        >
+          $100
+        </span>
+        <span style={{ fontSize: "9px", color: "#6d7175" }}>base del cupon</span>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: "8px", paddingTop: "3px" }}>
+        <span style={{ fontSize: "12px", color: "#8c9196" }}>$85</span>
+        <span style={{ fontSize: "9px", color: "#c9cccf" }}>precio de hoy</span>
+      </div>
     </div>
   );
 }
@@ -1323,6 +1458,13 @@ export default function Campaigns() {
             ejemplo={es.campanas.valorCarrito.ejemplo}
             href="/app/campaigns/new/cart-value"
           />
+          <CampaignCard
+            mockup={<MockupCupon />}
+            title={es.campanas.cupon.titulo}
+            description={es.campanas.cupon.descripcion}
+            ejemplo={es.campanas.cupon.ejemplo}
+            href="/app/campaigns/new/original-price"
+          />
         </div>
       </s-section>
 
@@ -1393,7 +1535,15 @@ export default function Campaigns() {
                       ? packDiscountLabel(c.config as PackCampaignConfig)
                       : c.type === "CART_VALUE"
                       ? cartValueLabel(c.config as CartValueCampaignConfig)
+                      : c.type === "CODE_ORIGINAL_PRICE"
+                      ? originalPriceLabel(c.config as OriginalPriceCampaignConfig)
                       : "—";
+                  // El codigo del cupon, para que el merchant reconozca a su
+                  // influencer en la fila sin tener que abrir la campana.
+                  const codigoCupon =
+                    c.type === "CODE_ORIGINAL_PRICE"
+                      ? (c.config as OriginalPriceCampaignConfig).code
+                      : null;
                   const editHref =
                     c.type === "BXGY"
                       ? `/app/campaigns/${c.id}/edit/bxgy`
@@ -1405,6 +1555,8 @@ export default function Campaigns() {
                       ? `/app/campaigns/${c.id}/edit/pack`
                       : c.type === "CART_VALUE"
                       ? `/app/campaigns/${c.id}/edit/cart-value`
+                      : c.type === "CODE_ORIGINAL_PRICE"
+                      ? `/app/campaigns/${c.id}/edit/original-price`
                       : `/app/campaigns/${c.id}/edit`;
                   const jobId = jobIdFor(c);
                   return (
@@ -1454,7 +1606,28 @@ export default function Campaigns() {
                           {estadoLabel(c.status)}
                         </span>
                       </td>
-                      <td style={{ padding: "12px", color: "#6d7175" }}>{discount}</td>
+                      <td style={{ padding: "12px", color: "#6d7175" }}>
+                        {codigoCupon && (
+                          <span
+                            style={{
+                              display: "inline-block",
+                              fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+                              fontSize: "12px",
+                              fontWeight: 600,
+                              color: "#202223",
+                              background: "#f1f2f3",
+                              border: "1px solid #e1e3e5",
+                              borderRadius: "4px",
+                              padding: "1px 6px",
+                              marginRight: "8px",
+                              letterSpacing: "0.04em",
+                            }}
+                          >
+                            {codigoCupon}
+                          </span>
+                        )}
+                        {discount}
+                      </td>
                       <td style={{ padding: "12px", color: "#6d7175" }}>
                         {/* TIERED y PACK no crean filas en CampaignProduct:
                             su conteo sale del config. El resto no se toca. */}
@@ -1464,6 +1637,8 @@ export default function Campaigns() {
                           ? packProductsLabel(c.config as PackCampaignConfig)
                           : c.type === "CART_VALUE"
                           ? "Todo el carrito"
+                          : c.type === "CODE_ORIGINAL_PRICE"
+                          ? "Toda la tienda"
                           : c.productsCount}
                       </td>
                       <td
@@ -1529,7 +1704,8 @@ export default function Campaigns() {
                               (c.type === "BXGY" ||
                                 c.type === "TIERED" ||
                                 c.type === "PACK" ||
-                                c.type === "CART_VALUE"))) && (
+                                c.type === "CART_VALUE" ||
+                                c.type === "CODE_ORIGINAL_PRICE"))) && (
                             <Btn
                               variant="primary"
                               size="sm"

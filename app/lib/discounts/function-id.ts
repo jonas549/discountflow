@@ -30,6 +30,7 @@ export const TIERED_FUNCTION_HANDLE = "tiered-discount";
 export const PACK_FUNCTION_HANDLE = "pack-discount";
 /** El handle de la extension, no el de la campana: ver el .toml. */
 export const CART_VALUE_FUNCTION_HANDLE = "order-discount";
+export const ORIGINAL_PRICE_FUNCTION_HANDLE = "code-original-price";
 
 type ShopifyFunctionNode = { id: string; title: string; apiType: string };
 
