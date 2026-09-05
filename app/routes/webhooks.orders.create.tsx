@@ -11,6 +11,11 @@ import {
   packDiscountMessage,
   type PackCampaignConfig,
 } from "../lib/discounts/pack-client";
+import {
+  atribuirPacks,
+  leerPropiedadDeLinea,
+  type LineaDePedido,
+} from "../lib/discounts/pack-attribution";
 
 // Campos del payload orders/create que necesitamos (sin PII de cliente).
 // Level 1 Protected Customer Data — aprobado 2026-05.
@@ -47,30 +52,6 @@ interface OrderPayload {
       discount_application_index: number;
     }>;
   }>;
-}
-
-/**
- * Lee una propiedad de línea sin depender de su forma.
- *
- * El payload REST manda `[{name, value}]`; la Ajax Cart API, `{clave: valor}`.
- * Este webhook solo ve la primera, pero aceptar las dos cuesta tres líneas y
- * evita que un cambio de forma vuelva a producir un cero silencioso.
- */
-function leerPropiedad(
-  properties:
-    | Array<{ name: string; value: string }>
-    | Record<string, string>
-    | null
-    | undefined,
-  clave: string
-): string | null {
-  if (!properties) return null;
-  if (Array.isArray(properties)) {
-    const encontrada = properties.find((p) => p && p.name === clave);
-    return encontrada?.value ?? null;
-  }
-  const valor = properties[clave];
-  return typeof valor === "string" && valor ? valor : null;
 }
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -318,110 +299,76 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   // ── 4. Campañas PACK (packs armables) ────────────────────────────────────
   //
-  // Esta es la atribución más EXACTA de las cuatro, y por un motivo concreto:
-  // la línea del pedido lleva escrito el id de la campaña en la propiedad
-  // `_df_pack`, que puso el widget al agregar al carrito. No hay que deducir
-  // nada.
+  // La decisión vive en `pack-attribution.ts`, módulo PURO y con tests.
   //
-  // Comparado con el resto:
-  //   · PERCENTAGE/RANGE cruzan variantes contra CampaignProduct.
-  //   · TIERED cruza PRODUCTOS y descarta por título, porque el título es
-  //     idéntico en todas sus campañas — y si dos pueden explicar el mismo
-  //     descuento, no atribuye a ninguna.
-  //   · PACK lee el id. Cero ambigüedad, cero heurística.
-  //
-  // El importe sale de las `discount_allocations` de cada línea, filtradas por
-  // el título de NUESTRO descuento: una línea puede llevar encima descuentos de
-  // otras apps o del merchant, y sumarlos todos inflaría el ahorro atribuido.
-  //
-  // La campaña se busca por id SIN filtrar por estado: el pedido ocurrió cuando
-  // estaba activa, y pausarla después no debe borrar su historial de ventas.
+  // 🔴 Por qué está extraído: este código **no se puede ejercitar en dev**. El
+  // webhook `orders/create` está sin suscribir en la app Dev por falta de
+  // Protected Customer Data (comentado en `shopify.app.dev.toml` desde el
+  // 2026-07-24), así que en dev el pedido se completa, el descuento se aplica y
+  // el webhook nunca llega. La primera vez que esto corre de verdad es en
+  // producción, sobre el pedido de un cliente. Ese es justo el código que no
+  // puede vivir sin tests dentro de una ruta.
 
-  const lineasDePack = order.line_items
-    .map((lineItem, lineIndex) => ({
-      lineIndex,
-      lineItem,
-      campaignId: leerPropiedad(lineItem.properties, PACK_LINE_ATTRIBUTE),
-    }))
-    .filter((l) => l.campaignId !== null);
+  const lineasDePack = (order.line_items as LineaDePedido[]).filter(
+    (li) => leerPropiedadDeLinea(li.properties, PACK_LINE_ATTRIBUTE) !== null
+  );
 
   if (lineasDePack.length > 0) {
-    const idsDeCampana = [...new Set(lineasDePack.map((l) => l.campaignId!))];
+    const idsDeCampana = [
+      ...new Set(
+        lineasDePack
+          .map((li) => leerPropiedadDeLinea(li.properties, PACK_LINE_ATTRIBUTE)!)
+      ),
+    ];
 
+    // Sin filtrar por estado: el pedido ocurrió cuando la campaña estaba activa,
+    // y pausarla después no debe borrar su historial de ventas.
     const packCampaigns = await prisma.campaign.findMany({
       where: { shopId: shopRecord.id, type: "PACK", id: { in: idsDeCampana } },
     });
-    const porId = new Map(packCampaigns.map((c) => [c.id, c]));
 
-    const totalesPack = new Map<
-      string,
-      { orderAmount: number; discountAmount: number; lines: Set<number> }
-    >();
-    // Líneas que declaran un pack cuya campaña ya no existe en la base. No es
-    // un error del que haya que quejarse —el merchant pudo borrar la campaña—,
-    // pero sí conviene que quede contado en el log.
-    let lineasHuerfanas = 0;
-
-    for (const { lineIndex, lineItem, campaignId } of lineasDePack) {
-      const campaign = porId.get(campaignId!);
-      if (!campaign) {
-        lineasHuerfanas++;
-        continue;
-      }
-
-      const mensaje = packDiscountMessage(campaign.config as PackCampaignConfig);
-
-      const acc = totalesPack.get(campaign.id) ?? {
-        orderAmount: 0,
-        discountAmount: 0,
-        lines: new Set<number>(),
-      };
-
-      if (!acc.lines.has(lineIndex)) {
-        acc.lines.add(lineIndex);
-        acc.orderAmount += Number(lineItem.price) * lineItem.quantity;
-      }
-
-      for (const allocation of lineItem.discount_allocations ?? []) {
-        const app = applications[allocation.discount_application_index];
-        if (!app || app.type !== "automatic") continue;
-        // Solo las asignaciones de NUESTRO descuento de pack.
-        if (app.title !== mensaje) continue;
-        acc.discountAmount += Number(allocation.amount);
-      }
-
-      totalesPack.set(campaign.id, acc);
-    }
+    const resultado = atribuirPacks(
+      order.line_items as LineaDePedido[],
+      applications,
+      packCampaigns.map((c) => ({
+        id: c.id,
+        name: c.name,
+        message: packDiscountMessage(c.config as PackCampaignConfig),
+      })),
+      PACK_LINE_ATTRIBUTE
+    );
 
     console.log(
       "[pack-attribution]",
       JSON.stringify({
-        lineasConMarca: lineasDePack.length,
-        lineasHuerfanas,
-        titulosAutomaticos: applications
-          .filter((a) => a.type === "automatic")
-          .map((a) => a.title),
-        atribuido: [...totalesPack.entries()].map(([id, acc]) => ({
-          campana: porId.get(id)?.name,
-          lineas: acc.lines.size,
-          orderAmount: acc.orderAmount,
-          discountAmount: acc.discountAmount,
+        lineasConMarca: resultado.lineasConMarca,
+        lineasHuerfanas: resultado.lineasHuerfanas,
+        // 🔴 Si esto viene lleno y el importe sale 0, la suposición de que
+        // Shopify publica el `message` de la Function como `title` es falsa
+        // para PACK, y acá está el valor real para corregirlo.
+        titulosNoReconocidos: resultado.titulosNoReconocidos,
+        atribuido: resultado.atribuciones.map((a) => ({
+          campana: packCampaigns.find((c) => c.id === a.campaignId)?.name,
+          lineas: a.lineas,
+          orderAmount: a.orderAmount,
+          discountAmount: a.discountAmount,
         })),
       })
     );
 
-    for (const [campaignId, acc] of totalesPack) {
-      if (acc.orderAmount <= 0) continue;
-
+    for (const a of resultado.atribuciones) {
       await prisma.orderAttribution.upsert({
         where: {
-          campaignId_shopifyOrderId: { campaignId, shopifyOrderId: orderId },
+          campaignId_shopifyOrderId: {
+            campaignId: a.campaignId,
+            shopifyOrderId: orderId,
+          },
         },
         create: {
-          campaignId,
+          campaignId: a.campaignId,
           shopifyOrderId: orderId,
-          orderAmount: acc.orderAmount,
-          discountAmount: acc.discountAmount,
+          orderAmount: a.orderAmount,
+          discountAmount: a.discountAmount,
           currency: order.currency ?? "USD",
         },
         update: {},

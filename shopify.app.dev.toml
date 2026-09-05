@@ -30,7 +30,31 @@ api_version = "2026-07"
   uri = "/webhooks/app/scopes_update"
   topics = ["app/scopes_update"]
 
-  # --- DEV: comentado temporalmente (requiere Protected Customer Data, no aprobado en app Dev) ---
+  # ── DEV: orders/create SIN SUSCRIBIR — requiere Protected Customer Data ─────
+  #
+  # 🔴 CONSECUENCIA PRÁCTICA, para no volver a perder una tarde:
+  #    LA ATRIBUCIÓN DE PEDIDOS NO SE PUEDE PROBAR EN DEV. Ni la de packs, ni la
+  #    de escalonados, ni la de porcentaje. El pedido se completa, el descuento
+  #    se aplica bien, y el webhook NO LLEGA NUNCA. El dashboard se queda en 0
+  #    pedidos y ROI N/A. No es un fallo del código.
+  #
+  # Y tampoco sirve leer el pedido por la API como sustituto: comprobado el
+  # 2026-09-05 contra la tienda de dev con el token real, devuelve
+  #
+  #    HTTP 403 — "This app is not approved to access REST endpoints with
+  #    protected customer data"
+  #
+  # El scope `read_orders` SÍ está concedido; lo que falta es la aprobación de
+  # PCD, y bloquea las dos vías. Ni siquiera en una development store.
+  #
+  # Para poder probarlo en dev hay que pedir el acceso:
+  #   Partner Dashboard → DiscountFlow Dev → API access →
+  #   Protected customer data access → solicitar Level 1
+  # y después DESCOMENTAR este bloque y reinstalar la app en la dev store.
+  #
+  # Producción sí lo tiene: `shopify.app.toml` lo declara y el Level 1 está
+  # aprobado desde mayo de 2026.
+  # ───────────────────────────────────────────────────────────────────────────
   # [[webhooks.subscriptions]]
   # uri = "/webhooks/orders/create"
   # topics = ["orders/create"]
