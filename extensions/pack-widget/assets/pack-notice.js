@@ -196,35 +196,78 @@
     }, 60);
   }
 
-  /** Intercepta las mutaciones de carrito sin alterar su comportamiento. */
+  /**
+   * Intercepta las mutaciones de carrito sin alterar su comportamiento.
+   *
+   * 🔴 REGRESIÓN DEL 2026-09-05, Y LA LECCIÓN QUE DEJÓ
+   *
+   * La primera versión hacía `fetchOriginal.apply(this, arguments)`. Este
+   * archivo está en modo estricto, así que en una llamada SIN calificar —
+   * `fetch(url)`, que es como llama el 99% del código, incluido nuestro propio
+   * widget— el receptor es `undefined`. Y `window.fetch` es una operación
+   * WebIDL con comprobación de receptor: invocarla con algo que no sea `window`
+   * lanza `TypeError: Illegal invocation`.
+   *
+   * O sea que el parcheo no rompía "un poco" nuestro widget: rompía **todas**
+   * las llamadas a `fetch` de la página — las del tema y las de cualquier otra
+   * app instalada. Es exactamente la regla que este mismo comentario decía
+   * respetar («estamos en casa de otro») y que la implementación incumplía.
+   *
+   * Ahora, tres defensas:
+   *   1. `bind(window)` de una vez: la cuestión del receptor deja de existir.
+   *   2. Todo lo NUESTRO va dentro de try/catch. Si algo de acá falla, la
+   *      petición del tema sigue su camino igual.
+   *   3. Solo se parchea si de verdad hay un aviso en la página. Sin bloque de
+   *      aviso no hay nada que refrescar, y no se toca el `fetch` de nadie.
+   */
   function observarCarrito() {
     if (window.__dfPackCartHook) return;
+    // Sin nodo de aviso no hay motivo para tocar el fetch de la página.
+    if (!document.querySelector("[data-df-pack-notice]")) return;
     window.__dfPackCartHook = true;
 
     try {
-      var fetchOriginal = window.fetch;
-      if (typeof fetchOriginal === "function") {
-        window.fetch = function (entrada, opciones) {
-          var url =
-            typeof entrada === "string"
-              ? entrada
-              : entrada && entrada.url
-              ? entrada.url
-              : "";
-          var promesa = fetchOriginal.apply(this, arguments);
-          if (esMutacionDeCarrito(url)) {
-            // `then` con los DOS caminos y re-lanzando: interceptar no puede
-            // convertir un fallo del tema en un éxito silencioso.
-            promesa.then(
-              function (res) {
-                programar();
-                return res;
-              },
-              function (err) {
-                throw err;
-              }
-            );
+      var fetchNativo = window.fetch;
+      if (typeof fetchNativo === "function") {
+        // 🔴 `bind(window)`: la llamada original nunca depende de cómo nos
+        // hayan invocado a nosotros.
+        var fetchOriginal = fetchNativo.bind(window);
+
+        window.fetch = function () {
+          var url = "";
+          try {
+            var entrada = arguments[0];
+            url =
+              typeof entrada === "string"
+                ? entrada
+                : entrada && entrada.url
+                ? entrada.url
+                : "";
+          } catch (e) {
+            /* leer el argumento no puede impedir la petición */
           }
+
+          var promesa = fetchOriginal.apply(null, arguments);
+
+          try {
+            if (esMutacionDeCarrito(url)) {
+              // Se observa con `then` de dos ramas y se re-lanza: interceptar no
+              // puede convertir un fallo del tema en un éxito silencioso, ni
+              // añadir un rechazo sin manejar.
+              promesa.then(
+                function (res) {
+                  programar();
+                  return res;
+                },
+                function (err) {
+                  throw err;
+                }
+              );
+            }
+          } catch (e) {
+            /* ídem: nuestro seguimiento no puede afectar al resultado */
+          }
+
           return promesa;
         };
       }

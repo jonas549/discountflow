@@ -60,6 +60,24 @@
   box-sizing: border-box;
 }
 
+/*
+ * 🔴 `hidden` tiene que ganar, y por sí solo NO gana.
+ *
+ * El atributo `hidden` se aplica con la regla `[hidden] { display: none }` de
+ * la hoja del navegador, que es un selector de atributo. `.df-pack` es un
+ * selector de CLASE y tiene más especificidad, así que `display: grid` lo
+ * pisaba: poner `root.hidden = true` desde el JS **no ocultaba nada** y dejaba
+ * una caja vacía con su padding.
+ *
+ * Se encontró diagnosticando el widget colgado del 2026-09-05. No era la causa
+ * de aquello, pero sí habría hecho que el camino de fallo se viera como un
+ * hueco en blanco en la tienda en vez de como nada.
+ */
+.df-pack[hidden],
+.df-pack-notice[hidden] {
+  display: none !important;
+}
+
 /* ── Encabezado ── */
 
 .df-pack__head {

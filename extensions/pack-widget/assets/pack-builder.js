@@ -16,6 +16,9 @@
 
   var Calc = window.DiscountFlowPackCalc;
 
+  /** Tope para que el spinner nunca sea eterno. Ver el vigilante en `load`. */
+  var TIEMPO_MAXIMO_MS = 10000;
+
   /**
    * Las clases con las que el TEMA pinta un botón.
    *
@@ -74,17 +77,42 @@
     var self = this;
     var url = this.proxy + (this.campaignId ? "?campaign=" + encodeURIComponent(this.campaignId) : "");
 
-    return fetch(url, { headers: { Accept: "application/json" } })
+    // 🔴 Vigilante: pase lo que pase, el bloque llega a un estado definitivo.
+    //
+    // El 2026-09-05 el widget se quedó eternamente en «Cargando tu pack…».
+    // La causa fue un parcheo de `window.fetch` que hacía que la llamada
+    // lanzara de forma SÍNCRONA: la excepción salía de `load()` antes de que
+    // hubiera cadena a la que enganchar el `.catch`, así que ni se pintaba ni
+    // se ocultaba. Un spinner eterno es la peor respuesta posible — no dice
+    // nada y no se puede diagnosticar.
+    //
+    // Esto lo cubre por construcción, sea cual sea la causa del cuelgue:
+    // un proxy que no responde, una red caída o un fallo que no previmos.
+    var vigilante = setTimeout(function () {
+      if (!self.pack) {
+        self.fallar("El pack tardó demasiado en cargar.", null);
+      }
+    }, TIEMPO_MAXIMO_MS);
+    var listo = function () {
+      clearTimeout(vigilante);
+    };
+
+    // `Promise.resolve().then(...)` convierte un throw SÍNCRONO de `fetch` en
+    // un rechazo normal, para que el `.catch` de abajo lo vea siempre.
+    return Promise.resolve()
+      .then(function () {
+        return fetch(url, { headers: { Accept: "application/json" } });
+      })
       .then(function (r) {
         if (!r.ok) throw new Error("proxy " + r.status);
         return r.json();
       })
       .then(function (data) {
+        listo();
         if (!data || !data.pack) {
           // Sin campaña activa el bloque desaparece en vez de mostrar un cascarón
           // vacío. El merchant lo ve en el editor de temas; el comprador, no.
-          self.root.innerHTML = "";
-          self.root.hidden = true;
+          self.ocultar();
           return;
         }
         self.pack = data.pack;
@@ -92,16 +120,30 @@
         self.refreshPrices();
       })
       .catch(function (err) {
-        self.root.innerHTML = "";
-        self.root.hidden = true;
-        // Visible solo para quien abra la consola. Un comprador no debe ver un
-        // error técnico, pero quien depure tiene que encontrar la causa rápido.
-        console.error(
-          "[DiscountFlow] No se pudo cargar el pack. Revisá que el App proxy " +
-            "apunte a la URL correcta (Partner Dashboard → App setup → App proxy).",
+        listo();
+        self.fallar(
+          "No se pudo cargar el pack. Revisá que el App proxy apunte a la URL " +
+            "correcta (Partner Dashboard → App setup → App proxy).",
           err
         );
       });
+  };
+
+  /** Deja el bloque sin rastro: ni contenido ni caja. */
+  PackWidget.prototype.ocultar = function () {
+    this.root.innerHTML = "";
+    this.root.hidden = true;
+  };
+
+  /**
+   * Falla en silencio para el comprador y en voz alta para quien depure.
+   *
+   * Un comprador no debe ver un error técnico; quien abra la consola tiene que
+   * encontrar la causa en un segundo.
+   */
+  PackWidget.prototype.fallar = function (mensaje, err) {
+    this.ocultar();
+    console.error("[DiscountFlow] " + mensaje, err || "");
   };
 
   /**
@@ -462,11 +504,20 @@
   };
 
   function init() {
+    var roots = document.querySelectorAll("[data-df-pack]");
+
     if (!Calc) {
+      // Antes esto solo se registraba en consola y el bloque se quedaba con el
+      // «Cargando…» para siempre. Ahora también se retira: un estado indefinido
+      // es peor que ninguno.
       console.error("[DiscountFlow] pack-calc.js no cargó: el widget no puede calcular.");
+      for (var j = 0; j < roots.length; j++) {
+        roots[j].innerHTML = "";
+        roots[j].hidden = true;
+      }
       return;
     }
-    var roots = document.querySelectorAll("[data-df-pack]");
+
     for (var i = 0; i < roots.length; i++) {
       if (roots[i].dataset.dfPackReady) continue;
       roots[i].dataset.dfPackReady = "1";
