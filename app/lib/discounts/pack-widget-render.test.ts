@@ -295,3 +295,89 @@ test("sin nada en el carrito arranca vacío y pide el mínimo", async () => {
   assert.match(t, /Agregá 2 productos más/);
   assert.equal(buscar(raiz, "df-pack__bar-fill")!.style.width, "0%");
 });
+
+// ─── 4. La estructura del wireframe móvil ────────────────────────────────────
+//
+// El widget se entregó tres veces sin coincidir con el wireframe: faltaba el
+// botón de comprar, el panel «Tu pack» no tenía desglose y las tarjetas eran
+// altas en vez de filas compactas. Estas pruebas fijan los ELEMENTOS; el sitio
+// donde caen es CSS y sigue sin poder comprobarse sin un navegador.
+
+/** Todos los nodos del árbol cuya clase contenga `cls`. */
+function buscarTodos(raiz: Nodo, cls: string, acc: Nodo[] = []): Nodo[] {
+  if ((raiz.className || "").split(/\s+/).includes(cls)) acc.push(raiz);
+  for (const h of raiz.hijos) buscarTodos(h, cls, acc);
+  return acc;
+}
+
+test("el panel se llama «Tu pack» y trae el contador al lado", async () => {
+  const raiz = await montarWidget([1, 2]);
+  const cabecera = buscar(raiz, "df-pack__panel-head");
+  assert.ok(cabecera, "falta el encabezado del panel");
+  assert.equal(buscar(cabecera!, "df-pack__panel-title")!.textContent, "Tu pack");
+  assert.equal(buscar(cabecera!, "df-pack__count")!.textContent, "2 productos");
+});
+
+test("🔴 sin nada elegido sale la caja de «Tu pack está vacío»", async () => {
+  // Antes acá solo había «0 PRODUCTOS» y una frase suelta, que en móvil se leía
+  // como si el widget no hubiera terminado de cargar.
+  const raiz = await montarWidget([]);
+  const caja = buscar(raiz, "df-pack__empty-box");
+  assert.ok(caja, "falta la caja de vacío");
+  assert.equal(buscar(caja!, "df-pack__empty-title")!.textContent, "Tu pack está vacío");
+  assert.match(textos(caja!).join(" | "), /Agregá 2 productos más/);
+});
+
+test("🔴 cada línea del pack lleva foto, ahorro, precio y «Quitar»", async () => {
+  const raiz = await montarWidget([1, 2, 3]);
+  const lineas = buscarTodos(raiz, "df-pack__item");
+  assert.equal(lineas.length, 3, "una línea por producto elegido");
+
+  for (const li of lineas) {
+    assert.ok(buscar(li, "df-pack__item-media"), "falta la foto de la línea");
+    assert.ok(buscar(li, "df-pack__item-name"), "falta el nombre");
+    assert.ok(buscar(li, "df-pack__item-price"), "falta el precio");
+    const quitar = buscar(li, "df-pack__item-remove");
+    assert.ok(quitar, "🔴 sin «Quitar» la única forma de sacar algo del pack es " +
+      "volver a encontrarlo en la lista de abajo");
+    assert.equal(quitar!.textContent, "Quitar");
+    assert.match(quitar!.getAttribute("aria-label") || "", /^Quitar del pack: /);
+  }
+
+  // 3 productos = 20%, y cada uno vale 70: el ahorro por línea tiene que verse.
+  assert.match(textos(buscar(raiz, "df-pack__items")!).join(" | "), /Ahorrás/);
+});
+
+test("🔴 el botón de la tarjeta lleva ícono, etiqueta y aria-label", async () => {
+  // El ícono es para la fila compacta del móvil y la etiqueta para escritorio:
+  // los dos están siempre en el DOM y el CSS esconde el que no toca. El
+  // `aria-label` lleva la frase entera para que nadie escuche solo «más».
+  const raiz = await montarWidget([1]);
+  const botones = buscarTodos(raiz, "df-pack__toggle");
+  assert.equal(botones.length, 5, "un botón por producto del catálogo");
+
+  const elegido = botones[0];
+  assert.equal(elegido.getAttribute("aria-pressed"), "true");
+  assert.equal(buscar(elegido, "df-pack__toggle-icon")!.textContent, "−");
+  assert.equal(buscar(elegido, "df-pack__toggle-label")!.textContent, "Quitar del pack");
+  assert.equal(elegido.getAttribute("aria-label"), "Quitar del pack: Producto 1");
+
+  const libre = botones[1];
+  assert.equal(libre.getAttribute("aria-pressed"), "false");
+  assert.equal(buscar(libre, "df-pack__toggle-icon")!.textContent, "+");
+  assert.equal(buscar(libre, "df-pack__toggle-label")!.textContent, "Agregar al pack");
+  assert.equal(libre.getAttribute("aria-label"), "Agregar al pack: Producto 2");
+});
+
+test("🔴 el botón de agregar al carrito SIEMPRE está en el DOM", async () => {
+  // Es el punto 1 de lo que faltaba: en el móvil de la tienda no aparecía
+  // ningún botón y no había forma de completar la compra.
+  for (const carrito of [[], [1], [1, 2, 3]]) {
+    const raiz = await montarWidget(carrito);
+    const cta = buscar(raiz, "df-pack__cta");
+    assert.ok(cta, `sin botón con ${carrito.length} en el carrito`);
+    assert.ok(buscar(raiz, "df-pack__cta-wrap"), "el botón va dentro de su envoltorio");
+    // Deshabilitado mientras no llegue al mínimo, pero presente y visible.
+    assert.equal(cta!.disabled, carrito.length < 2);
+  }
+});

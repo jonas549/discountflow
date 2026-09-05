@@ -193,24 +193,74 @@ test("el JS generado lleva el cálculo compilado desde pack-calc.ts", async () =
 
 const SRC = path.join(RAIZ, "scripts/pack-widget-src");
 
-test("🔴 toda regla con `position: fixed` declara `top` explícitamente", () => {
-  // El móvil estuvo roto porque la regla de escritorio dejaba `top: 1em` y la
-  // móvil ponía `position: fixed; bottom: 0` sin anularlo: un elemento fijo con
-  // `top` Y `bottom` no se coloca, se ESTIRA, y tapaba las tarjetas.
+test("🔴 el widget no usa `position: fixed` en ningún sitio", () => {
+  // Dos bugs distintos, los dos en móvil, los dos por `position: fixed`:
+  //
+  //  1. El panel pasaba a `fixed; bottom: 0` sin anular el `top: 1em` de la
+  //     regla de escritorio. Un elemento fijo con `top` Y `bottom` no se
+  //     coloca: se ESTIRA de uno a otro, y tapaba las tarjetas.
+  //
+  //  2. La barra del pie, ya con las cuatro coordenadas bien escritas, NO SE
+  //     VEÍA en la tienda. `fixed` deja de medirse contra la ventana en cuanto
+  //     un antepasado tiene `transform`/`filter`/`contain`/`will-change`, y los
+  //     temas OS 2.0 ponen `transform` en las secciones para sus animaciones de
+  //     scroll. El «fijo» se anclaba a la sección y quedaba en su fondo.
+  //
+  // El segundo no se puede arreglar desde acá: el antepasado es del merchant.
+  // Así que la regla es no depender de `fixed`. Si algún día hace falta algo
+  // pegado al pie, es `position: sticky`, que se mide contra el contenedor de
+  // scroll y cuyo fallo es «no se pega», no «desaparece».
   const css = fs.readFileSync(path.join(SRC, "pack-styles.css"), "utf8");
   const sinComentarios = css.replace(/\/\*[\s\S]*?\*\//g, "");
   const reglas = [...sinComentarios.matchAll(/([^{}]+)\{([^{}]*)\}/g)];
-  const fijas = reglas.filter((r) => /position:\s*fixed/.test(r[2]));
+  const fijas = reglas
+    .filter((r) => /position:\s*fixed/.test(r[2]))
+    .map((r) => r[1].trim().split(/\r?\n/).pop()!.trim());
 
-  assert.ok(fijas.length > 0, "se esperaba al menos una regla con position: fixed");
-  for (const r of fijas) {
-    const selector = r[1].trim().split(/\r?\n/).pop()!.trim();
-    assert.match(
-      r[2],
-      /(^|[;{\s])top\s*:/,
-      `la regla "${selector}" fija el elemento sin declarar \`top\``
-    );
-  }
+  assert.deepEqual(
+    fijas,
+    [],
+    "estas reglas usan `position: fixed`: en el tema de un merchant puede no " +
+      "medirse contra la ventana. Ver el comentario de arriba."
+  );
+});
+
+test("🔴 en móvil el botón de comprar existe y está en el flujo", () => {
+  // El fallo que lo motivó: en el móvil de la tienda no aparecía NINGÚN botón
+  // de agregar al carrito. Había que scrollear entre las tarjetas y no había
+  // forma de completar la compra. El botón estaba en el DOM; lo que fallaba era
+  // el `position: fixed` de su envoltorio.
+  const css = fs.readFileSync(path.join(SRC, "pack-styles.css"), "utf8");
+  const movil = css.slice(css.indexOf("@media (max-width: 749px)"));
+  assert.doesNotMatch(
+    movil,
+    /\.df-pack__cta-wrap\s*\{[^}]*position:/,
+    "el envoltorio del botón no puede sacarse del flujo en móvil"
+  );
+  // Y el panel que lo contiene va ARRIBA, así que se ve sin scrollear.
+  const oPanel = movil.match(/\.df-pack__summary\s*\{\s*order:\s*(\d+)/);
+  const oGrid = movil.match(/\.df-pack__grid\s*\{\s*order:\s*(\d+)/);
+  assert.ok(oPanel && oGrid && Number(oPanel[1]) < Number(oGrid[1]));
+});
+
+test("🔴 en móvil la tarjeta es una FILA de tres columnas", () => {
+  // El wireframe móvil: foto chica a la izquierda, el texto en el medio, y un
+  // botón cuadrado a la derecha. La versión anterior apilaba el botón debajo
+  // del precio, y las tarjetas ocupaban media pantalla cada una.
+  const css = fs.readFileSync(path.join(SRC, "pack-styles.css"), "utf8");
+  const movil = css.slice(css.indexOf("@media (max-width: 749px)"));
+  assert.match(
+    movil,
+    /\.df-pack__card\s*\{[^}]*grid-template-areas:\s*"media body action"/,
+    "la tarjeta móvil tiene que colocar el botón como tercera columna"
+  );
+  // Dawn declara `min-width: 12rem` en `.button`. Sin anularlo, el cuadrado
+  // saldría de 192 px y echaría el texto fuera de la fila.
+  assert.match(
+    movil,
+    /\.df-pack__toggle\s*\{[^}]*min-width:\s*0/,
+    "el botón cuadrado tiene que anular el min-width que los temas ponen a .button"
+  );
 });
 
 test("el panel del resumen vuelve al flujo en móvil, encima de los productos", () => {

@@ -458,49 +458,77 @@
         fila.appendChild(el("span", "df-pack__off", item.percent + "% OFF"));
       body.appendChild(fila);
 
+      card.appendChild(body);
+
+      // 🔴 El botón es HERMANO del cuerpo, no hijo suyo.
+      //
+      // La tarjeta es una rejilla con áreas, y eso es lo que deja que la MISMA
+      // marca se vea de dos formas: en escritorio el botón cae debajo del texto
+      // (área "action" en la segunda fila) y en móvil pasa a ser una tercera
+      // columna a la derecha, cuadrada. Si el botón viviera dentro del cuerpo,
+      // en móvil no habría forma de sacarlo de esa columna sin tocar el DOM.
+      //
+      // El texto va en dos hijos y NO en el botón: el ícono se ve en móvil, la
+      // etiqueta en escritorio, y `aria-label` lleva siempre la frase completa
+      // para que un lector de pantalla nunca escuche solo «más».
+      var etiqueta = elegido ? "Quitar del pack" : "Agregar al pack";
       var btn = el("button", "df-pack__toggle " + themeBtn(elegido));
       btn.type = "button";
       btn.setAttribute("aria-pressed", elegido ? "true" : "false");
-      btn.textContent = elegido ? "Quitar del pack" : "Agregar al pack";
+      btn.setAttribute("aria-label", etiqueta + ": " + item.title);
+      btn.appendChild(el("span", "df-pack__toggle-icon", elegido ? "−" : "+"));
+      btn.appendChild(el("span", "df-pack__toggle-label", etiqueta));
       btn.addEventListener("click", function () {
         self.toggle(item.productId);
       });
-      body.appendChild(btn);
+      card.appendChild(btn);
 
-      card.appendChild(body);
       grid.appendChild(card);
     });
     root.appendChild(grid);
 
     // ── Resumen y CTA ──
+    // ── El panel «Tu pack» ──
+    //
+    // Sigue al wireframe: un encabezado con el nombre del panel y el contador,
+    // y debajo o bien la caja de «está vacío» o bien una línea por producto
+    // elegido con su foto, su ahorro, su precio y su «Quitar».
     var panel = el("div", "df-pack__summary");
-    panel.appendChild(
+
+    var cabecera = el("div", "df-pack__panel-head");
+    cabecera.appendChild(el("span", "df-pack__panel-title", "Tu pack"));
+    cabecera.appendChild(
       el(
-        "div",
+        "span",
         "df-pack__count",
         p.distinctProducts === 1 ? "1 producto" : p.distinctProducts + " productos"
       )
     );
+    panel.appendChild(cabecera);
 
-    if (!p.applies) {
-      var faltan = Math.max(1, pack.minProducts - p.distinctProducts);
-      panel.appendChild(
-        el(
-          "p",
-          "df-pack__hint",
-          "Agregá " +
-            faltan +
-            (faltan === 1 ? " producto más" : " productos más") +
-            " para activar el descuento."
-        )
-      );
+    /** Cuántos faltan para que el descuento se active, en palabras. */
+    var faltan = Math.max(0, pack.minProducts - p.distinctProducts);
+    var textoFaltan =
+      "Agregá " +
+      faltan +
+      (faltan === 1 ? " producto más" : " productos más") +
+      " para activar el descuento.";
+
+    if (!self.selected.length) {
+      // Caja de vacío, no un renglón suelto: en el wireframe ocupa su sitio y
+      // dice qué hacer. Antes acá solo había «0 PRODUCTOS» y una frase, que en
+      // móvil se leía como si el widget no hubiera cargado.
+      var vacio = el("div", "df-pack__empty-box");
+      vacio.appendChild(el("span", "df-pack__empty-title", "Tu pack está vacío"));
+      vacio.appendChild(el("p", "df-pack__hint", textoFaltan));
+      panel.appendChild(vacio);
     } else {
       // Desglose por producto. En el wireframe cada línea mostraba lo suyo, y
       // con precios distintos el mismo porcentaje da ahorros distintos: el
       // total solo no explica de dónde sale.
-      var titulos = {};
+      var porId = {};
       (pack.items || []).forEach(function (it) {
-        titulos[it.productId] = it.title;
+        porId[it.productId] = it;
       });
       var ahorroPorProducto = {};
       var pctPorProducto = {};
@@ -513,24 +541,65 @@
       // Se recorre lo ELEGIDO, no las filas con descuento: un producto al 0%
       // está en el pack y tiene que aparecer, diciendo que no rebaja.
       self.selected.forEach(function (id) {
+        var it = porId[id];
         var li = el("li", "df-pack__item");
-        li.appendChild(el("span", "df-pack__item-name", titulos[id] || "—"));
+
+        var thumb = el("div", "df-pack__item-media");
+        if (it && it.image) {
+          var mini = document.createElement("img");
+          mini.src = it.image;
+          mini.alt = "";
+          mini.loading = "lazy";
+          thumb.appendChild(mini);
+        }
+        li.appendChild(thumb);
+
+        var cuerpo = el("div", "df-pack__item-body");
+        cuerpo.appendChild(el("span", "df-pack__item-name", it ? it.title : "—"));
         if (ahorroPorProducto[id] > 0) {
-          li.appendChild(
+          cuerpo.appendChild(
             el(
               "span",
               "df-pack__item-save",
-              "−" + money(ahorroPorProducto[id], pack.currency) +
+              "Ahorrás " +
+                money(ahorroPorProducto[id], pack.currency) +
                 " (" + pctPorProducto[id] + "%)"
             )
           );
         } else {
-          li.appendChild(el("span", "df-pack__item-none", "sin descuento"));
+          cuerpo.appendChild(
+            el(
+              "span",
+              "df-pack__item-none",
+              p.applies ? "sin descuento" : "sin descuento todavía"
+            )
+          );
         }
+        li.appendChild(cuerpo);
+
+        var lado = el("div", "df-pack__item-side");
+        if (it) lado.appendChild(el("span", "df-pack__item-price", money(it.price, pack.currency)));
+        // «Quitar» por línea: en el wireframe está, y sin él la única forma de
+        // sacar algo del pack es encontrarlo otra vez en la lista de abajo.
+        var quitar = el("button", "df-pack__item-remove", "Quitar");
+        quitar.type = "button";
+        quitar.setAttribute("aria-label", "Quitar del pack: " + (it ? it.title : ""));
+        quitar.addEventListener("click", function () {
+          self.toggle(id);
+        });
+        lado.appendChild(quitar);
+        li.appendChild(lado);
+
         lista.appendChild(li);
       });
       panel.appendChild(lista);
+    }
 
+    if (self.selected.length && !p.applies) {
+      panel.appendChild(el("p", "df-pack__hint", textoFaltan));
+    }
+
+    if (p.applies) {
       var t = el("table", "df-pack__totals");
       [
         ["Subtotal", money(p.subtotal, pack.currency), ""],
@@ -559,22 +628,12 @@
       );
     }
 
-    // El botón va dentro de un envoltorio que en escritorio no hace nada y en
-    // móvil ES la barra fija del pie. Un solo botón, no una copia: dos botones
-    // serían dos manejadores y dos estados que mantener en sintonía.
+    // El botón va dentro de un envoltorio propio. Un solo botón, no una copia:
+    // dos botones serían dos manejadores y dos estados que mantener en
+    // sintonía. El envoltorio es además el punto de anclaje previsto para la
+    // barra del pie en móvil, que está PROPUESTA y no decidida — hasta que se
+    // decida, el botón vive en el flujo, dentro del panel.
     var ctaWrap = el("div", "df-pack__cta-wrap");
-
-    // Total compacto, exclusivo de la barra del pie (oculto en escritorio).
-    var barTotal = el("div", "df-pack__bar-total");
-    barTotal.appendChild(el("span", "df-pack__bar-total-label", "Total"));
-    barTotal.appendChild(
-      el(
-        "span",
-        "df-pack__bar-total-value",
-        p.applies ? money(p.total, pack.currency) : money(p.subtotal, pack.currency)
-      )
-    );
-    ctaWrap.appendChild(barTotal);
 
     var cta = el("button", "df-pack__cta " + themeBtn(true));
     cta.type = "button";

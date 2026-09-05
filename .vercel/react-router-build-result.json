@@ -11,23 +11,32 @@
     },
     "routeIdToServerBundleId": {
       "routes/webhooks.customers.data_request": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/api.internal.pause-over-limit": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/webhooks.app.scopes_update": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/webhooks.customers.redact": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/webhooks.app.uninstalled": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/api.jobs.$jobId.status": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/apps.discountflow.pack": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/webhooks.orders.create": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/webhooks.shop.redact": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/api.jobs.run": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/auth.login": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/auth.$": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/_index": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/app.campaigns.$id.edit_.tiered": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/app.campaigns.$id.edit_.range": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/app.campaigns.$id.edit_.bxgy": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/app.campaigns.$id.edit_.pack": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/app.campaigns.new.percentage": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/app.campaigns.new.tiered": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/app.campaigns.new.range": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/app.campaigns.$id.edit": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/app.campaigns.new.bxgy": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/app.campaigns.new.pack": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/app.campaigns._index": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/app.plans_.confirm": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/app.analytics": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/app.jobs-demo": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/app.support": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/app._index": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/app.plans": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0"
@@ -44,6 +53,15 @@
         "parentId": "root",
         "file": "app/routes/webhooks.customers.data_request.tsx",
         "path": "webhooks/customers/data_request",
+        "config": {
+          "runtime": "nodejs"
+        }
+      },
+      "routes/api.internal.pause-over-limit": {
+        "id": "routes/api.internal.pause-over-limit",
+        "parentId": "root",
+        "file": "app/routes/api.internal.pause-over-limit.tsx",
+        "path": "api/internal/pause-over-limit",
         "config": {
           "runtime": "nodejs"
         }
@@ -75,6 +93,24 @@
           "runtime": "nodejs"
         }
       },
+      "routes/api.jobs.$jobId.status": {
+        "id": "routes/api.jobs.$jobId.status",
+        "parentId": "root",
+        "file": "app/routes/api.jobs.$jobId.status.tsx",
+        "path": "api/jobs/:jobId/status",
+        "config": {
+          "runtime": "nodejs"
+        }
+      },
+      "routes/apps.discountflow.pack": {
+        "id": "routes/apps.discountflow.pack",
+        "parentId": "root",
+        "file": "app/routes/apps.discountflow.pack.tsx",
+        "path": "apps/discountflow/pack",
+        "config": {
+          "runtime": "nodejs"
+        }
+      },
       "routes/webhooks.orders.create": {
         "id": "routes/webhooks.orders.create",
         "parentId": "root",
@@ -89,6 +125,15 @@
         "parentId": "root",
         "file": "app/routes/webhooks.shop.redact.tsx",
         "path": "webhooks/shop/redact",
+        "config": {
+          "runtime": "nodejs"
+        }
+      },
+      "routes/api.jobs.run": {
+        "id": "routes/api.jobs.run",
+        "parentId": "root",
+        "file": "app/routes/api.jobs.run.tsx",
+        "path": "api/jobs/run",
         "config": {
           "runtime": "nodejs"
         }
@@ -127,6 +172,15 @@
         "path": "app",
         "config": {}
       },
+      "routes/app.campaigns.$id.edit_.tiered": {
+        "id": "routes/app.campaigns.$id.edit_.tiered",
+        "parentId": "routes/app",
+        "file": "app/routes/app.campaigns.$id.edit_.tiered.tsx",
+        "path": "campaigns/:id/edit/tiered",
+        "config": {
+          "runtime": "nodejs"
+        }
+      },
       "routes/app.campaigns.$id.edit_.range": {
         "id": "routes/app.campaigns.$id.edit_.range",
         "parentId": "routes/app",
@@ -145,11 +199,29 @@
           "runtime": "nodejs"
         }
       },
+      "routes/app.campaigns.$id.edit_.pack": {
+        "id": "routes/app.campaigns.$id.edit_.pack",
+        "parentId": "routes/app",
+        "file": "app/routes/app.campaigns.$id.edit_.pack.tsx",
+        "path": "campaigns/:id/edit/pack",
+        "config": {
+          "runtime": "nodejs"
+        }
+      },
       "routes/app.campaigns.new.percentage": {
         "id": "routes/app.campaigns.new.percentage",
         "parentId": "routes/app",
         "file": "app/routes/app.campaigns.new.percentage.tsx",
         "path": "campaigns/new/percentage",
+        "config": {
+          "runtime": "nodejs"
+        }
+      },
+      "routes/app.campaigns.new.tiered": {
+        "id": "routes/app.campaigns.new.tiered",
+        "parentId": "routes/app",
+        "file": "app/routes/app.campaigns.new.tiered.tsx",
+        "path": "campaigns/new/tiered",
         "config": {
           "runtime": "nodejs"
         }
@@ -181,6 +253,15 @@
           "runtime": "nodejs"
         }
       },
+      "routes/app.campaigns.new.pack": {
+        "id": "routes/app.campaigns.new.pack",
+        "parentId": "routes/app",
+        "file": "app/routes/app.campaigns.new.pack.tsx",
+        "path": "campaigns/new/pack",
+        "config": {
+          "runtime": "nodejs"
+        }
+      },
       "routes/app.campaigns._index": {
         "id": "routes/app.campaigns._index",
         "parentId": "routes/app",
@@ -205,6 +286,15 @@
         "parentId": "routes/app",
         "file": "app/routes/app.analytics.tsx",
         "path": "analytics",
+        "config": {
+          "runtime": "nodejs"
+        }
+      },
+      "routes/app.jobs-demo": {
+        "id": "routes/app.jobs-demo",
+        "parentId": "routes/app",
+        "file": "app/routes/app.jobs-demo.tsx",
+        "path": "jobs-demo",
         "config": {
           "runtime": "nodejs"
         }
@@ -263,6 +353,12 @@
         "file": "routes/webhooks.customers.data_request.tsx",
         "path": "webhooks/customers/data_request"
       },
+      "routes/api.internal.pause-over-limit": {
+        "id": "routes/api.internal.pause-over-limit",
+        "parentId": "root",
+        "file": "routes/api.internal.pause-over-limit.tsx",
+        "path": "api/internal/pause-over-limit"
+      },
       "routes/webhooks.app.scopes_update": {
         "id": "routes/webhooks.app.scopes_update",
         "parentId": "root",
@@ -281,6 +377,18 @@
         "file": "routes/webhooks.app.uninstalled.tsx",
         "path": "webhooks/app/uninstalled"
       },
+      "routes/api.jobs.$jobId.status": {
+        "id": "routes/api.jobs.$jobId.status",
+        "parentId": "root",
+        "file": "routes/api.jobs.$jobId.status.tsx",
+        "path": "api/jobs/:jobId/status"
+      },
+      "routes/apps.discountflow.pack": {
+        "id": "routes/apps.discountflow.pack",
+        "parentId": "root",
+        "file": "routes/apps.discountflow.pack.tsx",
+        "path": "apps/discountflow/pack"
+      },
       "routes/webhooks.orders.create": {
         "id": "routes/webhooks.orders.create",
         "parentId": "root",
@@ -292,6 +400,12 @@
         "parentId": "root",
         "file": "routes/webhooks.shop.redact.tsx",
         "path": "webhooks/shop/redact"
+      },
+      "routes/api.jobs.run": {
+        "id": "routes/api.jobs.run",
+        "parentId": "root",
+        "file": "routes/api.jobs.run.tsx",
+        "path": "api/jobs/run"
       },
       "routes/auth.login": {
         "id": "routes/auth.login",
@@ -317,6 +431,12 @@
         "file": "routes/app.tsx",
         "path": "app"
       },
+      "routes/app.campaigns.$id.edit_.tiered": {
+        "id": "routes/app.campaigns.$id.edit_.tiered",
+        "parentId": "routes/app",
+        "file": "routes/app.campaigns.$id.edit_.tiered.tsx",
+        "path": "campaigns/:id/edit/tiered"
+      },
       "routes/app.campaigns.$id.edit_.range": {
         "id": "routes/app.campaigns.$id.edit_.range",
         "parentId": "routes/app",
@@ -329,11 +449,23 @@
         "file": "routes/app.campaigns.$id.edit_.bxgy.tsx",
         "path": "campaigns/:id/edit/bxgy"
       },
+      "routes/app.campaigns.$id.edit_.pack": {
+        "id": "routes/app.campaigns.$id.edit_.pack",
+        "parentId": "routes/app",
+        "file": "routes/app.campaigns.$id.edit_.pack.tsx",
+        "path": "campaigns/:id/edit/pack"
+      },
       "routes/app.campaigns.new.percentage": {
         "id": "routes/app.campaigns.new.percentage",
         "parentId": "routes/app",
         "file": "routes/app.campaigns.new.percentage.tsx",
         "path": "campaigns/new/percentage"
+      },
+      "routes/app.campaigns.new.tiered": {
+        "id": "routes/app.campaigns.new.tiered",
+        "parentId": "routes/app",
+        "file": "routes/app.campaigns.new.tiered.tsx",
+        "path": "campaigns/new/tiered"
       },
       "routes/app.campaigns.new.range": {
         "id": "routes/app.campaigns.new.range",
@@ -353,6 +485,12 @@
         "file": "routes/app.campaigns.new.bxgy.tsx",
         "path": "campaigns/new/bxgy"
       },
+      "routes/app.campaigns.new.pack": {
+        "id": "routes/app.campaigns.new.pack",
+        "parentId": "routes/app",
+        "file": "routes/app.campaigns.new.pack.tsx",
+        "path": "campaigns/new/pack"
+      },
       "routes/app.campaigns._index": {
         "id": "routes/app.campaigns._index",
         "parentId": "routes/app",
@@ -371,6 +509,12 @@
         "parentId": "routes/app",
         "file": "routes/app.analytics.tsx",
         "path": "analytics"
+      },
+      "routes/app.jobs-demo": {
+        "id": "routes/app.jobs-demo",
+        "parentId": "routes/app",
+        "file": "routes/app.jobs-demo.tsx",
+        "path": "jobs-demo"
       },
       "routes/app.support": {
         "id": "routes/app.support",
@@ -412,6 +556,11 @@
             "path": "webhooks/customers/data_request"
           },
           {
+            "id": "routes/api.internal.pause-over-limit",
+            "file": "routes/api.internal.pause-over-limit.tsx",
+            "path": "api/internal/pause-over-limit"
+          },
+          {
             "id": "routes/webhooks.app.scopes_update",
             "file": "routes/webhooks.app.scopes_update.tsx",
             "path": "webhooks/app/scopes_update"
@@ -427,6 +576,16 @@
             "path": "webhooks/app/uninstalled"
           },
           {
+            "id": "routes/api.jobs.$jobId.status",
+            "file": "routes/api.jobs.$jobId.status.tsx",
+            "path": "api/jobs/:jobId/status"
+          },
+          {
+            "id": "routes/apps.discountflow.pack",
+            "file": "routes/apps.discountflow.pack.tsx",
+            "path": "apps/discountflow/pack"
+          },
+          {
             "id": "routes/webhooks.orders.create",
             "file": "routes/webhooks.orders.create.tsx",
             "path": "webhooks/orders/create"
@@ -435,6 +594,11 @@
             "id": "routes/webhooks.shop.redact",
             "file": "routes/webhooks.shop.redact.tsx",
             "path": "webhooks/shop/redact"
+          },
+          {
+            "id": "routes/api.jobs.run",
+            "file": "routes/api.jobs.run.tsx",
+            "path": "api/jobs/run"
           },
           {
             "id": "routes/auth.login",
@@ -457,6 +621,11 @@
             "path": "app",
             "children": [
               {
+                "id": "routes/app.campaigns.$id.edit_.tiered",
+                "file": "routes/app.campaigns.$id.edit_.tiered.tsx",
+                "path": "campaigns/:id/edit/tiered"
+              },
+              {
                 "id": "routes/app.campaigns.$id.edit_.range",
                 "file": "routes/app.campaigns.$id.edit_.range.tsx",
                 "path": "campaigns/:id/edit/range"
@@ -467,9 +636,19 @@
                 "path": "campaigns/:id/edit/bxgy"
               },
               {
+                "id": "routes/app.campaigns.$id.edit_.pack",
+                "file": "routes/app.campaigns.$id.edit_.pack.tsx",
+                "path": "campaigns/:id/edit/pack"
+              },
+              {
                 "id": "routes/app.campaigns.new.percentage",
                 "file": "routes/app.campaigns.new.percentage.tsx",
                 "path": "campaigns/new/percentage"
+              },
+              {
+                "id": "routes/app.campaigns.new.tiered",
+                "file": "routes/app.campaigns.new.tiered.tsx",
+                "path": "campaigns/new/tiered"
               },
               {
                 "id": "routes/app.campaigns.new.range",
@@ -487,6 +666,11 @@
                 "path": "campaigns/new/bxgy"
               },
               {
+                "id": "routes/app.campaigns.new.pack",
+                "file": "routes/app.campaigns.new.pack.tsx",
+                "path": "campaigns/new/pack"
+              },
+              {
                 "id": "routes/app.campaigns._index",
                 "file": "routes/app.campaigns._index.tsx",
                 "path": "campaigns",
@@ -501,6 +685,11 @@
                 "id": "routes/app.analytics",
                 "file": "routes/app.analytics.tsx",
                 "path": "analytics"
+              },
+              {
+                "id": "routes/app.jobs-demo",
+                "file": "routes/app.jobs-demo.tsx",
+                "path": "jobs-demo"
               },
               {
                 "id": "routes/app.support",

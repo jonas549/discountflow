@@ -1,4 +1,4 @@
-/* DiscountFlow · widget de packs · BUILD 9 · GENERADO, no editar.
+/* DiscountFlow · widget de packs · BUILD 10 · GENERADO, no editar.
    Fuente: scripts/pack-widget-src/pack-styles.css */
 
 /* DiscountFlow — estilos del armador de packs.
@@ -41,7 +41,7 @@
    la hoja que sirve el CDN es la actual sin abrir la pestaña de red. */
 .df-pack,
 .df-pack-notice {
-  --df-build: 7;
+  --df-build: 10;
 }
 
 .df-pack {
@@ -182,9 +182,25 @@
   gap: 1em;
 }
 
+/*
+ * La tarjeta es una REJILLA CON ÁREAS, no un flex.
+ *
+ * Es lo que permite que la misma marca dé dos formas distintas sin tocar el
+ * DOM. En escritorio el botón cae debajo del texto; en móvil pasa a ser una
+ * tercera columna a la derecha (ver la media query del final), que es la fila
+ * compacta del wireframe. Con flex habría que mover el nodo desde el JS, y un
+ * layout que depende del ancho de pantalla no puede depender del JS: al girar
+ * el teléfono nadie vuelve a ejecutar nada.
+ */
 .df-pack__card {
-  display: flex;
-  gap: 0.85em;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas:
+    "media body"
+    "media action";
+  grid-template-rows: auto auto;
+  align-content: start;
+  gap: 0.5em 0.85em;
   padding: 0.85em;
   border: 1px solid var(--df-line);
   border-radius: 0.4em;
@@ -197,7 +213,8 @@
 }
 
 .df-pack__media {
-  flex: 0 0 5em;
+  grid-area: media;
+  width: 5em;
   height: 6em;
   border-radius: 0.25em;
   background: var(--df-soft);
@@ -212,11 +229,11 @@
 }
 
 .df-pack__body {
+  grid-area: body;
   display: flex;
   flex-direction: column;
-  gap: 0.5em;
+  gap: 0.35em;
   min-width: 0;
-  flex: 1;
 }
 
 .df-pack__name {
@@ -244,10 +261,19 @@
 
 /* Los botones los pinta el TEMA (clases `button`/`btn`). Acá solo la posición. */
 .df-pack__toggle {
-  align-self: flex-start;
+  grid-area: action;
+  justify-self: start;
+  align-self: start;
   margin: 0;
   font: inherit;
   cursor: pointer;
+}
+
+/* En escritorio manda la etiqueta; el ícono es exclusivo de la fila compacta
+   del móvil. El `aria-label` del botón lleva siempre la frase entera, así que
+   esconder uno u otro no le quita información a nadie. */
+.df-pack__toggle-icon {
+  display: none;
 }
 
 /* ── Resumen ── */
@@ -263,11 +289,41 @@
   top: 1em;
 }
 
+.df-pack__panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6em;
+}
+
+.df-pack__panel-title {
+  font-size: 1.2em;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
 .df-pack__count {
   font-size: 0.9em;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--df-dim);
+  white-space: nowrap;
+}
+
+/* La caja de «vacío». Antes acá solo había «0 PRODUCTOS» y una frase suelta:
+   en móvil se leía como si el widget no hubiera terminado de cargar. */
+.df-pack__empty-box {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35em;
+  text-align: center;
+  padding: 1.4em 1em;
+  border: 1px dashed var(--df-line);
+  border-radius: 0.35em;
+}
+
+.df-pack__empty-title {
+  font-weight: 600;
 }
 
 .df-pack__hint {
@@ -289,13 +345,37 @@
   padding-bottom: 0.85em;
 }
 
+/* Cada línea del pack, como en el wireframe: foto, nombre + ahorro, y a la
+   derecha el precio con su «Quitar». */
 .df-pack__item {
   display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 0.6em;
+  align-items: center;
+  gap: 0.7em;
   font-size: 0.95em;
   line-height: 1.35;
+}
+
+.df-pack__item-media {
+  flex: 0 0 2.6em;
+  height: 3em;
+  border-radius: 0.2em;
+  background: var(--df-soft);
+  overflow: hidden;
+}
+
+.df-pack__item-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.df-pack__item-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15em;
 }
 
 .df-pack__item-name {
@@ -306,15 +386,39 @@
 }
 
 .df-pack__item-save {
-  flex: 0 0 auto;
+  font-size: 0.9em;
   font-weight: 600;
-  white-space: nowrap;
 }
 
 .df-pack__item-none {
-  flex: 0 0 auto;
+  font-size: 0.9em;
   color: var(--df-dim);
+}
+
+.df-pack__item-side {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.15em;
   white-space: nowrap;
+}
+
+/* «Quitar» es un enlace de texto, no un botón del tema: un segundo botón
+   pintado por tarjeta competiría visualmente con el de agregar al carrito. */
+.df-pack__item-remove {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  background: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-size: 0.85em;
+  color: var(--df-dim);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
 }
 
 .df-pack__totals {
@@ -345,25 +449,11 @@
   padding-top: 0.45em;
 }
 
-/* El envoltorio del botón: en escritorio no hace nada; en móvil es la barra
-   fija del pie. Existe para que el botón sea UNO solo y no una copia. */
+/* El envoltorio del botón. Existe para que el botón sea UNO solo y no una
+   copia, y es el punto de anclaje previsto para la barra del pie en móvil —
+   propuesta, todavía no decidida. Hoy no hace nada más que envolver. */
 .df-pack__cta-wrap {
   display: block;
-}
-
-/* El total compacto es exclusivo de la barra del pie del móvil. */
-.df-pack__bar-total {
-  display: none;
-}
-
-.df-pack__bar-total-label {
-  font-size: 0.8em;
-  color: var(--df-dim);
-}
-
-.df-pack__bar-total-value {
-  font-size: 1.1em;
-  font-weight: 700;
 }
 
 .df-pack__cta {
@@ -438,21 +528,35 @@
 
 /* ── Móvil ────────────────────────────────────────────────────────────────
  *
- * 🔴 EL BUG QUE HUBO ACÁ, PARA NO REPETIRLO
+ * El layout sigue al wireframe móvil: encabezado, progreso, el panel «Tu pack»,
+ * y debajo el catálogo como FILAS COMPACTAS — foto chica a la izquierda,
+ * nombre y precio en el medio, y un botón cuadrado a la derecha.
  *
- * La versión anterior convertía el panel entero en `position: fixed; bottom: 0`
- * … y NO anulaba el `top: 1em` que trae la regla de escritorio. Un elemento
- * `fixed` con `top` Y `bottom` a la vez no se coloca: se ESTIRA de uno a otro.
- * El panel pasaba a ocupar toda la pantalla, en blanco y con `z-index: 20`,
- * tapando las tarjetas de producto. En escritorio no se veía porque `sticky`
- * solo usa `top`.
+ * ─────────────────────────────────────────────────────────────────────────
+ * 🔴 DOS BUGS QUE HUBO ACÁ. NO REPETIRLOS.
  *
- * Regla que queda: toda regla que ponga `position: fixed` declara `top`
- * explícitamente, aunque sea `auto`. Hay un test que lo comprueba.
+ * 1. `position: fixed` con `top` Y `bottom`.
+ *    La versión de septiembre convertía el panel entero en `fixed; bottom: 0`
+ *    sin anular el `top: 1em` de la regla de escritorio. Un elemento `fixed`
+ *    con las dos coordenadas no se coloca: se ESTIRA de una a otra. El panel
+ *    ocupaba la pantalla entera, en blanco y con `z-index: 20`, tapando las
+ *    tarjetas.
  *
- * El layout sigue al wireframe: panel arriba, productos abajo en una columna, y
- * una barra al pie con el total y el botón.
- */
+ * 2. La barra del pie con `position: fixed`, que NO APARECÍA.
+ *    Segundo intento: solo el envoltorio del botón pasaba a `fixed`. En la
+ *    tienda no se veía ninguna barra y no había forma de comprar desde el
+ *    móvil. Un elemento `fixed` deja de medirse contra la ventana en cuanto
+ *    UN ANTEPASADO tiene `transform`, `filter`, `perspective`, `contain` o
+ *    `will-change` — y los temas OS 2.0 ponen `transform` en las secciones
+ *    para sus animaciones de scroll (Dawn: `.scroll-trigger.animate--*`). Con
+ *    eso el «fijo» se ancla a la sección, que mide varios miles de píxeles, y
+ *    la barra queda en su fondo: existe, y no se ve nunca.
+ *
+ * Por eso hoy el botón vive EN EL FLUJO, dentro del panel, que en móvil está
+ * arriba del todo y por tanto se ve sin scrollear. La barra del pie está
+ * PROPUESTA con `position: sticky`, que no depende de antepasados
+ * transformados; hasta que se decida, esto no lleva ni un `position: fixed`.
+ * ───────────────────────────────────────────────────────────────────────── */
 
 @media (max-width: 749px) {
   .df-pack {
@@ -461,8 +565,6 @@
     display: flex;
     flex-direction: column;
     gap: 1.25em;
-    /* Deja sitio para la barra del pie: sin esto tapa las últimas tarjetas. */
-    padding-bottom: 7em;
   }
 
   .df-pack__head {
@@ -479,54 +581,60 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  /* Las tarjetas, alineadas con el panel de arriba.
-   *
-   * Dos cosas estaban descuadradas: la tarjeta usaba `padding: 0.85em` y el
-   * panel `1.15em`, así que sus columnas internas no arrancaban en la misma
-   * línea; y sin `align-items` la foto se pegaba arriba en vez de centrarse
-   * contra el bloque de texto, que es más alto. */
-  .df-pack__card {
-    align-items: center;
-    padding: 1.15em;
-  }
-
   /* El panel vuelve al flujo. `top: auto` NO es decorativo: anula el `top: 1em`
-     del escritorio, que es lo que rompió esta pantalla. */
+     del escritorio, que es lo que rompió esta pantalla la primera vez. */
   .df-pack__summary {
     position: static;
     top: auto;
   }
 
-  /* La barra del pie: lo único fijo, y con las cuatro coordenadas escritas. */
-  .df-pack__cta-wrap {
-    position: fixed;
-    top: auto;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 20;
-    display: flex;
+  /* ── La fila compacta del catálogo ──
+   *
+   * Misma marca, tres columnas en vez de dos: la rejilla de la tarjeta pasa de
+   * "media body / media action" a "media body action". El botón deja de estar
+   * debajo del precio y se convierte en el cuadrado de la derecha. */
+  .df-pack__card {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas: "media body action";
     align-items: center;
-    gap: 0.9em;
-    /* La única superficie que NO puede ser translúcida: flota sobre la página.
-       Toma el fondo del tema si lo publica como custom property; si no, blanco. */
-    background: #fff;
-    background: rgb(var(--color-background, 255 255 255));
-    border-top: 1px solid var(--df-line);
-    box-shadow: 0 -2px 14px rgba(0, 0, 0, 0.12);
-    padding: 0.7em 1em calc(0.7em + env(safe-area-inset-bottom, 0px));
+    gap: 0.8em;
+    padding: 0.8em;
   }
 
-  .df-pack__cta-wrap .df-pack__cta {
-    width: auto;
-    flex: 1;
+  .df-pack__media {
+    width: 3.5em;
+    height: 4.1em;
   }
 
-  /* El total compacto solo existe en la barra del pie. */
-  .df-pack__bar-total {
-    display: flex;
-    flex-direction: column;
-    line-height: 1.2;
-    white-space: nowrap;
+  .df-pack__name {
+    font-size: 1em;
+  }
+
+  /* El botón cuadrado. Sigue llevando las clases del tema, así que el color, el
+     borde y el hover son los de la tienda; acá solo se le impone la forma.
+     `min-width: 0` no es opcional: Dawn declara un `min-width` de 12rem en
+     `.button`, y sin anularlo el cuadrado saldría de 192 px de ancho y
+     desplazaría el texto fuera de la fila. */
+  .df-pack__toggle {
+    justify-self: end;
+    align-self: center;
+    width: 2.9em;
+    min-width: 0;
+    height: 2.9em;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+  }
+
+  .df-pack__toggle-label {
+    display: none;
+  }
+
+  .df-pack__toggle-icon {
+    display: block;
+    font-size: 1.3em;
+    line-height: 1;
   }
 }

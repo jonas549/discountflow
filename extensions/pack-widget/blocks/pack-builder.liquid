@@ -7,7 +7,7 @@
   ─────────────────────────────────────────────────────────────────────────────
   🔴 DOS COSAS QUE NO SE TOCAN SIN LEER ESTO
 
-  1. EL NÚMERO DE BUILD VA EN EL NOMBRE DEL ARCHIVO (`pack-9.js`).
+  1. EL NÚMERO DE BUILD VA EN EL NOMBRE DEL ARCHIVO (`pack-10.js`).
 
      Durante tres rondas el widget se quedó en «Cargando tu pack…» porque el
      navegador recibía un JavaScript viejo. La causa de fondo era el nombre:
@@ -44,19 +44,19 @@
   ver el build que sirve el tema y la URL exacta del archivo. Si el JS no
   arranca, ESTA línea sigue estando: es la única que no depende de él.
 {%- endcomment -%}
-<!-- DiscountFlow · widget de packs · BUILD 9
-     js  = {{ 'pack-9.js' | asset_url }}
-     css = {{ 'pack-9.css' | asset_url }}
+<!-- DiscountFlow · widget de packs · BUILD 10
+     js  = {{ 'pack-10.js' | asset_url }}
+     css = {{ 'pack-10.css' | asset_url }}
      Si el build de acá no es el que esperás, el tema sirve una versión vieja
      del bloque. Si lo es pero el JS no corre, abrí la URL de arriba. -->
 
-{{ 'pack-9.css' | asset_url | stylesheet_tag }}
+{{ 'pack-10.css' | asset_url | stylesheet_tag }}
 
 <div
   class="df-pack"
   data-df-pack
-  data-df-build="9"
-  data-df-js="{{ 'pack-9.js' | asset_url }}"
+  data-df-build="10"
+  data-df-js="{{ 'pack-10.js' | asset_url }}"
   data-campaign="{{ block.settings.campaign_id | escape }}"
   data-proxy="/apps/discountflow/pack"
   data-heading="{{ block.settings.heading | escape }}"
@@ -80,7 +80,7 @@
 </div>
 
 {% comment %} Un solo archivo, y el mismo en los DOS bloques. Ver arriba. {% endcomment %}
-<script src="{{ 'pack-9.js' | asset_url }}" defer></script>
+<script src="{{ 'pack-10.js' | asset_url }}" defer></script>
 
 {% schema %}
 {
