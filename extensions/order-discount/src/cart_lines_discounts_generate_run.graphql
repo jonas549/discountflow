@@ -1,0 +1,48 @@
+query CartInput {
+  cart {
+    # 🔴 EL NÚMERO QUE DECIDE EL UMBRAL.
+    #
+    # Decisión de producto del 2026-09-05 (opción B): el umbral se mide sobre el
+    # subtotal YA REBAJADO. `CartCost.subtotalAmount` está documentado como
+    # "the amount, before taxes and CART-LEVEL discounts" — o sea, con los
+    # descuentos de línea (producto) ya aplicados. Que es exactamente B.
+    cost {
+      subtotalAmount {
+        amount
+      }
+    }
+    # Las líneas NO participan del cálculo. Se piden solo para el diagnóstico de
+    # abajo: la documentación del schema se contradice sobre si el subtotal
+    # incluye o no los descuentos de producto (`OrderSubtotalTarget` dice "before
+    # any discounts", `CartCost.subtotalAmount` dice "before cart-level
+    # discounts"), y esto es lo que permite responderlo con datos en la primera
+    # prueba de carrito mixto en vez de discutirlo.
+    lines {
+      id
+      quantity
+      cost {
+        amountPerQuantity {
+          amount
+        }
+        subtotalAmount {
+          amount
+        }
+        totalAmount {
+          amount
+        }
+      }
+    }
+  }
+  discount {
+    discountClasses
+    # Los dos namespaces, igual que las otras dos Functions: el reservado de la
+    # app ($app:...) y uno plano. La app escribe en el plano porque
+    # MetafieldInput solo admite alfanuméricos, guiones y guiones bajos.
+    config: metafield(namespace: "$app:discountflow", key: "cart-value-config") {
+      jsonValue
+    }
+    configFallback: metafield(namespace: "discountflow", key: "cart-value-config") {
+      jsonValue
+    }
+  }
+}

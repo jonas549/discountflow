@@ -1,0 +1,84 @@
+{
+  "payload": {
+    "export": "cart-lines-discounts-generate-run",
+    "target": "cart.lines.discounts.generate.run",
+    "input": {
+      "cart": {
+        "cost": {
+          "subtotalAmount": {
+            "amount": "120.00"
+          }
+        },
+        "lines": [
+          {
+            "id": "gid://shopify/CartLine/0",
+            "quantity": 1,
+            "cost": {
+              "amountPerQuantity": {
+                "amount": "120.00"
+              },
+              "subtotalAmount": {
+                "amount": "120.00"
+              },
+              "totalAmount": {
+                "amount": "120.00"
+              }
+            }
+          }
+        ]
+      },
+      "discount": {
+        "discountClasses": [
+          "ORDER"
+        ],
+        "configFallback": null,
+        "config": {
+          "jsonValue": {
+            "valueType": "AMOUNT",
+            "tiers": [
+              {
+                "minSubtotal": 50,
+                "amount": 10
+              },
+              {
+                "minSubtotal": 100,
+                "amount": 25
+              },
+              {
+                "minSubtotal": 200,
+                "amount": 70
+              }
+            ],
+            "message": "Descuento por monto de compra"
+          }
+        }
+      }
+    },
+    "output": {
+      "operations": [
+        {
+          "orderDiscountsAdd": {
+            "candidates": [
+              {
+                "message": "Descuento por monto de compra",
+                "targets": [
+                  {
+                    "orderSubtotal": {
+                      "excludedCartLineIds": []
+                    }
+                  }
+                ],
+                "value": {
+                  "fixedAmount": {
+                    "amount": 25
+                  }
+                }
+              }
+            ],
+            "selectionStrategy": "FIRST"
+          }
+        }
+      ]
+    }
+  }
+}

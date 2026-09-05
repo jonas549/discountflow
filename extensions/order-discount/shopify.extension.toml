@@ -1,0 +1,33 @@
+api_version = "2026-04"
+
+[[extensions]]
+name = "t:name"
+handle = "order-discount"
+type = "function"
+uid = "f37d5a4e-4179-5cd3-4be0-1ebfbf28b5da0e05f66d"
+description = "t:description"
+
+  # Descuentos de clase ORDER: "gastá $100 y ahorrás $10".
+  #
+  # 🔴 POR QUÉ UNA EXTENSIÓN NUEVA Y NO DENTRO DE LAS QUE YA HAY
+  #
+  # Una extensión Function exporta UN handler por target, y
+  # `cart.lines.discounts.generate.run` ya lo ocupan `tiered-discount` y
+  # `pack-discount`. Se evaluó meter esto dentro de una de ellas ramificando por
+  # el metafield, y se descartó: pondría código nuevo dentro del Wasm que sirve
+  # a campañas vivas en producción. Es la regla de no mezclar superficies de
+  # fallo.
+  #
+  # 🟢 Y a futuro sale barato: el DESCUENTO DE ENVÍO usa un target DISTINTO
+  # (`cart.delivery-options.discounts.generate.run`), y una extensión sí puede
+  # declarar varios targets distintos. Así que cabe acá sin crear una cuarta.
+  # Prueba directa: el comentario de tiered-discount/shopify.extension.toml
+  # cuenta que el template generó ese target y se quitó a propósito.
+  [[extensions.targeting]]
+  target = "cart.lines.discounts.generate.run"
+  input_query = "src/cart_lines_discounts_generate_run.graphql"
+  export = "cart-lines-discounts-generate-run"
+
+  [extensions.build]
+  command = ""
+  path = "dist/function.wasm"
