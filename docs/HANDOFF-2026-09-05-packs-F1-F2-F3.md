@@ -1,4 +1,4 @@
-# HANDOFF — Packs armables, fases F1 · F2 · F3 (2026-09-05)
+# HANDOFF — Packs armables: F1 · F2 · F3 · ajustes · F4 (2026-09-05)
 
 > Escrito para alguien que no vivió el día. No hace falta contexto previo.
 > Todo lo que se afirma acá está verificado, salvo lo que diga explícitamente
@@ -10,7 +10,7 @@
 
 | Pieza | Estado |
 |---|---|
-| Rama | **`dev`**, 3 commits nuevos. `main` **sin tocar** |
+| Rama | **`dev`** = **`1ee661a`**, 6 commits nuevos. `main` **sin tocar** |
 | Producción (Vercel) | **`e7be44d`** — intacta. Ni un push, ni un deploy |
 | `shopify.app.toml` (PROD) | **intacto**, verificado con `git diff` |
 | Base de datos | Solo el branch **dev** de Neon. Guardia previa: `SELECT count(*) FROM "Shop"` = **1** |
@@ -18,9 +18,12 @@
 | Function nueva | `pack-discount`, **construida y probada en local**. NO desplegada a ninguna app |
 | Extensión de tema | `pack-widget`, nueva. NO desplegada |
 
-**Los tres commits:**
+**Los commits:**
 
 ```
+1ee661a  feat(billing): F4 — limites por TIPO de campana segun plan
+2987c4d  fix(packs): estilos heredados del tema, barra, desglose, aviso Ajax y atribucion
+473f3b1  docs: handoff de las fases F1-F2-F3
 e0999e8  feat(packs): F3 — bloque de tema, widget y app proxy
 9cc9d65  feat(packs): F2 — crear, editar y operar campañas PACK desde el admin
 1b2b41a  feat(packs): F1 — Function de packs armables y cálculo compartido
@@ -30,7 +33,7 @@ e0999e8  feat(packs): F3 — bloque de tema, widget y app proxy
 
 | | |
 |---|---|
-| `npm test` | **148/148** (121 previos + 27 nuevos) |
+| `npm test` | **155/155** (121 previos + 27 de packs + 7 de planes) |
 | Fixtures `pack-discount` contra el Wasm real | **13/13** |
 | Fixtures `tiered-discount` contra el Wasm real | **16/16, sin tocar ninguna** ✅ |
 | `npm run build` | verde |
@@ -138,9 +141,12 @@ Esto sube **tres extensiones** a la app **DiscountFlow Dev**: las dos Functions
 vez que la app lleva más de una.
 
 **Tienda:** `calendario-envios-test-final.myshopify.com`
-**Plan:** FREE → tope de **2 campañas activas**. Hay **0** campañas ahora mismo,
-así que sobra. Si en algún momento estorba: `UPDATE "Shop" SET plan='PROFESSIONAL';`
-contra la base de **dev**.
+
+**Plan: ya está en PROFESSIONAL** y la degradación está frenada con
+`PLAN_SYNC_OBSERVACION=1` en el `.env`. Las dos cosas se hicieron a propósito y
+son necesarias: desde F4 los packs exigen ESSENTIAL, y la tienda de dev no tiene
+suscripción real, así que sin el freno el sondeo la bajaría a FREE a los 15
+minutos y la campaña no se podría activar. Ver §5-TER.
 
 ### 4.2 · Crear la campaña
 
@@ -149,9 +155,9 @@ contra la base de **dev**.
 3. Rellenar:
    - **Nombre:** `Pack rutina facial` (solo lo ve él).
    - **Título que ve el comprador:** `Armá tu rutina`.
-   - **Modo:** empezar por **«Por tamaño del pack»** (es el que tiene barra de
-     progreso y niveles, y por tanto el que más superficie prueba).
-   - **Productos:** *Elegir productos* → **4 productos cualesquiera** de la
+   - **Modo:** ya no hay que elegirlo. El selector desapareció porque solo se
+     ofrece «Por tamaño del pack» (ver §5-BIS).
+   - **Productos:** *Elegir productos* → **5 productos cualesquiera** de la
      tienda de prueba.
    - **Niveles:** vienen por defecto `2 → 10%`, `3 → 20%`, `4 → 30%`.
 4. El panel derecho debe mostrar un **preview con subtotal, ahorro y total**
@@ -176,9 +182,9 @@ contra la base de **dev**.
    de edición de la campaña.
 5. **Guardar** y abrir la tienda.
 
-**Opcional pero recomendado** — el aviso del carrito:
-Personalizar → plantilla **Carrito** → *Agregar bloque → Aplicaciones →
-«Aviso de pack (carrito)»*.
+**Ahora NO es opcional** — el aviso del carrito, que es lo que se arregló en
+esta ronda: Personalizar → plantilla **Carrito** → *Agregar bloque →
+Aplicaciones → «Aviso de pack (carrito)»*.
 
 ### 4.4 · Lo que tiene que pasar en la tienda
 
@@ -219,6 +225,23 @@ descuentos de los elegidos.
 **La prueba de un pack por carrito:** armar un pack, agregarlo, volver al bloque,
 armar otro distinto y agregarlo. En el carrito tiene que quedar **solo el
 segundo**.
+
+### 4.5-BIS · 🔴 LO QUE HAY QUE MIRAR DE NUEVO EN ESTA RONDA
+
+| Qué | Qué se espera |
+|---|---|
+| **Tipografía y tamaño** | El texto tiene el tamaño y la fuente del tema, legible. Nada de letra minúscula |
+| **Botones** | «Agregar al pack» y el CTA se ven como los botones de la tienda. El elegido usa el botón primario del tema; el no elegido, el secundario |
+| **Colores** | No hay ningún verde ni gris nuestro. Bordes y fondos suaves salen del color del texto |
+| **La barra de progreso** | Con 3 de 5 avanza a ~75%. Si volviera a fallar: inspeccionar el elemento y mirar `data-df-progress` en `.df-pack__bar` — si dice 75 el cálculo está bien y el problema es de CSS del tema |
+| **Desglose por producto** | El panel lista cada producto con su ahorro y su % |
+| **Aviso del carrito SIN refrescar** | Quitar una línea → el aviso cambia solo, en ~1 segundo, sin recargar |
+| **Atribución** | Completar una compra → Analytics debe mostrar el pedido y el ROI del pack. Si sigue en 0, `npx shopify app logs` y buscar `[pack-attribution]`: el log dice cuántas líneas con marca vio y cuánto atribuyó |
+| **Puerta por plan (F4)** | Bajar el plan de dev a `LITE` con un UPDATE e intentar activar el pack → debe decir que los packs no están incluidos en Lite. Volver a `PROFESSIONAL` después |
+
+Y una prueba de **no regresión** que conviene hacer una vez, porque F4 tocó los
+límites de los cuatro tipos anteriores: crear y activar una campaña de
+Porcentaje y una Escalonada, y comprobar que siguen funcionando igual.
 
 ### 4.6 · Si algo no aparece
 
@@ -296,9 +319,215 @@ seguiría ofreciendo en la tienda y el comprador armaría un pack que no descuen
 
 ---
 
+## 5-BIS. SEGUNDA RONDA — lo que salió de la prueba de Jonas
+
+F3 pasó las 14 pruebas del modo por tamaño. Verificado con 5 productos y niveles
+2→10 / 3→20 / 4→30: widget, carrito y checkout dieron **$270,20** idéntico, la
+compra se completó con las 5 líneas marcadas, y quitar líneas recalculó bien a
+cada paso. Después de eso, seis cambios.
+
+### ⛔ El modo «Por producto» se OCULTA
+
+Decisión de producto de Jonas, no técnica: si cada producto lleva su propio
+descuento fijo, el comprador elige los dos de mayor porcentaje y arma el pack con
+esos. No incentiva combinar nada, y ese caso ya lo cubre una campaña de
+Porcentaje.
+
+**El código NO se borró.** `PACK_MODOS_OFRECIDOS` en `pack-client.ts` gobierna
+qué modos ofrece la interfaz. Cálculo, Function, widget y fixtures siguen
+intactos, y las campañas ya guardadas en `PER_PRODUCT` se abren y editan igual:
+el formulario detecta el modo retirado y **les devuelve el selector solo a
+ellas**, con un aviso. Reactivarlo = añadir `"PER_PRODUCT"` a ese array.
+
+Con un solo modo el selector desaparece —una sección entera para no dejar elegir
+nada es ruido— y los números de sección pasan a **calcularse**, porque si no
+quedaba «1 · 3 · 4 · 5».
+
+### 1 · Estilos: ahora los hereda del tema
+
+🔴 **La letra ilegible era `rem`.** Un `rem` se mide contra la raíz del
+documento, y es habitual que un tema declare `html { font-size: 62.5% }` para
+hacer las cuentas en décimas. En ese tema, `0.9rem` son **nueve píxeles**. Todo
+pasó a `em`, que se mide contra el texto del tema y escala con él. De paso todos
+los tamaños subieron.
+
+Lo demás:
+
+- `font: inherit` en el contenedor, los botones y el aviso.
+- **Los botones llevan las clases del TEMA** (`button`/`btn` + `--secondary`, las
+  dos familias a la vez para cubrir OS 2.0 y vintage). El color, la forma y el
+  hover salen de la tienda. El estado elegido / no elegido se pinta cambiando
+  entre la variante primaria y la secundaria **del tema**, no con un verde
+  nuestro.
+- Bordes y fondos suaves derivados de `currentColor` con `color-mix` y `rgba` de
+  reserva delante. Gratis: se adapta a temas oscuros sin una sola media query.
+- Cero CSS estructural moderno (sin anidamiento, sin `:has()`, sin container
+  queries) para que funcione en temas viejos.
+- Queda **un** color fijo: el blanco de reserva de la barra fija del móvil, que
+  no puede ser translúcida porque flota sobre el contenido. Está comentado.
+
+### 2 · La barra de progreso
+
+No era el cálculo: los números eran correctos. Era el layout. El carril tenía
+`height: 4px` y el relleno `height: 100%` con un `width` en porcentaje, y una
+altura porcentual depende de que el padre tenga altura definida **en ese
+momento**; un reset del tema basta para que resuelva a cero.
+
+Ahora carril y relleno tienen su **propia altura en píxeles** y el relleno se
+recorta con `scaleX()`, que no depende del layout del padre. El porcentaje queda
+en `data-df-progress` y en atributos ARIA, para poder depurarlo sin reproducir el
+estado.
+
+### 3 · Desglose por producto
+
+El panel lista cada producto elegido con su ahorro y su porcentaje. Se recorre lo
+**elegido** y no las filas con descuento: un producto al 0% está en el pack y
+tiene que aparecer diciendo que no rebaja.
+
+### 4 · El aviso del carrito — el análisis que pidió Jonas
+
+Su diagnóstico era correcto. Los temas actualizan el carrito con la Section
+Rendering API y **reemplazan el HTML de la sección**: si el bloque está dentro,
+su nodo del DOM se sustituye por uno nuevo y vacío; si está fuera, nadie le dice
+que el carrito cambió.
+
+**Lo que no sirve, y por qué:**
+
+| Señal | Por qué no |
+|---|---|
+| `shopify:section:load` | Solo se dispara en el **editor** de temas |
+| `cart:updated` / `cart:refresh` | Los inventa cada tema. **Dawn no los emite**: usa su propio pub/sub en un módulo de JS, inalcanzable desde un asset |
+| `MutationObserver` sobre el carrito | Se dispara con cada cambio de cantidad y cada re-render. Ruido y riesgo de bucle |
+
+**Lo que sí sirve y es independiente del tema:** todas las mutaciones Ajax del
+carrito, en cualquier tema, pasan por `/cart/add`, `/cart/change`,
+`/cart/update` o `/cart/clear`. Se interceptan `fetch` y `XMLHttpRequest`.
+
+Reglas que se respetan, porque estamos en casa de otro: la petición siempre pasa
+y se devuelve tal cual · el `catch` re-lanza · todo va en `try/catch` y si el
+parcheo fallara el aviso deja de actualizarse solo, el carrito del merchant sigue
+igual · se parchea una vez aunque el bloque esté puesto dos veces.
+
+Tres pasadas escalonadas (60 ms / 350 ms / 1200 ms) porque el tema re-renderiza
+**después** de que su fetch resuelva, y el nodo se vuelve a buscar en cada
+pasada.
+
+🟡 **Límite aceptado:** un tema con un endpoint de carrito propio (muy raro) no
+se detecta; ahí el aviso se comporta como antes, correcto al cargar la página.
+
+### 5 · Atribución de pedidos
+
+Bloque 4 nuevo en `webhooks.orders.create.tsx`. Es **la atribución más exacta de
+las cuatro**: la línea lleva escrito el id de la campaña en `_df_pack`, así que
+no hay que deducir nada. (PERCENTAGE/RANGE cruzan variantes; TIERED cruza
+productos, descarta por título y no atribuye si hay ambigüedad.)
+
+🔴 **El detalle que habría dado cero en silencio:** en el payload REST del
+pedido, `properties` es un **ARRAY de `{name, value}`**, no el objeto
+`{clave: valor}` que devuelve la Ajax Cart API. Se verificó en la documentación
+**antes** de escribir el código. `leerPropiedad` tolera las dos formas.
+
+El importe sale de las `discount_allocations` filtradas por el título de NUESTRO
+descuento —una línea puede llevar encima descuentos de otras apps— y la campaña
+se busca por id **sin filtrar por estado**: el pedido ocurrió cuando estaba
+activa, y pausarla después no debe borrar su historial de ventas.
+
+Además `tipoLabel` no conocía `PACK` y mostraba «PACK» crudo en analytics y en el
+dashboard.
+
+---
+
+## 5-TER. F4 — LÍMITES POR TIPO SEGÚN PLAN
+
+### 🔴 El agujero que cierra, además del eje nuevo
+
+`PLAN_LIMITS` solo sabía de CANTIDADES (`maxBxgy`/`maxTiered`), y `null`
+significaba «sin sublímite» — que las rutas leían como **saltarse la comprobación
+entera**. FREE tenía los dos en `null`, así que **una tienda del plan gratuito
+podía crear y activar campañas BxGy y Escalonadas**, acotada solo por el tope
+general de 2. La tabla de planes decía lo contrario desde hacía meses.
+
+Y era peor de lo que parece: son los dos tipos que **no** se topan por variantes,
+así que un FREE podía poner un escalonado sobre toda la tienda sin tocar su cuota
+de 50 variantes.
+
+### El modelo
+
+`TypeRule` hace que **«no incluido» e «incluido sin tope» sean estados
+distintos** en vez de compartir el valor `null` — que era exactamente lo que el
+modelo viejo no podía expresar.
+
+| Tipo | FREE | LITE | ESSENTIAL | PRO |
+|---|---|---|---|---|
+| BxGy | ✗ | máx. 4 | máx. 10 | sin tope |
+| Escalonado | ✗ | máx. 2 | máx. 10 | sin tope |
+| Pack | ✗ | ✗ | sin tope | sin tope |
+
+`PLAN_LIMITS.types` es la única autoridad. Se **quitaron** `maxBxgy`/`maxTiered`
+(los mismos números escritos en un segundo sitio) y `getTypeCampaignLimit`
+(respondía la misma pregunta con peor semántica).
+
+### Un solo punto de decisión
+
+`comprobarTipoDeCampana` en `plan-limits.server.ts`. La comprobación estaba
+copiada en **cinco** sitios y con los tipos nuevos habrían sido **nueve**. Misma
+lección que el flag `jobs:batched` leído en tres lugares el 09/08: la
+inconsistencia se evita por construcción, no por disciplina.
+
+No construye la Response: cada ruta tiene su forma de JSON y eso es
+presentación. Lo que no puede estar duplicado es la **decisión**.
+
+Dos motivos de bloqueo, distintos a propósito:
+
+- **el plan no incluye el tipo** → hay que subir de plan. Decirle «pausá una
+  campaña» lo mandaría a intentar algo que no puede funcionar.
+- **incluido con tope** → pausar otra del tipo sí ayuda.
+
+La puerta va en la **activación**, nunca en el guardado: un borrador siempre se
+puede guardar, así el límite es argumento de venta y no un muro.
+
+### El punto que más importaba
+
+El **listado**. Desde el 01/09 activa borradores de BxGy, Escalonado y Pack
+creando el descuento en Shopify; sin la puerta ahí, un plan que no incluye el
+tipo lo activaría igual desde la lista.
+
+### Tests
+
+`plan-limits.test.ts`, 7 tests. La tabla decidida se escribe **aparte** del
+código y se compara contra él: si alguien cambia la matriz sin cambiar la tabla,
+falla. Incluye un test que exige que **todo plan defina regla para todos los
+tipos** — un tipo nuevo olvidado en un plan haría que `reglaDeTipo` devolviera
+`undefined` y la puerta dejara pasar todo.
+
+### Qué NO cambia
+
+Las campañas ACTIVE **nunca se re-evalúan**. Una tienda que baje de plan conserva
+su pack corriendo. Es lo seguro y es coherente con la restricción del caso
+116943; queda escrito para que sea una decisión y no un descuido.
+
+### 🔴 Consecuencia para volver a probar en dev
+
+La tienda de dev estaba en **FREE**, y con F4 los packs exigen ESSENTIAL. Sin
+tocar nada, la campaña no se podría activar. Se hicieron dos cambios **solo en el
+ambiente de desarrollo**:
+
+1. `UPDATE` del plan de la tienda de dev a **PROFESSIONAL** (guardia previa:
+   `count(*) FROM "Shop"` = 1 → es dev).
+2. **`PLAN_SYNC_OBSERVACION=1` en el `.env` local.** Hace falta porque la tienda
+   de dev no tiene ninguna suscripción real: el sondeo la bajaría a FREE en la
+   siguiente carga de `/app` y la campaña quedaría sin poder activarse a los 15
+   minutos. Es el mismo interruptor que se usó en producción durante el caso
+   116943, y está comentado en el `.env`.
+
+⚠️ El `.env` está en `.gitignore`: es local y no viaja al repo. Para volver a
+ejercitar la degradación en dev, borrar esa línea.
+
+---
+
 ## 6. LO QUE FALTA
 
-### F4 — límites por plan (lo siguiente, tras la validación de Jonas)
+### ✅ F4 — HECHO (ver §5-TER). Lo que sigue vivo de esta sección:
 
 🔴 **El eje de "este plan no puede usar este tipo" NO EXISTE hoy.**
 `PLAN_LIMITS` solo sabe de **cantidades**: `campaigns`, `variants`, `maxBxgy`,
