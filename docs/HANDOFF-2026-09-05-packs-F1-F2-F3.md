@@ -10,7 +10,7 @@
 
 | Pieza | Estado |
 |---|---|
-| Rama | **`dev`** = **`1ee661a`**, 6 commits nuevos. `main` **sin tocar** |
+| Rama | **`dev`** = **`e959803`**, 8 commits nuevos. `main` **sin tocar** |
 | Producción (Vercel) | **`e7be44d`** — intacta. Ni un push, ni un deploy |
 | `shopify.app.toml` (PROD) | **intacto**, verificado con `git diff` |
 | Base de datos | Solo el branch **dev** de Neon. Guardia previa: `SELECT count(*) FROM "Shop"` = **1** |
@@ -21,6 +21,7 @@
 **Los commits:**
 
 ```
+e959803  fix(packs): el parcheo de fetch rompia el fetch de TODA la pagina
 1ee661a  feat(billing): F4 — limites por TIPO de campana segun plan
 2987c4d  fix(packs): estilos heredados del tema, barra, desglose, aviso Ajax y atribucion
 473f3b1  docs: handoff de las fases F1-F2-F3
@@ -33,7 +34,7 @@ e0999e8  feat(packs): F3 — bloque de tema, widget y app proxy
 
 | | |
 |---|---|
-| `npm test` | **155/155** (121 previos + 27 de packs + 7 de planes) |
+| `npm test` | **159/159** (121 previos + 27 de packs + 7 de planes + 4 de assets) |
 | Fixtures `pack-discount` contra el Wasm real | **13/13** |
 | Fixtures `tiered-discount` contra el Wasm real | **16/16, sin tocar ninguna** ✅ |
 | `npm run build` | verde |
@@ -522,6 +523,93 @@ ambiente de desarrollo**:
 
 ⚠️ El `.env` está en `.gitignore`: es local y no viaja al repo. Para volver a
 ejercitar la degradación en dev, borrar esa línea.
+
+---
+
+## 5-QUATER. 🔴 INCIDENTE: el widget colgado en «Cargando tu pack…»
+
+Ocurrió al probar la segunda ronda. **Fue una regresión introducida en esa misma
+ronda**, al añadir el interceptor de `fetch` del aviso del carrito.
+
+### La causa
+
+`pack-notice.js` hacía `fetchOriginal.apply(this, arguments)`. El archivo está
+en **modo estricto**, así que en una llamada sin calificar —`fetch(url)`, que es
+como llaman las cinco llamadas de `pack-builder.js`, el tema, y cualquier otra
+app instalada— el receptor era `undefined`. Y `window.fetch` es una operación
+**WebIDL con comprobación de receptor**: invocarla con algo que no sea `window`
+lanza `TypeError: Illegal invocation`.
+
+No rompía «un poco» el widget: **rompía el `fetch` de la página entera**. Es
+exactamente la regla que el comentario del propio archivo decía respetar
+—«estamos en casa de otro»— y que la implementación incumplía.
+
+**Por qué el spinner era eterno:** la excepción era **síncrona**, salía de
+`load()` antes de que existiera cadena a la que enganchar el `.catch`, así que
+el bloque ni se pintaba ni se ocultaba.
+
+**Por qué no se detectó al escribirlo:** Node tolera un `this` incorrecto en su
+`fetch`; el navegador no. La comprobación que se hizo entonces no podía fallar.
+
+### Lo que descartó las otras hipótesis
+
+- El 404 de `/apps/proalert/api/warnings` de la consola **no es nuestro**:
+  «proalert» es otra app instalada en la tienda de dev. Pero fue la pista más
+  útil, por descarte: **prueba que una petición fallida a un app proxy SÍ
+  aparece en la consola**, y no había ninguna línea para
+  `/apps/discountflow/pack` → la petición nunca salió del navegador.
+- La ruta existe: `apps/discountflow/pack` figura en el manifiesto del build.
+- El dato estaba perfecto: la campaña en la base es `PACK_SIZE`, 5 productos,
+  5 items, `ACTIVE`, con su `shopifyDiscountId`.
+- El app proxy estaba bien: F3 había funcionado antes con la misma
+  configuración. *(El `.toml` conserva la URL de producción como placeholder y
+  el CLI actualiza la configuración remota; que `git diff` del `.toml` salga
+  vacío es normal, no un síntoma.)*
+
+### El arreglo, en tres capas
+
+1. `bind(window)` de una vez: la cuestión del receptor deja de existir.
+2. Todo lo nuestro dentro de `try/catch`. Si algo falla, la petición del tema
+   sigue su camino igual.
+3. **Solo se parchea si de verdad hay un aviso en la página.** Sin bloque de
+   aviso no se toca el `fetch` de nadie. Acota el radio de una técnica invasiva.
+
+### Y dos cosas más que aparecieron diagnosticando
+
+- **Vigilante de 10 s en el widget.** Pase lo que pase, el bloque llega a un
+  estado definitivo. Un spinner eterno es la peor respuesta posible: no dice
+  nada y no se puede diagnosticar. Además el fetch inicial va tras
+  `Promise.resolve().then()`, que convierte un throw síncrono en un rechazo
+  normal. Cubre **cualquier** causa de cuelgue, no solo ésta.
+- 🔴 **`hidden` no ocultaba nada.** `[hidden]` de la hoja del navegador es un
+  selector de atributo; `.df-pack` es de clase y tiene más especificidad, así
+  que `display: grid` lo pisaba. El camino de fallo dejaba una caja vacía con
+  padding en la tienda en vez de nada.
+
+### Los tests que lo blindan
+
+`pack-widget-assets.test.ts`, 4 tests. Monta un `window` cuyo `fetch` comprueba
+el receptor **como el navegador**, que es justo lo que Node no hace. Verificado
+que cazan la regresión: con la versión de `2987c4d` fallan 2; con el arreglo
+pasan los 4.
+
+Incluye además dos invariantes que sostienen «el precio que ve el comprador es
+el que paga»:
+
+- `pack-calc.js` tiene que estar **regenerado** desde `pack-calc.ts`. Si alguien
+  toca el módulo y no corre el build, la tienda calcula con la versión vieja y
+  el checkout con la nueva, y la diferencia solo se ve pagando.
+- La clave `_df_pack` tiene que **coincidir** en la input query de la Function,
+  en `pack-client.ts` y en el aviso del carrito.
+
+### ⚠️ Lo que queda sin confirmar
+
+El mecanismo está probado, pero para que muerda, `pack-notice.js` tiene que
+estar cargado en la misma página que el widget. Muchos temas OS 2.0 renderizan
+el **cajón del carrito en todas las páginas**, así que un bloque de aviso puesto
+ahí carga su script en todas — que es la vía más probable. Si resultara que el
+aviso NO estaba en esa página, la causa sería otra; el vigilante nuevo hará que
+el próximo informe traiga el motivo en la consola en vez de un spinner mudo.
 
 ---
 
