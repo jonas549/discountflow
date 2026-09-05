@@ -30,10 +30,10 @@ import {
   type BxgyYMode,
 } from "../lib/discounts/bxgy";
 import type { SelectionMode } from "../lib/discounts/percentage";
-import { type Plan, PLAN_LIMITS, getTypeCampaignLimit } from "../lib/billing/plan-limits";
+import { type Plan, PLAN_LIMITS } from "../lib/billing/plan-limits";
 import {
   getActiveCampaignCount,
-  getActiveCampaignCountByType,
+  comprobarTipoDeCampana,
 } from "../lib/billing/plan-limits.server";
 import { es } from "../i18n";
 
@@ -183,20 +183,14 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       );
     }
 
-    // Sublímite por tipo: máximo de BxGy ACTIVOS simultáneos. null = sin tope.
-    const typeLimit = getTypeCampaignLimit(plan, "BXGY");
-    if (typeLimit !== null) {
-      const activeBxgy = await getActiveCampaignCountByType(shop.id, "BXGY");
-      if (activeBxgy >= typeLimit) {
-        return Response.json(
-          {
-            errors: { general: es.planes.limiteCampanasTipo("BxGy", activeBxgy, typeLimit) },
-            limitExceeded: true,
-          },
-          { status: 422 }
-        );
-      }
-    }
+    // Puerta por TIPO: si el plan lo incluye y con cuántas activas. Una sola
+    // función para los tres tipos y los nueve puntos de activación.
+    const bloqueo = await comprobarTipoDeCampana(shop.id, plan, "BXGY");
+    if (bloqueo)
+      return Response.json(
+        { errors: { general: bloqueo }, limitExceeded: true },
+        { status: 422 }
+      );
   }
 
   const xExcludeProductIds = enableXExclusions

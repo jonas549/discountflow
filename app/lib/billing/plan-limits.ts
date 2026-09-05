@@ -4,16 +4,47 @@
 export const PLANS = ["FREE", "LITE", "ESSENTIAL", "PROFESSIONAL"] as const;
 export type Plan = (typeof PLANS)[number];
 
-// maxBxgy / maxTiered = máximo de campañas ACTIVAS SIMULTÁNEAS de ese tipo.
-// `null` = sin sublímite propio (FREE se apoya en el límite general de 2
-// campañas; PROFESSIONAL queda acotado de facto por sus 100 generales).
+/**
+ * Tipos de campaña que se gobiernan por PLAN, no por variantes.
+ *
+ * PERCENTAGE y RANGE quedan fuera a propósito: están en todos los planes y se
+ * topan por cantidad de variantes, que es otro eje.
+ */
+export type TypeLimitedCampaign = "BXGY" | "TIERED" | "PACK";
+
+/**
+ * Qué puede hacer un plan con un tipo de campaña.
+ *
+ * 🔴 Antes esto NO existía. `PLAN_LIMITS` solo sabía de CANTIDADES
+ * (`maxBxgy`/`maxTiered`), y `null` significaba "sin sublímite" — que las rutas
+ * interpretaban como *saltarse la comprobación entera*. Consecuencia real:
+ * FREE tenía `maxBxgy: null`, así que **una tienda del plan gratuito podía
+ * crear y activar campañas BxGy y Escalonadas**, acotada solo por el tope
+ * general de 2. La tabla de planes decía lo contrario desde hacía meses.
+ *
+ * Por eso ahora "no incluido" y "incluido sin tope" son dos estados DISTINTOS y
+ * explícitos, en vez de compartir el valor `null`. Esto no es solo el eje que
+ * necesitan los tipos nuevos: cierra ese agujero.
+ */
+export type TypeRule =
+  /** El plan no incluye este tipo de campaña. */
+  | { incluido: false }
+  /** Incluido. `max` = máximo de ACTIVAS simultáneas; `null` = sin sublímite. */
+  | { incluido: true; max: number | null };
+
+// `types` es la ÚNICA autoridad. Los campos `maxBxgy`/`maxTiered` que había
+// antes se quitaron: eran los mismos números escritos en un segundo sitio, que
+// es exactamente el problema que este cambio elimina.
 // Pausadas y borradores NO cuentan: pausar una para activar otra es válido.
 export const PLAN_LIMITS = {
   FREE: {
     campaigns: 2,
     variants: 50,
-    maxBxgy: null,
-    maxTiered: null,
+    types: {
+      BXGY: { incluido: false },
+      TIERED: { incluido: false },
+      PACK: { incluido: false },
+    },
     price: 0,
     trialDays: 0,
     handle: "free",
@@ -22,8 +53,11 @@ export const PLAN_LIMITS = {
   LITE: {
     campaigns: 5,
     variants: 750,
-    maxBxgy: 4,
-    maxTiered: 2,
+    types: {
+      BXGY: { incluido: true, max: 4 },
+      TIERED: { incluido: true, max: 2 },
+      PACK: { incluido: false },
+    },
     price: 9.99,
     trialDays: 0,
     handle: "lite",
@@ -32,8 +66,12 @@ export const PLAN_LIMITS = {
   ESSENTIAL: {
     campaigns: 50,
     variants: 6000,
-    maxBxgy: 10,
-    maxTiered: 10,
+    types: {
+      BXGY: { incluido: true, max: 10 },
+      TIERED: { incluido: true, max: 10 },
+      // Sin sublímite propio: lo acota el tope general de 50 campañas.
+      PACK: { incluido: true, max: null },
+    },
     price: 27.99,
     trialDays: 0,
     handle: "essential",
@@ -42,8 +80,11 @@ export const PLAN_LIMITS = {
   PROFESSIONAL: {
     campaigns: 100,
     variants: 10000,
-    maxBxgy: null,
-    maxTiered: null,
+    types: {
+      BXGY: { incluido: true, max: null },
+      TIERED: { incluido: true, max: null },
+      PACK: { incluido: true, max: null },
+    },
     price: 44.99,
     trialDays: 0,
     handle: "professional",
@@ -51,16 +92,25 @@ export const PLAN_LIMITS = {
   },
 } as const;
 
-/** Tipos de campaña que se topan por CANTIDAD de activas, no por variantes. */
-export type TypeLimitedCampaign = "BXGY" | "TIERED";
+/**
+ * Los tipos que dependen del plan. Cualquier otro (PERCENTAGE, RANGE) devuelve
+ * `null` y no pasa por este eje.
+ */
+export function esTipoLimitadoPorPlan(type: string): type is TypeLimitedCampaign {
+  return type === "BXGY" || type === "TIERED" || type === "PACK";
+}
 
-/** Máximo de campañas activas de ese tipo, o `null` si el plan no lo limita. */
-export function getTypeCampaignLimit(
-  plan: Plan,
-  type: TypeLimitedCampaign
-): number | null {
-  const limits = PLAN_LIMITS[plan];
-  return type === "BXGY" ? limits.maxBxgy : limits.maxTiered;
+/**
+ * 🔴 LA ÚNICA fuente de verdad de "¿este plan puede tener esta campaña activa?".
+ *
+ * Se colapsó aquí a propósito. La comprobación vivía copiada en cinco sitios, y
+ * con los tipos nuevos habrían sido nueve: cada copia es un lugar donde alguien
+ * puede desincronizarla mañana. Es la misma lección que dejó el flag
+ * `jobs:batched` leído en tres lugares el 2026-08-09 — la inconsistencia se
+ * evita por construcción, no por disciplina.
+ */
+export function reglaDeTipo(plan: Plan, type: TypeLimitedCampaign): TypeRule {
+  return PLAN_LIMITS[plan].types[type];
 }
 
 export function handleToPlan(handle: string | null | undefined): Plan {

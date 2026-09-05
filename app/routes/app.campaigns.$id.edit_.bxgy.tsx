@@ -32,10 +32,10 @@ import {
 } from "../lib/discounts/bxgy";
 import type { SelectionMode } from "../lib/discounts/percentage";
 import { es, estadoLabel } from "../i18n";
-import { PLAN_LIMITS, type Plan, getTypeCampaignLimit } from "../lib/billing/plan-limits";
+import { PLAN_LIMITS, type Plan } from "../lib/billing/plan-limits";
 import {
   getActiveCampaignCount,
-  getActiveCampaignCountByType,
+  comprobarTipoDeCampana,
 } from "../lib/billing/plan-limits.server";
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
@@ -225,21 +225,14 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
       );
     }
 
-    // Sublímite por tipo: máximo de BxGy ACTIVOS simultáneos. Esta campaña no
-    // está ACTIVE aquí, así que no se cuenta a sí misma.
-    const typeLimit = getTypeCampaignLimit(plan, "BXGY");
-    if (typeLimit !== null) {
-      const activeBxgy = await getActiveCampaignCountByType(shop.id, "BXGY");
-      if (activeBxgy >= typeLimit) {
-        return Response.json(
-          {
-            errors: { general: es.planes.limiteCampanasTipo("BxGy", activeBxgy, typeLimit) },
-            limitExceeded: true,
-          },
-          { status: 422 }
-        );
-      }
-    }
+    // Puerta por TIPO — ver comprobarTipoDeCampana. La campaña no está ACTIVE
+    // aquí, así que no se cuenta a sí misma.
+    const bloqueo = await comprobarTipoDeCampana(shop.id, plan, "BXGY");
+    if (bloqueo)
+      return Response.json(
+        { errors: { general: bloqueo }, limitExceeded: true },
+        { status: 422 }
+      );
   }
 
   const xExcludeProductIds = enableXExclusions ? xExcluded.map((p) => p.id) : [];

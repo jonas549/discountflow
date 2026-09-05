@@ -59,12 +59,12 @@ import { JOBS_FEATURE_FLAG } from "../lib/jobs/constants";
 import { JobProgress } from "../components/JobProgress";
 import { es, estadoLabel, tipoLabel, formatDate } from "../i18n";
 import { Btn, LinkBtn } from "../components/Btn";
-import { PLAN_LIMITS, type Plan, getTypeCampaignLimit } from "../lib/billing/plan-limits";
+import { PLAN_LIMITS, type Plan } from "../lib/billing/plan-limits";
 import {
   getActiveCampaignCount,
   getVariantCount,
   getCampaignVariantCount,
-  getActiveCampaignCountByType,
+  comprobarTipoDeCampana,
 } from "../lib/billing/plan-limits.server";
 import { useSearchParams } from "react-router";
 
@@ -139,29 +139,23 @@ async function comprobarLimitesAlReactivar(
       );
   }
 
-  // BXGY y TIERED se topan por CANTIDAD de campañas activas de su tipo, no por
-  // variantes. La campaña está PAUSED aquí, así que no se cuenta a sí misma.
-  if (campaign.type === "BXGY" || campaign.type === "TIERED") {
-    const typeLimit = getTypeCampaignLimit(plan, campaign.type);
-    if (typeLimit !== null) {
-      const activeOfType = await getActiveCampaignCountByType(
-        shop.id,
-        campaign.type as "BXGY" | "TIERED"
-      );
-      if (activeOfType >= typeLimit)
-        return Response.json(
-          {
-            error: es.planes.limiteCampanasTipo(
-              campaign.type === "BXGY" ? "BxGy" : "escalonadas",
-              activeOfType,
-              typeLimit
-            ),
-            limitExceeded: true,
-          },
-          { status: 422 }
-        );
-    }
-  }
+  // Puerta por TIPO: si el plan incluye el tipo, y con cuántas activas.
+  //
+  // 🔴 Este es el punto que más importa de los nueve: desde el 2026-09-01 el
+  // listado ACTIVA borradores de BxGy, Escalonado y Pack creando el descuento
+  // en Shopify. Sin esta comprobación acá, un plan que no incluye el tipo lo
+  // activaría igual desde la lista.
+  //
+  // La campaña está DRAFT o PAUSED en este punto, así que no se cuenta a sí
+  // misma; `excluirCampanaId` lo hace explícito en vez de depender de eso.
+  const bloqueoDeTipo = await comprobarTipoDeCampana(shop.id, plan, campaign.type, {
+    excluirCampanaId: campaign.id,
+  });
+  if (bloqueoDeTipo)
+    return Response.json(
+      { error: bloqueoDeTipo, limitExceeded: true },
+      { status: 422 }
+    );
 
   return null;
 }

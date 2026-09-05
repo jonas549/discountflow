@@ -16,10 +16,10 @@ import {
   validateTieredForm,
   buildTieredConfig,
 } from "../lib/discounts/tiered-form";
-import { type Plan, PLAN_LIMITS, getTypeCampaignLimit } from "../lib/billing/plan-limits";
+import { type Plan, PLAN_LIMITS } from "../lib/billing/plan-limits";
 import {
   getActiveCampaignCount,
-  getActiveCampaignCountByType,
+  comprobarTipoDeCampana,
 } from "../lib/billing/plan-limits.server";
 import { es } from "../i18n";
 
@@ -75,22 +75,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       );
     }
 
-    // Sublímite por tipo: máximo de escalonados ACTIVOS simultáneos.
-    const typeLimit = getTypeCampaignLimit(plan, "TIERED");
-    if (typeLimit !== null) {
-      const activeTiered = await getActiveCampaignCountByType(shop.id, "TIERED");
-      if (activeTiered >= typeLimit) {
-        return Response.json(
-          {
-            errors: {
-              general: es.planes.limiteCampanasTipo("escalonadas", activeTiered, typeLimit),
-            },
-            limitExceeded: true,
-          },
-          { status: 422 }
-        );
-      }
-    }
+    // Puerta por TIPO — ver comprobarTipoDeCampana.
+    const bloqueo = await comprobarTipoDeCampana(shop.id, plan, "TIERED");
+    if (bloqueo)
+      return Response.json(
+        { errors: { general: bloqueo }, limitExceeded: true },
+        { status: 422 }
+      );
   }
 
   const config = buildTieredConfig(f);
