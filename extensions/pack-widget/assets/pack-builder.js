@@ -1,3 +1,18 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+ * MARCA DE VERSIÓN — la primera línea que se ejecuta, a propósito.
+ *
+ * Va ANTES de cualquier IIFE y de cualquier cosa que pueda lanzar, para que su
+ * ausencia signifique una sola cosa: este archivo no se está ejecutando. Nació
+ * el 2026-09-05, después de dos rondas en las que el widget no arrancaba y no
+ * había forma de distinguir «el asset no llegó» de «el asset llegó viejo» de
+ * «el asset llegó y falló».
+ * ═══════════════════════════════════════════════════════════════════════════ */
+window.DF_PACK_BUILD = 6;
+window.DF_PACK_CARGADOS = (window.DF_PACK_CARGADOS || []).concat(["pack-builder"]);
+try {
+  console.log("[DiscountFlow] build 6 · pack-builder cargado");
+} catch (e) {}
+
 /* DiscountFlow — widget «Armá tu pack».
  *
  * 🔴 ESTE ARCHIVO NO CALCULA DESCUENTOS.
@@ -24,6 +39,60 @@
 
   /** Los widgets vivos de la página, para poder resincronizarlos. */
   var widgets = [];
+
+  /**
+   * Diagnóstico de un comando: `dfPack()` en la consola.
+   *
+   * Existe porque el 2026-09-05 el widget no arrancó dos veces seguidas y no
+   * había forma de saber, sin abrir la pestaña de red y comparar archivos, si
+   * el asset no había llegado, había llegado viejo, o había llegado y fallado.
+   *
+   * ⚠️ Si `dfPack` no existe en la consola, ESO YA ES LA RESPUESTA: este archivo
+   * no se está ejecutando. La causa más probable es el fallo de Shopify con
+   * varios bloques de una misma theme app extension — ver el comentario de
+   * `blocks/pack-builder.liquid`.
+   */
+  window.dfPack = function () {
+    var caja = document.querySelector("[data-df-pack]");
+    var aviso = document.querySelector("[data-df-pack-notice]");
+    var cssBuild = "";
+    try {
+      if (caja)
+        cssBuild = (window.getComputedStyle(caja).getPropertyValue("--df-build") || "").trim();
+    } catch (e) {
+      /* ignorado */
+    }
+
+    var info = {
+      buildDelLiquid: caja ? caja.getAttribute("data-df-build") : "(sin bloque de armador en esta página)",
+      buildDelLiquidAviso: aviso ? aviso.getAttribute("data-df-build") : "(sin bloque de aviso en esta página)",
+      buildDelJS: String(window.DF_PACK_BUILD),
+      buildDelCSS: cssBuild || "🔴 el CSS no llegó",
+      archivosJSCargados: (window.DF_PACK_CARGADOS || []).join(", ") || "🔴 ninguno",
+      calculoDisponible: !!window.DiscountFlowPackCalc,
+      widgetsIniciados: widgets.length,
+      packCargado: widgets.length ? !!widgets[0].pack : false,
+      seleccionados: widgets.length ? widgets[0].selected.length : 0,
+      enCarrito: widgets.length ? widgets[0].enCarrito.length : 0,
+      proxy: caja ? caja.getAttribute("data-proxy") : null,
+    };
+
+    var mismos =
+      String(info.buildDelLiquid) === String(info.buildDelJS) &&
+      String(info.buildDelCSS) === String(info.buildDelJS);
+
+    try {
+      console.log(
+        mismos
+          ? "✅ Liquid, JS y CSS están en la MISMA versión (build " + info.buildDelJS + ")"
+          : "🔴 VERSIONES DISTINTAS — el CDN está sirviendo algo viejo. Ver el procedimiento del handoff."
+      );
+      console.table ? console.table(info) : console.log(info);
+    } catch (e) {
+      /* ignorado */
+    }
+    return info;
+  };
 
   /**
    * Las clases con las que el TEMA pinta un botón.

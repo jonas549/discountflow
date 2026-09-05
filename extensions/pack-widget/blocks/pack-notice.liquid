@@ -2,16 +2,17 @@
   DiscountFlow — Aviso del pack en el carrito.
 
   Implementa la decisión de producto del 2026-09-05: si el comprador borra una
-  línea del carrito, el pack NO se deshace ni se bloquea nada; el carrito AVISA
-  de lo que perdió y de cómo recuperarlo.
+  línea, el pack NO se deshace ni se bloquea nada; el carrito AVISA de lo que
+  perdió y de cómo recuperarlo.
 
-  Por qué hace falta un bloque aparte y no basta con el `message` del descuento:
-  ese texto solo lo pinta Shopify CUANDO el descuento aplica. El caso que hay
-  que cubrir es justo el contrario — el pack cayó por debajo del mínimo y ya no
-  hay descuento, así que no hay mensaje donde colgarse.
+  Hace falta un bloque propio y no basta con el `message` del descuento: ese
+  texto solo lo pinta Shopify CUANDO el descuento aplica, y el caso a cubrir es
+  justo el contrario.
 
-  El merchant lo coloca en su sección de carrito. Si no lo coloca, no pasa nada
-  malo: simplemente no hay aviso.
+  🔴 Carga EXACTAMENTE los mismos assets que `pack-builder.liquid`, a propósito.
+  Ver el comentario largo de aquel archivo: con varios bloques de una misma
+  theme app extension activos, los del segundo pueden no servirse. Que los dos
+  declaren el mismo conjunto elimina el problema. NO separarlos.
 {% endcomment %}
 
 {{ 'pack-builder.css' | asset_url | stylesheet_tag }}
@@ -19,12 +20,15 @@
 <div
   class="df-pack-notice"
   data-df-pack-notice
+  data-df-build="6"
   data-proxy="/apps/discountflow/pack"
   hidden
   {{ block.shopify_attributes }}
 ></div>
 
+{% comment %} Los tres, en los DOS bloques. Ver el comentario de arriba. {% endcomment %}
 <script src="{{ 'pack-calc.js' | asset_url }}" defer></script>
+<script src="{{ 'pack-builder.js' | asset_url }}" defer></script>
 <script src="{{ 'pack-notice.js' | asset_url }}" defer></script>
 
 {% schema %}

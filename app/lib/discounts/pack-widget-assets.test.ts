@@ -143,11 +143,16 @@ test("pack-calc.js está regenerado desde pack-calc.ts", async () => {
 
   const recienCompilado = generado.outputFiles[0].text.trim();
   const enDisco = fs.readFileSync(path.join(ASSETS, "pack-calc.js"), "utf8");
-  // El banner del script de build no lo produce esbuild acá: se compara el
-  // cuerpo, que es lo que importa.
-  const cuerpoEnDisco = enDisco
-    .slice(enDisco.indexOf('"use strict";'))
-    .trim();
+  // Se compara solo el CUERPO que produce esbuild: el banner y el footer con la
+  // marca de versión los añade el script de build, no esbuild, así que quedan
+  // fuera de la comparación.
+  const MARCA = "/* Marca de versión";
+  const desdeUseStrict = enDisco.slice(enDisco.indexOf('"use strict";'));
+  const cuerpoEnDisco = (
+    desdeUseStrict.indexOf(MARCA) > -1
+      ? desdeUseStrict.slice(0, desdeUseStrict.indexOf(MARCA))
+      : desdeUseStrict
+  ).trim();
 
   assert.equal(
     cuerpoEnDisco,

@@ -34,6 +34,13 @@
  *     container queries: tiene que funcionar en temas viejos.
  */
 
+/* Marca de versión del CSS, legible con getComputedStyle. Sirve para saber si
+   la hoja que sirve el CDN es la actual sin abrir la pestaña de red. */
+.df-pack,
+.df-pack-notice {
+  --df-build: 6;
+}
+
 .df-pack {
   /* Superficies derivadas del color del texto del tema.
    *

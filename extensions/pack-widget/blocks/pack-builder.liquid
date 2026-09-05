@@ -1,18 +1,31 @@
 {% comment %}
   DiscountFlow — Armá tu pack.
 
-  App BLOCK, no app embed. La diferencia importa: un app embed se inyecta antes
-  del cierre de <body> y el merchant no puede colocarlo donde quiera; un app
-  block se arrastra dentro de la sección que él elija (home, ficha de producto,
-  landing), que es exactamente el requisito.
+  App BLOCK, no app embed: el merchant lo arrastra dentro de la sección que
+  elija (home, ficha de producto, landing).
 
-  Límites que hay que conocer y que el merchant tiene que poder entender:
+  ─────────────────────────────────────────────────────────────────────────────
+  🔴 POR QUÉ LOS DOS BLOQUES CARGAN EXACTAMENTE LOS MISMOS ASSETS
+
+  Hay un fallo documentado de Shopify: cuando varios bloques de una MISMA theme
+  app extension están activos, los assets del segundo bloque en adelante pueden
+  no servirse, aunque el bloque sí se renderice. El síntoma es exactamente el
+  que se vio el 2026-09-05: el HTML del bloque aparece, el CSS aplica, y el
+  JavaScript nunca se ejecuta — sin error en consola, sin petición de red, sin
+  nada que mirar.
+
+  El apaño es que los DOS bloques declaren el MISMO conjunto de assets. Si
+  Shopify sirve "los del primer bloque", los del primero ya son todos. Cada
+  archivo se protege solo: el armador no hace nada si no encuentra su
+  contenedor, y el aviso tampoco si no encuentra el suyo.
+
+  NO separar otra vez los assets por bloque sin releer esto.
+  ─────────────────────────────────────────────────────────────────────────────
+
+  Límites del app block, que el merchant tiene que poder entender:
     · Solo temas Online Store 2.0 (plantillas JSON).
     · Solo en secciones que declaren bloques de tipo @app.
     · En temas vintage no aparece.
-
-  Los datos NO se renderizan en Liquid: los pide el widget al app proxy. Así el
-  bloque no depende de que el catálogo esté en un metafield ni se queda viejo.
 {% endcomment %}
 
 {{ 'pack-builder.css' | asset_url | stylesheet_tag }}
@@ -20,6 +33,7 @@
 <div
   class="df-pack"
   data-df-pack
+  data-df-build="6"
   data-campaign="{{ block.settings.campaign_id | escape }}"
   data-proxy="/apps/discountflow/pack"
   data-heading="{{ block.settings.heading | escape }}"
@@ -42,8 +56,10 @@
   </noscript>
 </div>
 
+{% comment %} Los tres, en los DOS bloques. Ver el comentario de arriba. {% endcomment %}
 <script src="{{ 'pack-calc.js' | asset_url }}" defer></script>
 <script src="{{ 'pack-builder.js' | asset_url }}" defer></script>
+<script src="{{ 'pack-notice.js' | asset_url }}" defer></script>
 
 {% schema %}
 {

@@ -256,3 +256,10 @@ var DiscountFlowPackCalc = (() => {
   }
   return __toCommonJS(pack_calc_exports);
 })();
+
+/* Marca de versión — ver BUILD en scripts/build-pack-widget.mjs */
+window.DF_PACK_BUILD = 6;
+window.DF_PACK_CARGADOS = (window.DF_PACK_CARGADOS || []).concat(["pack-calc"]);
+try {
+  console.log("[DiscountFlow] build 6 · pack-calc cargado");
+} catch (e) {}
