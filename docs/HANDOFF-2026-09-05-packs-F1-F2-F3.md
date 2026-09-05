@@ -10,7 +10,7 @@
 
 | Pieza | Estado |
 |---|---|
-| Rama | **`dev`** = **`e959803`**, 8 commits nuevos. `main` **sin tocar** |
+| Rama | **`dev`** = **`0ddcfc7`**, 9 commits nuevos. `main` **sin tocar** |
 | Producción (Vercel) | **`e7be44d`** — intacta. Ni un push, ni un deploy |
 | `shopify.app.toml` (PROD) | **intacto**, verificado con `git diff` |
 | Base de datos | Solo el branch **dev** de Neon. Guardia previa: `SELECT count(*) FROM "Shop"` = **1** |
@@ -21,6 +21,7 @@
 **Los commits:**
 
 ```
+0ddcfc7  fix(packs): la barra de progreso y el widget que ignoraba el carrito
 e959803  fix(packs): el parcheo de fetch rompia el fetch de TODA la pagina
 1ee661a  feat(billing): F4 — limites por TIPO de campana segun plan
 2987c4d  fix(packs): estilos heredados del tema, barra, desglose, aviso Ajax y atribucion
@@ -34,7 +35,7 @@ e0999e8  feat(packs): F3 — bloque de tema, widget y app proxy
 
 | | |
 |---|---|
-| `npm test` | **159/159** (121 previos + 27 de packs + 7 de planes + 4 de assets) |
+| `npm test` | **165/165** (121 previos + 44 de packs y planes)  |
 | Fixtures `pack-discount` contra el Wasm real | **13/13** |
 | Fixtures `tiered-discount` contra el Wasm real | **16/16, sin tocar ninguna** ✅ |
 | `npm run build` | verde |
@@ -610,6 +611,72 @@ el **cajón del carrito en todas las páginas**, así que un bloque de aviso pue
 ahí carga su script en todas — que es la vía más probable. Si resultara que el
 aviso NO estaba en esa página, la causa sería otra; el vigilante nuevo hará que
 el próximo informe traiga el motivo en la consola en vez de un spinner mudo.
+
+---
+
+## 5-QUINQUE. TERCERA RONDA: la barra, el carrito y un bug de CSS
+
+### La barra de progreso — por qué se dejó de perseguir la causa
+
+Tres versiones: `width` en % con `height: 100%`, luego `transform: scaleX()`,
+las dos **vacías en la tienda con los números correctos**.
+
+Cuando dos técnicas distintas fallan igual, el problema deja de ser la técnica.
+Algo del tema las anulaba —un reset, una regla de movimiento reducido, un
+selector amplio tipo `[class*="bar"]`— y perseguirlo a ciegas, sin poder
+inspeccionar el DOM vivo, es una partida que no se gana.
+
+**La solución no fue una tercera adivinanza sino cambiar de terreno:** la
+geometría de la barra (alto, ancho, fondo, radio) se escribe **en línea desde el
+JS**. Un estilo en línea gana a cualquier hoja del tema sin `!important`, y en el
+CSS no queda ni una propiedad geométrica que alguien pueda pisar. Tampoco depende
+ya de `position: absolute` ni de `transform`, que eran dos condiciones más que un
+tema podía alterar.
+
+Es la regla general para código que corre dentro del CSS de otro: **lo que no
+puede fallar, no se delega a la hoja de estilos.**
+
+### El widget no leía el carrito
+
+Armar el pack, ir al carrito, borrar dos líneas y volver dejaba el widget en
+«0 productos» mientras el carrito, en la misma pantalla, mostraba los 3 con su
+descuento. Dos verdades distintas sobre lo mismo en la misma página.
+
+`leerCarrito()` precarga la selección con las líneas marcadas con **esta**
+campaña, y solo las que sigan en el catálogo curado: si el merchant sacó un
+producto del pack, no se precarga algo que ya no forma parte de él.
+
+Para el cajón del carrito en la misma página, el bloque de aviso emite
+`df:pack-cart-changed` y el armador se resincroniza. **Se eligió un evento en vez
+de que el widget instale su propio interceptor de `fetch`**: un solo parcheo por
+página, y solo cuando hay un aviso que lo justifique. Más `pageshow` con
+`persisted`, que cubre volver con el botón atrás.
+
+### 🔴 El truco de la doble declaración NO funciona con custom properties
+
+```css
+--df-soft: rgba(...);          /* reserva */
+--df-soft: color-mix(...);     /* gana SIEMPRE: se guarda como texto, sin validar */
+background: var(--df-soft);    /* se valida al sustituir; si es inválida NO cae a
+                                  la declaración anterior sino al valor inicial */
+```
+
+En un navegador sin `color-mix`, bordes y fondos suaves quedaban
+**transparentes**. Con propiedades normales el truco sí funciona; con `var()`,
+no. Arreglado con `@supports`.
+
+### Los tests que faltaban
+
+`pack-widget-render.test.ts` ejecuta el widget de punta a punta contra un DOM
+mínimo. **Es la primera prueba que mira lo que el widget PINTA, no lo que
+calcula** — y ése era el hueco: los dos bugs de esta ronda eran de renderizado y
+los tests del cálculo pasaban con los números correctos mientras la pantalla
+mostraba otra cosa.
+
+Verificado que cazan la regresión: con la versión anterior fallan los 6.
+
+🟡 **No reemplaza probar en un tema real:** no hay CSS ahí, así que un problema
+de estilos del merchant sigue sin poder detectarse desde CI.
 
 ---
 
