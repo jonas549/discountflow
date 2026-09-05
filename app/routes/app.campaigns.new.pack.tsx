@@ -13,14 +13,17 @@ import {
   getPackProductSnapshots,
   findPackOverlaps,
 } from "../lib/discounts/pack";
-import { DEFAULT_PACK_TIERS } from "../lib/discounts/pack-client";
+import { DEFAULT_PACK_TIERS, PACK_MODO_POR_DEFECTO } from "../lib/discounts/pack-client";
 import {
   parsePackForm,
   validatePackForm,
   buildPackConfig,
 } from "../lib/discounts/pack-form";
 import { type Plan, PLAN_LIMITS } from "../lib/billing/plan-limits";
-import { getActiveCampaignCount } from "../lib/billing/plan-limits.server";
+import {
+  getActiveCampaignCount,
+  comprobarTipoDeCampana,
+} from "../lib/billing/plan-limits.server";
 import { es } from "../i18n";
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
@@ -51,11 +54,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const isScheduled = campaignStartsAt !== null && campaignStartsAt > new Date();
   const shouldActivate = f.intent === "activate" && !isScheduled;
 
-  // Límite de plan — solo al activar (los borradores siempre se permiten).
-  //
-  // ⚠️ Solo se aplica el límite GENERAL de campañas activas. La restricción por
-  // TIPO (packs solo desde ESSENTIAL) es la fase 4 y todavía no existe: hoy
-  // `PLAN_LIMITS` solo sabe de cantidades, no de permisos. Ver el handoff.
+  // Límites de plan — solo al activar. Un borrador siempre se puede guardar,
+  // así el límite es un argumento de venta y no un muro.
   if (shouldActivate) {
     const plan = (shop.plan as Plan) || "FREE";
     const limits = PLAN_LIMITS[plan];
@@ -69,6 +69,14 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         { status: 422 }
       );
     }
+
+    // Puerta por TIPO: los packs están en ESSENTIAL y PROFESSIONAL.
+    const bloqueo = await comprobarTipoDeCampana(shop.id, plan, "PACK");
+    if (bloqueo)
+      return Response.json(
+        { errors: { general: bloqueo }, limitExceeded: true },
+        { status: 422 }
+      );
   }
 
   const productIds = f.catalog.map((p) => p.productId);
@@ -152,7 +160,7 @@ export default function NewPackCampaign() {
         initial={{
           name: "",
           heading: es.nuevoPack.headingPorDefecto,
-          mode: "PER_PRODUCT",
+          mode: PACK_MODO_POR_DEFECTO,
           products: [],
           tiers: DEFAULT_PACK_TIERS,
           startsAt: "",

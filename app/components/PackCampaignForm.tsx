@@ -30,6 +30,7 @@ import {
   type PackApplicableLine,
 } from "../lib/discounts/pack-calc";
 import type { PackFormProduct } from "../lib/discounts/pack-form";
+import { PACK_MODOS_OFRECIDOS } from "../lib/discounts/pack-client";
 import { es } from "../i18n";
 
 /** Precio de referencia del preview cuando el producto todavía no tiene foto. */
@@ -96,6 +97,29 @@ export function PackCampaignForm({
     setTocado((t) => (t[k] ? t : { ...t, [k]: true }));
 
   const esPorTamano = mode === "PACK_SIZE";
+
+  /**
+   * ¿Se muestra el selector de modo?
+   *
+   * Con un solo modo ofrecido, un selector de una sola opción es ruido: ocupa
+   * una sección entera del formulario para no dejar elegir nada. Se esconde.
+   *
+   * La excepción son las campañas ya guardadas en un modo retirado: ahí el
+   * selector VUELVE, porque si no el merchant no tendría forma de ver en qué
+   * modo está su campaña ni de migrarla.
+   */
+  const modoRetirado = !PACK_MODOS_OFRECIDOS.includes(mode);
+  const mostrarSelectorDeModo = PACK_MODOS_OFRECIDOS.length > 1 || modoRetirado;
+
+  /**
+   * Numeración de las secciones, calculada y no cosida al texto.
+   *
+   * Con el selector de modo oculto, los números fijos daban «1 · 3 · 4 · 5».
+   * Contar las que de verdad se pintan hace que esconder o reponer una sección
+   * no deje un hueco en la cuenta.
+   */
+  var nSeccion = 0;
+  const num = (titulo: string) => `${++nSeccion} · ${titulo}`;
 
   const catalogo = normalizePackCatalog(
     products.map((p) =>
@@ -213,7 +237,7 @@ export function PackCampaignForm({
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 320px", gap: "20px", alignItems: "start" }}>
         <div>
           {/* ── 1 · Información general ── */}
-          <Section title={es.nuevoPack.secInfoGeneral}>
+          <Section title={num(es.nuevoPack.secInfoGeneral)}>
             <FieldGroup
               label={es.nuevoPack.nombreLabel}
               helper={es.nuevoPack.nombreHelper}
@@ -247,15 +271,20 @@ export function PackCampaignForm({
             </FieldGroup>
           </Section>
 
-          {/* ── 2 · Modo ── */}
-          <Section title={es.nuevoPack.secModo}>
+          {/* ── 2 · Modo — oculto mientras solo se ofrezca uno ── */}
+          {mostrarSelectorDeModo && (
+          <Section title={num(es.nuevoPack.secModo)}>
             <div style={{ display: "grid", gap: "10px", marginTop: "12px" }}>
               {(
                 [
                   ["PER_PRODUCT", es.nuevoPack.modoPorProducto, es.nuevoPack.modoPorProductoDesc],
                   ["PACK_SIZE", es.nuevoPack.modoPorTamano, es.nuevoPack.modoPorTamanoDesc],
                 ] as const
-              ).map(([valor, titulo, desc]) => (
+              )
+                // Solo los modos ofrecidos, más el que la campaña ya esté usando
+                // si fue retirado: sin eso no se podría ver ni migrar.
+                .filter(([valor]) => PACK_MODOS_OFRECIDOS.includes(valor) || valor === mode)
+                .map(([valor, titulo, desc]) => (
                 <label
                   key={valor}
                   style={{
@@ -289,10 +318,16 @@ export function PackCampaignForm({
                 </label>
               ))}
             </div>
+            {modoRetirado && (
+              <p style={{ fontSize: "12.5px", color: "#a05c00", marginTop: "12px" }}>
+                {es.nuevoPack.avisoModoRetirado}
+              </p>
+            )}
           </Section>
+          )}
 
           {/* ── 3 · Productos ── */}
-          <Section title={es.nuevoPack.secProductos}>
+          <Section title={num(es.nuevoPack.secProductos)}>
             <p style={{ fontSize: "12.5px", color: "#6d7175", marginTop: "12px" }}>
               {es.nuevoPack.productosHelper}
             </p>
@@ -392,7 +427,7 @@ export function PackCampaignForm({
 
           {/* ── 4 · Niveles (solo modo por tamaño) ── */}
           {esPorTamano && (
-            <Section title={es.nuevoPack.secNiveles}>
+            <Section title={num(es.nuevoPack.secNiveles)}>
               <p style={{ fontSize: "12.5px", color: "#6d7175", marginTop: "12px" }}>
                 {es.nuevoPack.nivelesHelper}
               </p>
@@ -484,7 +519,7 @@ export function PackCampaignForm({
           )}
 
           {/* ── 5 · Programación ── */}
-          <Section title={es.nuevoPack.secProgramacion} defaultOpen={false}>
+          <Section title={num(es.nuevoPack.secProgramacion)} defaultOpen={false}>
             <FieldGroup
               label={es.nuevoPack.fechaInicioLabel}
               helper={es.nuevoPack.fechaInicioHelper}

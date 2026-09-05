@@ -6,6 +6,11 @@ import {
   tieredDiscountMessage,
   type TieredCampaignConfig,
 } from "../lib/discounts/tiered-client";
+import {
+  PACK_LINE_ATTRIBUTE,
+  packDiscountMessage,
+  type PackCampaignConfig,
+} from "../lib/discounts/pack-client";
 
 // Campos del payload orders/create que necesitamos (sin PII de cliente).
 // Level 1 Protected Customer Data — aprobado 2026-05.
@@ -25,11 +30,47 @@ interface OrderPayload {
     product_id: number;
     quantity: number;
     price: string;
+    /**
+     * 🔴 En el payload REST del pedido esto es un ARRAY de `{name, value}`, NO
+     * el objeto `{clave: valor}` que devuelve la Ajax Cart API del storefront.
+     *
+     * Es el mismo dato con dos formas distintas según por dónde se lea, y
+     * confundirlas no da ningún error: da CERO atribuciones en silencio. Se lee
+     * con `leerPropiedad`, que tolera las dos.
+     */
+    properties?:
+      | Array<{ name: string; value: string }>
+      | Record<string, string>
+      | null;
     discount_allocations: Array<{
       amount: string;
       discount_application_index: number;
     }>;
   }>;
+}
+
+/**
+ * Lee una propiedad de línea sin depender de su forma.
+ *
+ * El payload REST manda `[{name, value}]`; la Ajax Cart API, `{clave: valor}`.
+ * Este webhook solo ve la primera, pero aceptar las dos cuesta tres líneas y
+ * evita que un cambio de forma vuelva a producir un cero silencioso.
+ */
+function leerPropiedad(
+  properties:
+    | Array<{ name: string; value: string }>
+    | Record<string, string>
+    | null
+    | undefined,
+  clave: string
+): string | null {
+  if (!properties) return null;
+  if (Array.isArray(properties)) {
+    const encontrada = properties.find((p) => p && p.name === clave);
+    return encontrada?.value ?? null;
+  }
+  const valor = properties[clave];
+  return typeof valor === "string" && valor ? valor : null;
 }
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -272,6 +313,119 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           update: {},
         });
       }
+    }
+  }
+
+  // ── 4. Campañas PACK (packs armables) ────────────────────────────────────
+  //
+  // Esta es la atribución más EXACTA de las cuatro, y por un motivo concreto:
+  // la línea del pedido lleva escrito el id de la campaña en la propiedad
+  // `_df_pack`, que puso el widget al agregar al carrito. No hay que deducir
+  // nada.
+  //
+  // Comparado con el resto:
+  //   · PERCENTAGE/RANGE cruzan variantes contra CampaignProduct.
+  //   · TIERED cruza PRODUCTOS y descarta por título, porque el título es
+  //     idéntico en todas sus campañas — y si dos pueden explicar el mismo
+  //     descuento, no atribuye a ninguna.
+  //   · PACK lee el id. Cero ambigüedad, cero heurística.
+  //
+  // El importe sale de las `discount_allocations` de cada línea, filtradas por
+  // el título de NUESTRO descuento: una línea puede llevar encima descuentos de
+  // otras apps o del merchant, y sumarlos todos inflaría el ahorro atribuido.
+  //
+  // La campaña se busca por id SIN filtrar por estado: el pedido ocurrió cuando
+  // estaba activa, y pausarla después no debe borrar su historial de ventas.
+
+  const lineasDePack = order.line_items
+    .map((lineItem, lineIndex) => ({
+      lineIndex,
+      lineItem,
+      campaignId: leerPropiedad(lineItem.properties, PACK_LINE_ATTRIBUTE),
+    }))
+    .filter((l) => l.campaignId !== null);
+
+  if (lineasDePack.length > 0) {
+    const idsDeCampana = [...new Set(lineasDePack.map((l) => l.campaignId!))];
+
+    const packCampaigns = await prisma.campaign.findMany({
+      where: { shopId: shopRecord.id, type: "PACK", id: { in: idsDeCampana } },
+    });
+    const porId = new Map(packCampaigns.map((c) => [c.id, c]));
+
+    const totalesPack = new Map<
+      string,
+      { orderAmount: number; discountAmount: number; lines: Set<number> }
+    >();
+    // Líneas que declaran un pack cuya campaña ya no existe en la base. No es
+    // un error del que haya que quejarse —el merchant pudo borrar la campaña—,
+    // pero sí conviene que quede contado en el log.
+    let lineasHuerfanas = 0;
+
+    for (const { lineIndex, lineItem, campaignId } of lineasDePack) {
+      const campaign = porId.get(campaignId!);
+      if (!campaign) {
+        lineasHuerfanas++;
+        continue;
+      }
+
+      const mensaje = packDiscountMessage(campaign.config as PackCampaignConfig);
+
+      const acc = totalesPack.get(campaign.id) ?? {
+        orderAmount: 0,
+        discountAmount: 0,
+        lines: new Set<number>(),
+      };
+
+      if (!acc.lines.has(lineIndex)) {
+        acc.lines.add(lineIndex);
+        acc.orderAmount += Number(lineItem.price) * lineItem.quantity;
+      }
+
+      for (const allocation of lineItem.discount_allocations ?? []) {
+        const app = applications[allocation.discount_application_index];
+        if (!app || app.type !== "automatic") continue;
+        // Solo las asignaciones de NUESTRO descuento de pack.
+        if (app.title !== mensaje) continue;
+        acc.discountAmount += Number(allocation.amount);
+      }
+
+      totalesPack.set(campaign.id, acc);
+    }
+
+    console.log(
+      "[pack-attribution]",
+      JSON.stringify({
+        lineasConMarca: lineasDePack.length,
+        lineasHuerfanas,
+        titulosAutomaticos: applications
+          .filter((a) => a.type === "automatic")
+          .map((a) => a.title),
+        atribuido: [...totalesPack.entries()].map(([id, acc]) => ({
+          campana: porId.get(id)?.name,
+          lineas: acc.lines.size,
+          orderAmount: acc.orderAmount,
+          discountAmount: acc.discountAmount,
+        })),
+      })
+    );
+
+    for (const [campaignId, acc] of totalesPack) {
+      if (acc.orderAmount <= 0) continue;
+
+      await prisma.orderAttribution.upsert({
+        where: {
+          campaignId_shopifyOrderId: { campaignId, shopifyOrderId: orderId },
+        },
+        create: {
+          campaignId,
+          shopifyOrderId: orderId,
+          orderAmount: acc.orderAmount,
+          discountAmount: acc.discountAmount,
+          currency: order.currency ?? "USD",
+        },
+        update: {},
+      });
     }
   }
 

@@ -1,41 +1,86 @@
 /* DiscountFlow — estilos del armador de packs.
  *
- * Deliberadamente neutros y con prefijo `df-pack`: el bloque se inserta en el
- * tema del merchant, que no controlamos. Hereda tipografía y colores del tema
- * donde puede, y solo impone lo estructural.
+ * ─── REGLA DE ORO ────────────────────────────────────────────────────────────
+ *
+ * Este bloque se inserta en el tema del merchant, que no controlamos. Así que
+ * NO decide colores, ni tipografías, ni el aspecto de los botones: los HEREDA.
+ * Lo único que impone es la ESTRUCTURA (rejilla, espaciados, proporciones).
+ *
+ * Cómo se consigue, y por qué de esta forma:
+ *
+ *  1. **`em`, nunca `rem`.** Un `rem` se mide contra la raíz del documento, y es
+ *     habitual que un tema declare `html { font-size: 62.5% }` para hacer las
+ *     cuentas en décimas. En ese tema, un `0.9rem` son **9 píxeles**. Eso es
+ *     exactamente lo que hacía la letra ilegible. Un `em` se mide contra el
+ *     elemento padre, o sea contra el texto del tema, y escala con él.
+ *
+ *  2. **`font: inherit`.** La tipografía sale del tema, incluidos los botones y
+ *     los inputs, que los navegadores estilan por su cuenta si no se les dice.
+ *
+ *  3. **`currentColor` para todo lo cromático.** Bordes y fondos suaves se
+ *     derivan del color del texto del tema con `color-mix`, con un `rgba` de
+ *     reserva delante para los navegadores que no lo soporten. Consecuencia
+ *     buena y gratis: en un tema oscuro se adapta solo, sin media queries.
+ *
+ *  4. **Los botones llevan las clases del tema** (`button`/`btn` y sus
+ *     variantes `--secondary`), aplicadas desde el JS. Dawn y los temas OS 2.0
+ *     usan `.button`; los vintage, `.btn`. Poniendo las dos, el botón sale con
+ *     la forma, el color y el hover del tema. Acá solo se le dice el ancho.
+ *     Por eso el estado "elegido / no elegido" se pinta cambiando entre la
+ *     variante primaria y la secundaria DEL TEMA: es la única manera de que el
+ *     verde de la tienda sea el verde de la tienda.
+ *
+ *  5. **Nada de CSS moderno estructural.** Sin anidamiento, sin `:has()`, sin
+ *     container queries: tiene que funcionar en temas viejos.
  */
 
 .df-pack {
-  --df-pack-cols: 2;
-  --df-pack-accent: #1b1917;
-  --df-pack-ok: #2f6f4e;
-  --df-pack-border: rgba(0, 0, 0, 0.12);
-  font-family: inherit;
+  /* Superficies derivadas del color del texto del tema. Las dos declaraciones
+     son intencionales: la primera es la reserva, la segunda gana donde
+     `color-mix` está soportado. */
+  --df-line: rgba(128, 128, 128, 0.32);
+  --df-line: color-mix(in srgb, currentColor 26%, transparent);
+  --df-soft: rgba(128, 128, 128, 0.1);
+  --df-soft: color-mix(in srgb, currentColor 8%, transparent);
+  --df-dim: rgba(128, 128, 128, 0.75);
+  --df-dim: color-mix(in srgb, currentColor 68%, transparent);
+
+  font: inherit;
   color: inherit;
   display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(240px, 1fr);
-  gap: 24px;
+  grid-template-columns: minmax(0, 1.6fr) minmax(260px, 1fr);
+  gap: 1.75em;
   align-items: start;
-  padding: 20px 0;
+  padding: 1.25em 0;
 }
+
+.df-pack *,
+.df-pack *::before,
+.df-pack *::after {
+  box-sizing: border-box;
+}
+
+/* ── Encabezado ── */
 
 .df-pack__head {
   grid-column: 1 / -1;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 0.3em;
 }
 
 .df-pack__title {
+  font: inherit;
   margin: 0;
-  font-size: 1.6rem;
+  font-size: 1.55em;
+  font-weight: 600;
   line-height: 1.15;
 }
 
 .df-pack__subtitle {
   margin: 0;
-  font-size: 0.85rem;
-  opacity: 0.7;
+  font-size: 0.95em;
+  color: var(--df-dim);
 }
 
 /* ── Progreso hacia el siguiente nivel ── */
@@ -44,55 +89,78 @@
   grid-column: 1 / -1;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0.55em;
 }
 
 .df-pack__progress-text {
-  font-size: 0.9rem;
-  font-weight: 500;
+  font-size: 1em;
+  font-weight: 600;
 }
 
+/*
+ * 🔴 La barra: alturas en píxeles EXPLÍCITAS y relleno por `transform`.
+ *
+ * La versión anterior daba al carril `height: 4px` y al relleno `height: 100%`
+ * con un `width` en porcentaje. Se quedaba vacía en la tienda. Un porcentaje
+ * de altura depende de que el padre tenga altura definida en el momento del
+ * cálculo, y un reset del tema (o un `display` distinto del esperado) basta
+ * para que resuelva a cero. Ahora:
+ *
+ *   · el carril y el relleno tienen su propia altura en px — nadie depende de nadie;
+ *   · el relleno ocupa el 100% del ancho y se recorta con `scaleX()`, que no
+ *     puede resolver a "auto";
+ *   · el color es `currentColor`, así que no hay custom property que pueda
+ *     quedar sin resolver.
+ */
 .df-pack__bar {
-  height: 4px;
+  position: relative;
+  height: 6px;
+  min-height: 6px;
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.08);
+  background: var(--df-soft);
   overflow: hidden;
 }
 
 .df-pack__bar-fill {
-  height: 100%;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 6px;
   border-radius: 999px;
-  background: var(--df-pack-ok);
-  transition: width 0.35s ease;
+  background: currentColor;
+  transform-origin: left center;
+  transform: scaleX(0);
+  transition: transform 0.35s ease;
 }
 
 /* ── Catálogo ── */
 
 .df-pack__grid {
   display: grid;
-  grid-template-columns: repeat(var(--df-pack-cols), minmax(0, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(var(--df-pack-cols, 2), minmax(0, 1fr));
+  gap: 1em;
 }
 
 .df-pack__card {
   display: flex;
-  gap: 12px;
-  padding: 12px;
-  border: 1px solid var(--df-pack-border);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.6);
-  transition: border-color 0.15s ease;
+  gap: 0.85em;
+  padding: 0.85em;
+  border: 1px solid var(--df-line);
+  border-radius: 0.4em;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .df-pack__card.is-selected {
-  border-color: var(--df-pack-ok);
+  border-color: currentColor;
+  box-shadow: inset 0 0 0 1px currentColor;
 }
 
 .df-pack__media {
-  flex: 0 0 68px;
-  height: 82px;
-  border-radius: 4px;
-  background: rgba(0, 0, 0, 0.05);
+  flex: 0 0 5em;
+  height: 6em;
+  border-radius: 0.25em;
+  background: var(--df-soft);
   overflow: hidden;
 }
 
@@ -106,122 +174,146 @@
 .df-pack__body {
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 0.5em;
   min-width: 0;
   flex: 1;
 }
 
 .df-pack__name {
-  font-size: 0.92rem;
-  font-weight: 500;
-  line-height: 1.25;
+  font-size: 1.05em;
+  font-weight: 600;
+  line-height: 1.3;
 }
 
 .df-pack__pricerow {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: 0.55em;
   flex-wrap: wrap;
 }
 
 .df-pack__price {
-  font-size: 0.95rem;
+  font-size: 1.05em;
 }
 
 .df-pack__off {
-  font-size: 0.75rem;
+  font-size: 0.9em;
   font-weight: 600;
-  letter-spacing: 0.03em;
-  color: var(--df-pack-ok);
+  letter-spacing: 0.02em;
 }
 
+/* Los botones los pinta el TEMA (clases `button`/`btn`). Acá solo la posición. */
 .df-pack__toggle {
   align-self: flex-start;
-  appearance: none;
-  cursor: pointer;
+  margin: 0;
   font: inherit;
-  font-size: 0.82rem;
-  font-weight: 500;
-  padding: 7px 12px;
-  border-radius: 4px;
-  border: 1px solid var(--df-pack-accent);
-  background: transparent;
-  color: var(--df-pack-accent);
-}
-
-.df-pack__toggle.is-selected {
-  background: var(--df-pack-ok);
-  border-color: var(--df-pack-ok);
-  color: #fff;
+  cursor: pointer;
 }
 
 /* ── Resumen ── */
 
 .df-pack__summary {
-  border: 1px solid var(--df-pack-border);
-  border-radius: 6px;
-  padding: 16px;
+  border: 1px solid var(--df-line);
+  border-radius: 0.4em;
+  padding: 1.15em;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 0.85em;
   position: sticky;
-  top: 16px;
+  top: 1em;
 }
 
 .df-pack__count {
-  font-size: 0.78rem;
+  font-size: 0.9em;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  opacity: 0.65;
+  color: var(--df-dim);
 }
 
 .df-pack__hint {
   margin: 0;
-  font-size: 0.88rem;
-  opacity: 0.75;
-  line-height: 1.45;
+  font-size: 1em;
+  color: var(--df-dim);
+  line-height: 1.5;
+}
+
+/* Desglose por producto: qué ahorra cada uno, no solo el total. */
+.df-pack__items {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4em;
+  border-bottom: 1px solid var(--df-line);
+  padding-bottom: 0.85em;
+}
+
+.df-pack__item {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.6em;
+  font-size: 0.95em;
+  line-height: 1.35;
+}
+
+.df-pack__item-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.df-pack__item-save {
+  flex: 0 0 auto;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.df-pack__item-none {
+  flex: 0 0 auto;
+  color: var(--df-dim);
+  white-space: nowrap;
 }
 
 .df-pack__totals {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.9rem;
+  font-size: 1em;
 }
 
 .df-pack__totals td {
-  padding: 3px 0;
+  padding: 0.2em 0;
 }
 
 .df-pack__totals td:last-child {
   text-align: right;
+  white-space: nowrap;
 }
 
+/* El ahorro se destaca con PESO, no con un color inventado: un verde nuestro
+   chocaría con la paleta del tema, y en un tema oscuro podría ni verse. */
 .df-pack__totals .df-pack__save td {
-  color: var(--df-pack-ok);
+  font-weight: 600;
 }
 
 .df-pack__totals .df-pack__total td {
-  font-weight: 600;
-  border-top: 1px solid var(--df-pack-border);
-  padding-top: 7px;
+  font-weight: 700;
+  font-size: 1.1em;
+  border-top: 1px solid var(--df-line);
+  padding-top: 0.45em;
 }
 
 .df-pack__cta {
-  appearance: none;
-  cursor: pointer;
-  font: inherit;
-  font-size: 0.95rem;
-  font-weight: 500;
-  padding: 13px 16px;
-  border: none;
-  border-radius: 4px;
-  background: var(--df-pack-accent);
-  color: #fff;
+  margin: 0;
   width: 100%;
+  font: inherit;
+  cursor: pointer;
 }
 
-.df-pack__cta:disabled {
-  opacity: 0.4;
+.df-pack__cta[disabled] {
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
@@ -231,18 +323,28 @@
   grid-column: 1 / -1;
   display: flex;
   align-items: center;
-  gap: 10px;
-  font-size: 0.9rem;
-  opacity: 0.6;
+  gap: 0.6em;
+  font-size: 1em;
+  color: var(--df-dim);
 }
 
 .df-pack__spinner {
-  width: 14px;
-  height: 14px;
+  width: 1em;
+  height: 1em;
+  flex: 0 0 auto;
   border-radius: 50%;
   border: 2px solid currentColor;
   border-right-color: transparent;
   animation: df-pack-spin 0.7s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .df-pack__spinner {
+    animation-duration: 2s;
+  }
+  .df-pack__bar-fill {
+    transition: none;
+  }
 }
 
 @keyframes df-pack-spin {
@@ -253,28 +355,27 @@
 
 .df-pack__empty {
   grid-column: 1 / -1;
-  font-size: 0.9rem;
-  opacity: 0.7;
+  font-size: 1em;
+  color: var(--df-dim);
 }
 
 /* ── Aviso del carrito ── */
 
 .df-pack-notice {
-  font-size: 0.9rem;
-  line-height: 1.45;
-  padding: 11px 14px;
-  border-radius: 5px;
-  margin: 12px 0;
-}
-
-.df-pack-notice--info {
-  background: rgba(47, 111, 78, 0.08);
-  color: #2f6f4e;
+  font: inherit;
+  font-size: 1em;
+  line-height: 1.5;
+  padding: 0.8em 1em;
+  border-radius: 0.35em;
+  margin: 0.85em 0;
+  border: 1px solid currentColor;
+  /* El fondo se deriva del color del texto: se ve en tema claro y en oscuro. */
+  background: rgba(128, 128, 128, 0.1);
+  background: color-mix(in srgb, currentColor 8%, transparent);
 }
 
 .df-pack-notice--warn {
-  background: rgba(196, 105, 74, 0.1);
-  color: #a0522d;
+  font-weight: 600;
 }
 
 /* ── Móvil: barra fija con total y CTA, como en el wireframe ── */
@@ -282,7 +383,7 @@
 @media (max-width: 749px) {
   .df-pack {
     grid-template-columns: minmax(0, 1fr);
-    padding-bottom: 90px;
+    padding-bottom: 6em;
   }
 
   .df-pack__grid {
@@ -296,16 +397,26 @@
     bottom: 0;
     z-index: 20;
     border-radius: 0;
-    border-left: none;
-    border-right: none;
-    border-bottom: none;
+    border-left: 0;
+    border-right: 0;
+    border-bottom: 0;
+    /* Esta es la única superficie que NO puede ser translúcida: flota sobre el
+       contenido de la página. Se toma el fondo del tema si lo publica como
+       custom property, y si no, blanco. */
     background: #fff;
-    box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.08);
-    gap: 8px;
-    padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+    background: rgb(var(--color-background, 255 255 255));
+    box-shadow: 0 -2px 14px rgba(0, 0, 0, 0.12);
+    gap: 0.5em;
+    padding: 0.8em 1em calc(0.8em + env(safe-area-inset-bottom, 0px));
   }
 
-  .df-pack__summary .df-pack__count {
+  /* En la barra fija el desglose no cabe: manda el total y el botón. */
+  .df-pack__summary .df-pack__count,
+  .df-pack__summary .df-pack__items {
+    display: none;
+  }
+
+  .df-pack__summary .df-pack__totals tr:not(.df-pack__total) {
     display: none;
   }
 }

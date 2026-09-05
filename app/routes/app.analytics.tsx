@@ -68,7 +68,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     return {
       id: c.id,
       name: c.name,
-      type: c.type as "PERCENTAGE" | "RANGE" | "BXGY",
+      // Sin cast: la union estaba incompleta desde que existe TIERED y solo
+      // alimenta a `tipoLabel`, que acepta cualquier tipo.
+      type: c.type,
       status: c.status,
       productsCount: c.products.length,
       estimatedDiscount,

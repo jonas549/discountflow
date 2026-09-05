@@ -73,6 +73,28 @@ export type PackCampaignConfig = {
   functionId?: string;
 };
 
+/**
+ * Modos que la interfaz OFRECE al crear una campaña nueva.
+ *
+ * ⛔ `PER_PRODUCT` está fuera a propósito desde el 2026-09-05, y su código NO se
+ * borró. La razón es de producto, no técnica: si cada producto lleva su propio
+ * descuento fijo, el comprador elige los dos de mayor porcentaje y arma el pack
+ * con esos. No incentiva combinar nada, y ese caso ya lo cubre una campaña de
+ * Porcentaje normal.
+ *
+ * Qué sigue funcionando con el modo oculto:
+ *   · El cálculo, la Function, el widget y las fixtures — intactos.
+ *   · Las campañas ya guardadas en `PER_PRODUCT` se abren, se editan y se
+ *     aplican igual: el formulario detecta que su modo no está en esta lista y
+ *     vuelve a mostrar el selector solo para ellas.
+ *
+ * Para reactivarlo: añadir `"PER_PRODUCT"` a este array. Es la única línea.
+ */
+export const PACK_MODOS_OFRECIDOS: readonly PackMode[] = ["PACK_SIZE"];
+
+/** El modo con el que nace una campaña nueva. */
+export const PACK_MODO_POR_DEFECTO: PackMode = PACK_MODOS_OFRECIDOS[0];
+
 export const PACK_TITLE_PREFIX = "[DiscountFlow] ";
 
 export function packDiscountTitle(campaignName: string): string {
@@ -85,6 +107,15 @@ export function packDiscountTitle(campaignName: string): string {
  * (`cart_lines_discounts_generate_run.ts`).
  */
 export const PACK_DEFAULT_MESSAGE = "Descuento por pack";
+
+/**
+ * El texto que ve el comprador y que Shopify publica como `title` de la
+ * `discount_application`. Es lo que permite separar, dentro de una línea, la
+ * asignación de NUESTRO descuento de la de cualquier otro.
+ */
+export function packDiscountMessage(config: PackCampaignConfig): string {
+  return config?.message || PACK_DEFAULT_MESSAGE;
+}
 
 export const DEFAULT_PACK_TIERS: PackTier[] = [
   { minProducts: 2, percent: 10 },

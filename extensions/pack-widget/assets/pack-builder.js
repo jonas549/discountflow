@@ -16,6 +16,24 @@
 
   var Calc = window.DiscountFlowPackCalc;
 
+  /**
+   * Las clases con las que el TEMA pinta un botón.
+   *
+   * Dawn y los temas Online Store 2.0 usan `.button` (+ `.button--secondary`);
+   * los vintage usan `.btn` (+ `.btn--secondary`). Se ponen las dos familias a
+   * la vez: la que el tema tenga definida gana y la otra no existe, así que no
+   * hay conflicto. Es la única forma de que el botón salga con el color, la
+   * forma y el hover de la tienda en vez de con los nuestros.
+   *
+   * Y es lo que pinta el estado "elegido / no elegido": primaria contra
+   * secundaria DEL TEMA, no un verde inventado por nosotros.
+   */
+  function themeBtn(primaria) {
+    return primaria
+      ? "button btn"
+      : "button button--secondary btn btn--secondary";
+  }
+
   function money(cents, currency) {
     try {
       return new Intl.NumberFormat(document.documentElement.lang || "es", {
@@ -206,9 +224,21 @@
       var tope = (pack.tiers || []).reduce(function (m, t) {
         return Math.max(m, t.minProducts);
       }, 1);
+      var fraccion = Math.max(0, Math.min(1, p.distinctProducts / tope));
+
       var pista = el("div", "df-pack__bar");
       var relleno = el("div", "df-pack__bar-fill");
-      relleno.style.width = Math.min(100, (p.distinctProducts / tope) * 100) + "%";
+      // `scaleX` y no `width`: un porcentaje de ancho combinado con una altura
+      // porcentual puede resolver a cero según el reset del tema, que es
+      // justamente por lo que la barra se quedaba vacía. Un transform no
+      // depende del layout del padre.
+      relleno.style.transform = "scaleX(" + fraccion + ")";
+      // Expuesto en el DOM para poder depurarlo sin reproducir el estado.
+      pista.setAttribute("data-df-progress", String(Math.round(fraccion * 100)));
+      pista.setAttribute("role", "progressbar");
+      pista.setAttribute("aria-valuemin", "0");
+      pista.setAttribute("aria-valuemax", String(tope));
+      pista.setAttribute("aria-valuenow", String(p.distinctProducts));
       pista.appendChild(relleno);
       barra.appendChild(pista);
       root.appendChild(barra);
@@ -241,8 +271,9 @@
         fila.appendChild(el("span", "df-pack__off", item.percent + "% OFF"));
       body.appendChild(fila);
 
-      var btn = el("button", "df-pack__toggle" + (elegido ? " is-selected" : ""));
+      var btn = el("button", "df-pack__toggle " + themeBtn(elegido));
       btn.type = "button";
+      btn.setAttribute("aria-pressed", elegido ? "true" : "false");
       btn.textContent = elegido ? "Quitar del pack" : "Agregar al pack";
       btn.addEventListener("click", function () {
         self.toggle(item.productId);
@@ -277,6 +308,42 @@
         )
       );
     } else {
+      // Desglose por producto. En el wireframe cada línea mostraba lo suyo, y
+      // con precios distintos el mismo porcentaje da ahorros distintos: el
+      // total solo no explica de dónde sale.
+      var titulos = {};
+      (pack.items || []).forEach(function (it) {
+        titulos[it.productId] = it.title;
+      });
+      var ahorroPorProducto = {};
+      var pctPorProducto = {};
+      (p.rows || []).forEach(function (r) {
+        ahorroPorProducto[r.productId] = r.savings;
+        pctPorProducto[r.productId] = r.percent;
+      });
+
+      var lista = el("ul", "df-pack__items");
+      // Se recorre lo ELEGIDO, no las filas con descuento: un producto al 0%
+      // está en el pack y tiene que aparecer, diciendo que no rebaja.
+      self.selected.forEach(function (id) {
+        var li = el("li", "df-pack__item");
+        li.appendChild(el("span", "df-pack__item-name", titulos[id] || "—"));
+        if (ahorroPorProducto[id] > 0) {
+          li.appendChild(
+            el(
+              "span",
+              "df-pack__item-save",
+              "−" + money(ahorroPorProducto[id], pack.currency) +
+                " (" + pctPorProducto[id] + "%)"
+            )
+          );
+        } else {
+          li.appendChild(el("span", "df-pack__item-none", "sin descuento"));
+        }
+        lista.appendChild(li);
+      });
+      panel.appendChild(lista);
+
       var t = el("table", "df-pack__totals");
       [
         ["Subtotal", money(p.subtotal, pack.currency), ""],
@@ -291,7 +358,7 @@
       panel.appendChild(t);
     }
 
-    var cta = el("button", "df-pack__cta");
+    var cta = el("button", "df-pack__cta " + themeBtn(true));
     cta.type = "button";
     cta.textContent = this.busy ? "Agregando…" : this.ctaLabel;
     cta.disabled = !p.applies || this.busy;

@@ -385,6 +385,19 @@ export const es = {
       `Límite alcanzado: tienes ${current.toLocaleString("en-US")} de ${limit.toLocaleString("en-US")} variantes en uso. Actualiza para incluir más productos.`,
     limiteCampanasTipo: (tipo: string, current: number, limit: number) =>
       `Tienes ${current} de ${limit} campañas ${tipo} activas en tu plan. Pausa una para activar esta, o actualiza tu plan.`,
+    /**
+     * El plan NO incluye el tipo. Es un mensaje distinto del de límite a
+     * propósito: acá pausar otra campaña no sirve de nada, y decirle "pausa una"
+     * lo mandaría a intentar algo que no puede funcionar.
+     */
+    tipoNoIncluido: (tipo: string, plan: string) =>
+      `Las campañas ${tipo} no están incluidas en el plan ${plan}. Actualiza tu plan para activarlas.`,
+    nombreDeTipo: (type: string) =>
+      ({
+        BXGY: "BxGy",
+        TIERED: "escalonadas",
+        PACK: "de pack",
+      })[type] ?? type,
     verPlanes: "Ver planes",
     cobroNoConfigurado:
       "El cambio de plan no está disponible en este momento. Escribinos y lo resolvemos.",
@@ -495,7 +508,7 @@ export const es = {
     tituloEditar: "Editar pack",
     volver: "← Volver a campañas",
 
-    secInfoGeneral: "1 · Información general",
+    secInfoGeneral: "Información general",
     nombreLabel: "Nombre de la campaña",
     nombreHelper: "Solo lo ves tú, para identificarla en tu lista.",
     nombrePlaceholder: "Ej. Pack rutina facial",
@@ -503,7 +516,7 @@ export const es = {
     headingHelper: "Es el encabezado del bloque en tu tienda.",
     headingPorDefecto: "Armá tu pack",
 
-    secModo: "2 · ¿Cómo se calcula el descuento?",
+    secModo: "¿Cómo se calcula el descuento?",
     modoPorProducto: "Por producto",
     modoPorTamano: "Por tamaño del pack",
     modoPorProductoDesc:
@@ -511,7 +524,7 @@ export const es = {
     modoPorTamanoDesc:
       "El descuento lo decide cuántos productos DISTINTOS arma el comprador.",
 
-    secProductos: "3 · Productos del pack",
+    secProductos: "Productos del pack",
     productosHelper:
       "Estos son los productos entre los que el comprador podrá elegir. El orden es el que verá en la tienda.",
     btnElegirProductos: "Elegir productos",
@@ -520,16 +533,18 @@ export const es = {
     sinProductos: "Todavía no elegiste productos.",
     quitarProducto: "Quitar",
 
-    secNiveles: "4 · Niveles por tamaño",
+    secNiveles: "Niveles por tamaño",
     nivelesHelper:
-      "Definí desde cuántos productos DISTINTOS aplica cada descuento. Dos unidades del mismo producto NO cuentan como dos.",
+      "Definí desde cuántos productos DISTINTOS aplica cada descuento. Dos unidades del mismo producto NO cuentan como dos. Por encima del último nivel el descuento se mantiene.",
+    avisoModoRetirado:
+      "Esta campaña usa un modo que ya no ofrecemos para campañas nuevas. Sigue funcionando igual; si la cambiás a «Por tamaño del pack» no podrás volver atrás.",
     nivelDesde: "Desde",
     nivelProductos: "productos",
     nivelDescuento: "Descuento",
     btnAgregarNivel: "+ Agregar nivel",
     btnQuitarNivel: "Quitar nivel",
 
-    secProgramacion: "5 · Programar campaña",
+    secProgramacion: "Programar campaña",
     fechaInicioLabel: "Fecha de inicio",
     fechaInicioHelper: "Vacío = empieza de inmediato.",
     fechaFinLabel: "Fecha de fin",
@@ -594,6 +609,7 @@ export function tipoLabel(type: string): string {
     RANGE: "Rango de precio",
     BXGY: "Compra X, obtén Y",
     TIERED: "Escalonado",
+    PACK: "Pack armable",
   };
   return map[type] ?? type;
 }
