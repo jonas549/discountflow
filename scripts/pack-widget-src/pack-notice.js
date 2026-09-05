@@ -1,18 +1,3 @@
-/* ═══════════════════════════════════════════════════════════════════════════
- * MARCA DE VERSIÓN — la primera línea que se ejecuta, a propósito.
- *
- * Va ANTES de cualquier IIFE y de cualquier cosa que pueda lanzar, para que su
- * ausencia signifique una sola cosa: este archivo no se está ejecutando. Nació
- * el 2026-09-05, después de dos rondas en las que el widget no arrancaba y no
- * había forma de distinguir «el asset no llegó» de «el asset llegó viejo» de
- * «el asset llegó y falló».
- * ═══════════════════════════════════════════════════════════════════════════ */
-window.DF_PACK_BUILD = 7;
-window.DF_PACK_CARGADOS = (window.DF_PACK_CARGADOS || []).concat(["pack-notice"]);
-try {
-  console.log("[DiscountFlow] build 7 · pack-notice cargado");
-} catch (e) {}
-
 /* DiscountFlow — aviso del pack en el carrito.
  *
  * Decisión de producto del 2026-09-05: si el comprador borra una línea, el pack

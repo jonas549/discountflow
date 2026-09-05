@@ -1,14 +1,22 @@
-// El número de build de los assets del widget tiene que coincidir en los seis
-// sitios que lo llevan.
+// Los assets del widget de packs: que existan, que sean los que el Liquid pide,
+// y que el número de build coincida en todos lados.
 //
-// Por qué existe: el 2026-09-05 el widget no arrancó en la tienda dos rondas
-// seguidas, y no había manera de distinguir tres situaciones muy distintas —
-// «el asset no llegó», «llegó una versión vieja» y «llegó y falló»— sin abrir
-// la pestaña de red y comparar archivos a mano.
+// ═══════════════════════════════════════════════════════════════════════════
+// 🔴 POR QUÉ ESTE ARCHIVO ES EL MÁS IMPORTANTE DE LOS DEL WIDGET
 //
-// La marca de versión resuelve eso, pero solo si está sincronizada. Si el Liquid
-// dice 6 y el JS dice 5, el diagnóstico miente y es peor que no tenerlo. Este
-// test es lo que impide que se desincronicen.
+// Durante tres rondas (2026-09-05) el navegador recibió un JavaScript que NO
+// era el del repo. El widget se quedaba en «Cargando tu pack…» sin error, sin
+// petición de red y sin ninguna línea en consola. Cada vez se encontró una
+// causa distinta, cada arreglo se verificó, y volvía a pasar.
+//
+// La causa de fondo era el NOMBRE del archivo: `pack-builder.js` produce siempre
+// la misma URL de CDN. El contenido cambiaba, la URL no, y el CDN seguía
+// sirviendo la copia vieja — un `Ctrl+Shift+R` no la alcanza.
+//
+// El arreglo estructural: el build va en el NOMBRE (`pack-8.js`). Cada versión
+// es una URL distinta y no hay nada que cachear. Estos tests son lo que impide
+// que esa disciplina se rompa sin que nadie se entere.
+// ═══════════════════════════════════════════════════════════════════════════
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -17,152 +25,224 @@ import path from "node:path";
 
 const RAIZ = path.resolve(import.meta.dirname, "../../..");
 const EXT = path.join(RAIZ, "extensions/pack-widget");
+const ASSETS = path.join(EXT, "assets");
+const BLOQUES = ["pack-builder.liquid", "pack-notice.liquid"];
 
-/** Los seis sitios que llevan el número, con cómo se extrae de cada uno. */
-const FUENTES: Array<{ archivo: string; patron: RegExp }> = [
-  { archivo: "scripts/build-pack-widget.mjs", patron: /const BUILD = (\d+);/ },
-  { archivo: "extensions/pack-widget/blocks/pack-builder.liquid", patron: /data-df-build="(\d+)"/ },
-  { archivo: "extensions/pack-widget/blocks/pack-notice.liquid", patron: /data-df-build="(\d+)"/ },
-  { archivo: "extensions/pack-widget/assets/pack-builder.js", patron: /window\.DF_PACK_BUILD = (\d+);/ },
-  { archivo: "extensions/pack-widget/assets/pack-notice.js", patron: /window\.DF_PACK_BUILD = (\d+);/ },
-  { archivo: "extensions/pack-widget/assets/pack-builder.css", patron: /--df-build: (\d+);/ },
-];
+const leerBloque = (n: string) =>
+  fs.readFileSync(path.join(EXT, "blocks", n), "utf8");
 
-test("el número de build coincide en todos los assets del widget", () => {
-  const leidos = FUENTES.map(({ archivo, patron }) => {
-    const contenido = fs.readFileSync(path.join(RAIZ, archivo), "utf8");
-    const m = contenido.match(patron);
-    assert.ok(m, `${archivo}: no se encontró la marca de versión (${patron})`);
-    return { archivo, build: m![1] };
-  });
+/** El BUILD declarado en el script que genera los assets. Es la autoridad. */
+function buildDelScript(): number {
+  const src = fs.readFileSync(
+    path.join(RAIZ, "scripts/build-pack-widget.mjs"),
+    "utf8"
+  );
+  const m = src.match(/const BUILD = (\d+);/);
+  assert.ok(m, "scripts/build-pack-widget.mjs tiene que declarar `const BUILD = N;`");
+  return Number(m![1]);
+}
 
-  const primero = leidos[0].build;
-  for (const l of leidos) {
+/** Los assets que un bloque pide, tal como los escribe en su Liquid. */
+function assetsPedidos(bloque: string): string[] {
+  const refs = [
+    ...leerBloque(bloque).matchAll(/'([\w.-]+\.(?:js|css))'\s*\|\s*asset_url/g),
+  ].map((m) => m[1]);
+  return [...new Set(refs)].sort();
+}
+
+// ─── Lo que de verdad protege ────────────────────────────────────────────────
+
+test("🔴 el archivo que pide el Liquid EXISTE en assets/", () => {
+  // Éste es el test que habría cazado el problema de las tres rondas. Si el
+  // Liquid pide algo que no está, el navegador se come un 404 — y aunque un 404
+  // es ruidoso y por tanto mejor que el silencio, no tiene por qué llegar a la
+  // tienda.
+  const enDisco = fs.readdirSync(ASSETS);
+  for (const bloque of BLOQUES) {
+    for (const asset of assetsPedidos(bloque)) {
+      assert.ok(
+        enDisco.includes(asset),
+        `${bloque} pide "${asset}" y no está en assets/ (hay: ${enDisco.join(", ")}). ` +
+          "Corré `npm run build:pack-widget`."
+      );
+    }
+  }
+});
+
+test("🔴 el nombre del asset LLEVA el número de build", () => {
+  // Un nombre sin versión produce una URL estable, y una URL estable la puede
+  // cachear el CDN indefinidamente. Es la causa de fondo de las tres rondas.
+  const build = buildDelScript();
+  for (const bloque of BLOQUES) {
+    const pedidos = assetsPedidos(bloque);
+    assert.ok(pedidos.length > 0, `${bloque} no pide ningún asset`);
+    for (const asset of pedidos) {
+      assert.match(
+        asset,
+        new RegExp(`^pack-${build}\\.(js|css)$`),
+        `${bloque} pide "${asset}": el nombre tiene que incluir el build ${build}. ` +
+          "Sin versión en el nombre, el CDN puede servir una copia vieja para siempre."
+      );
+    }
+  }
+});
+
+test("en assets/ NO queda ningún build viejo", () => {
+  // Archivos de builds anteriores no los pide nadie, engordan el bundle, y
+  // alguien podría depurar mirando el equivocado.
+  const build = buildDelScript();
+  const sobrantes = fs
+    .readdirSync(ASSETS)
+    .filter((f) => /^pack-\d+\.(js|css)$/.test(f))
+    .filter((f) => !f.startsWith(`pack-${build}.`));
+  assert.deepEqual(sobrantes, [], "el script de build tendría que haberlos borrado");
+});
+
+test("assets/ contiene SOLO lo generado", () => {
+  // Las fuentes viven en scripts/pack-widget-src/. Que no haya nada más acá es
+  // lo que quita toda duda sobre qué archivo se está sirviendo.
+  const inesperados = fs
+    .readdirSync(ASSETS)
+    .filter((f) => !/^pack-\d+\.(js|css)$/.test(f));
+  assert.deepEqual(
+    inesperados,
+    [],
+    "en assets/ solo puede haber los assets generados con el build en el nombre"
+  );
+});
+
+test("el build coincide en el script, los dos Liquid y el JS generado", () => {
+  const build = buildDelScript();
+
+  for (const bloque of BLOQUES) {
+    const src = leerBloque(bloque);
+    const m = src.match(/data-df-build="(\d+)"/);
+    assert.ok(m, `${bloque} tiene que llevar data-df-build`);
     assert.equal(
-      l.build,
-      primero,
-      `${l.archivo} dice build ${l.build} y ${leidos[0].archivo} dice ${primero} — ` +
-        "hay que subirlos todos a la vez o el diagnóstico de la consola miente"
+      Number(m![1]),
+      build,
+      `${bloque} dice build ${m![1]} y el script dice ${build}`
+    );
+    // El comentario HTML es el diagnóstico que NO depende del JavaScript.
+    assert.match(
+      src,
+      new RegExp(`<!-- DiscountFlow[\\s\\S]*?BUILD ${build}`),
+      `${bloque} tiene que llevar el comentario HTML con el build — es lo único ` +
+        "que se puede leer sin ejecutar nada"
+    );
+  }
+
+  const js = fs.readFileSync(path.join(ASSETS, `pack-${build}.js`), "utf8");
+  assert.match(js, new RegExp(`window\\.DF_PACK_BUILD = ${build};`));
+});
+
+test("🔴 el diagnóstico se puede leer SIN ejecutar JavaScript", () => {
+  // La lección más cara de las tres rondas: el diagnóstico vivía dentro del
+  // archivo que no llegaba. Ahora el build y la URL del JS salen en el HTML,
+  // que lo renderiza el servidor y se lee con Ctrl+U.
+  for (const bloque of BLOQUES) {
+    const src = leerBloque(bloque);
+    assert.match(src, /<!-- DiscountFlow/, `${bloque}: falta el comentario en el HTML`);
+    assert.match(
+      src,
+      /data-df-js="\{\{ 'pack-\d+\.js' \| asset_url \}\}"/,
+      `${bloque}: falta data-df-js con la URL resuelta del asset`
     );
   }
 });
 
-test("pack-calc.js lleva la marca que le pone el script de build", () => {
-  // Este asset es GENERADO: su marca no se escribe a mano, la emite el footer de
-  // esbuild. Si falta, es que el asset está sin regenerar.
-  const generado = fs.readFileSync(
-    path.join(EXT, "assets/pack-calc.js"),
-    "utf8"
-  );
-  const script = fs.readFileSync(
-    path.join(RAIZ, "scripts/build-pack-widget.mjs"),
-    "utf8"
-  );
-  const esperado = script.match(/const BUILD = (\d+);/)![1];
-
-  assert.match(
-    generado,
-    new RegExp("window\\.DF_PACK_BUILD = " + esperado + ";"),
-    "pack-calc.js no lleva la marca actual — corré `npm run build:pack-widget`"
-  );
-  // El `"use strict"` de esbuild tiene que seguir siendo la primera sentencia:
-  // por eso la marca va en el footer y no en el banner.
-  const sinComentarios = generado.replace(/\/\*[\s\S]*?\*\//g, "").trim();
-  assert.ok(
-    sinComentarios.indexOf('"use strict";') === 0,
-    'la marca no puede desplazar el "use strict" de esbuild'
-  );
-});
-
-// ─── El apaño del fallo de Shopify con varios bloques ────────────────────────
-
-test("🔴 los dos bloques declaran EXACTAMENTE los mismos assets", () => {
+test("🔴 los dos bloques piden EXACTAMENTE los mismos assets", () => {
   // Fallo documentado de Shopify: con varios bloques de una misma theme app
-  // extension activos, los assets del segundo en adelante pueden no servirse,
-  // aunque el bloque sí se renderice. Síntoma real del 2026-09-05: el HTML
-  // aparecía, el CSS aplicaba, y el JS no se ejecutaba — sin error, sin
-  // petición de red, sin nada.
-  //
-  // El apaño es que los dos bloques pidan el MISMO conjunto: si Shopify sirve
-  // «los del primer bloque», los del primero ya son todos. Este test impide que
-  // alguien los separe otra vez sin darse cuenta.
-  const assetsDe = (bloque: string) => {
-    const src = fs.readFileSync(path.join(EXT, "blocks", bloque), "utf8");
-    const refs = [...src.matchAll(/'([\w.-]+\.(?:js|css))'\s*\|\s*asset_url/g)].map(
-      (m) => m[1]
-    );
-    return refs.sort();
-  };
-
-  const delArmador = assetsDe("pack-builder.liquid");
-  const delAviso = assetsDe("pack-notice.liquid");
-
-  assert.ok(delArmador.length >= 4, "el armador tiene que pedir CSS + los tres JS");
+  // extension activos, los assets del segundo en adelante pueden no servirse.
   assert.deepEqual(
-    delAviso,
-    delArmador,
-    "los dos bloques tienen que pedir los mismos assets — ver el comentario de pack-builder.liquid"
+    assetsPedidos("pack-notice.liquid"),
+    assetsPedidos("pack-builder.liquid"),
+    "ver el comentario de pack-builder.liquid"
   );
 });
 
-// ─── El bug del móvil, y el invariante que lo impide ─────────────────────────
+test("un solo archivo JS: menos URLs, menos formas de desincronizarse", () => {
+  const js = assetsPedidos("pack-builder.liquid").filter((a) => a.endsWith(".js"));
+  assert.equal(js.length, 1, `se esperaba un único JS, hay ${js.length}: ${js}`);
+});
+
+// ─── El cálculo compilado sigue siendo el mismo que el del checkout ──────────
+
+test("el JS generado lleva el cálculo compilado desde pack-calc.ts", async () => {
+  // 🔴 La cadena que sostiene «el precio que ve el comprador es el que paga».
+  const build = buildDelScript();
+  const esbuild = await import("esbuild");
+  const compilado = await esbuild.build({
+    entryPoints: [path.join(RAIZ, "app/lib/discounts/pack-calc.ts")],
+    bundle: true,
+    write: false,
+    format: "iife",
+    globalName: "DiscountFlowPackCalc",
+    target: ["es2019"],
+    minify: false,
+  });
+
+  const js = fs.readFileSync(path.join(ASSETS, `pack-${build}.js`), "utf8");
+  assert.ok(
+    js.includes(compilado.outputFiles[0].text.trim()),
+    "pack-" + build + ".js no contiene el cálculo actual — corré `npm run build:pack-widget`"
+  );
+});
+
+// ─── Invariantes de las fuentes ─────────────────────────────────────────────
+
+const SRC = path.join(RAIZ, "scripts/pack-widget-src");
 
 test("🔴 toda regla con `position: fixed` declara `top` explícitamente", () => {
-  // El 2026-09-05 el móvil del widget estaba roto: no se veía ni un producto y
-  // había un bloque blanco enorme tapando la pantalla.
-  //
-  // La causa: la regla de escritorio deja `.df-pack__summary` en
-  // `position: sticky; top: 1em`, y la regla móvil lo pasaba a
-  // `position: fixed; bottom: 0` SIN anular ese `top`. Un elemento `fixed` con
-  // `top` Y `bottom` a la vez no se coloca: se ESTIRA de uno al otro. El panel
-  // pasaba a ocupar toda la pantalla, en blanco y con z-index 20, tapando las
-  // tarjetas. En escritorio no se veía porque `sticky` solo usa `top`.
-  //
-  // El invariante que lo cierra: si una regla fija un elemento, tiene que decir
-  // qué pasa con `top` — aunque sea `auto`. Así el estiramiento no puede
-  // colarse por herencia de otra regla.
-  const css = fs.readFileSync(path.join(EXT, "assets/pack-builder.css"), "utf8");
-  // Fuera los comentarios: el porqué de esta regla los menciona.
+  // El móvil estuvo roto porque la regla de escritorio dejaba `top: 1em` y la
+  // móvil ponía `position: fixed; bottom: 0` sin anularlo: un elemento fijo con
+  // `top` Y `bottom` no se coloca, se ESTIRA, y tapaba las tarjetas.
+  const css = fs.readFileSync(path.join(SRC, "pack-styles.css"), "utf8");
   const sinComentarios = css.replace(/\/\*[\s\S]*?\*\//g, "");
-
   const reglas = [...sinComentarios.matchAll(/([^{}]+)\{([^{}]*)\}/g)];
   const fijas = reglas.filter((r) => /position:\s*fixed/.test(r[2]));
 
   assert.ok(fijas.length > 0, "se esperaba al menos una regla con position: fixed");
-
   for (const r of fijas) {
     const selector = r[1].trim().split(/\r?\n/).pop()!.trim();
     assert.match(
       r[2],
       /(^|[;{\s])top\s*:/,
-      `la regla "${selector}" fija el elemento sin declarar \`top\` — ` +
-        "si otra regla le deja un `top`, el elemento se estira en vez de colocarse"
+      `la regla "${selector}" fija el elemento sin declarar \`top\``
     );
   }
 });
 
 test("el panel del resumen vuelve al flujo en móvil, encima de los productos", () => {
-  // El wireframe: panel arriba, productos abajo en una columna, barra al pie.
-  const css = fs.readFileSync(path.join(EXT, "assets/pack-builder.css"), "utf8");
+  const css = fs.readFileSync(path.join(SRC, "pack-styles.css"), "utf8");
   const movil = css.slice(css.indexOf("@media (max-width: 749px)"));
-
   assert.match(movil, /\.df-pack__summary\s*\{[^}]*position:\s*static/);
   assert.match(movil, /\.df-pack__summary\s*\{[^}]*top:\s*auto/);
-  // El panel (order 2) tiene que ir ANTES que la rejilla (order 3).
-  const orderPanel = movil.match(/\.df-pack__summary\s*\{\s*order:\s*(\d+)/);
-  const orderGrid = movil.match(/\.df-pack__grid\s*\{\s*order:\s*(\d+)/);
-  assert.ok(orderPanel && orderGrid, "los dos tienen que declarar `order` en móvil");
-  assert.ok(
-    Number(orderPanel![1]) < Number(orderGrid![1]),
-    "el panel va encima de los productos"
-  );
+  const oPanel = movil.match(/\.df-pack__summary\s*\{\s*order:\s*(\d+)/);
+  const oGrid = movil.match(/\.df-pack__grid\s*\{\s*order:\s*(\d+)/);
+  assert.ok(oPanel && oGrid, "los dos tienen que declarar `order` en móvil");
+  assert.ok(Number(oPanel![1]) < Number(oGrid![1]), "el panel va encima");
 });
 
 test("el botón del pack es UNO solo, dentro de su envoltorio", () => {
-  // La barra fija del móvil se hace con el envoltorio, no duplicando el botón:
-  // dos botones serían dos manejadores y dos estados que mantener en sintonía.
-  const js = fs.readFileSync(path.join(EXT, "assets/pack-builder.js"), "utf8");
+  const js = fs.readFileSync(path.join(SRC, "pack-builder.js"), "utf8");
   const creaciones = js.match(/el\("button", "df-pack__cta /g) ?? [];
   assert.equal(creaciones.length, 1, "solo puede crearse un botón de CTA");
-  assert.match(js, /df-pack__cta-wrap/, "y tiene que ir dentro del envoltorio");
+  assert.match(js, /df-pack__cta-wrap/);
+});
+
+test("la clave _df_pack coincide en la Function, el cliente y el aviso", () => {
+  const query = fs.readFileSync(
+    path.join(RAIZ, "extensions/pack-discount/src/cart_lines_discounts_generate_run.graphql"),
+    "utf8"
+  );
+  const cliente = fs.readFileSync(
+    path.join(RAIZ, "app/lib/discounts/pack-client.ts"),
+    "utf8"
+  );
+  const aviso = fs.readFileSync(path.join(SRC, "pack-notice.js"), "utf8");
+
+  assert.ok(query.includes('attribute(key: "_df_pack")'));
+  assert.ok(cliente.includes('PACK_LINE_ATTRIBUTE = "_df_pack"'));
+  assert.ok(aviso.includes('"_df_pack"'));
 });

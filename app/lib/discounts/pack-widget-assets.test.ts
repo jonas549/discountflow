@@ -15,7 +15,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 const RAIZ = path.resolve(import.meta.dirname, "../../..");
-const ASSETS = path.join(RAIZ, "extensions/pack-widget/assets");
+const SRC = path.join(RAIZ, "scripts/pack-widget-src");
 
 // ─── 1. El parcheo de fetch ───────────────────────────────────────────────────
 
@@ -59,7 +59,7 @@ test("🔴 el parcheo de fetch no rompe las llamadas sin calificar", () => {
   // envoltorio se lo pasaba tal cual al fetch nativo. Resultado: se rompía el
   // fetch de TODA la página, no solo el nuestro.
   const win = montarWindowComoNavegador();
-  const src = fs.readFileSync(path.join(ASSETS, "pack-notice.js"), "utf8");
+  const src = fs.readFileSync(path.join(SRC, "pack-notice.js"), "utf8");
 
   new Function(
     "window",
@@ -92,7 +92,7 @@ test("el parcheo solo se instala si hay un aviso en la página", () => {
   const win = montarWindowComoNavegador();
   (win.document as { querySelector: () => unknown }).querySelector = () => null;
   const fetchOriginal = win.fetch;
-  const src = fs.readFileSync(path.join(ASSETS, "pack-notice.js"), "utf8");
+  const src = fs.readFileSync(path.join(SRC, "pack-notice.js"), "utf8");
 
   new Function(
     "window",
@@ -118,48 +118,12 @@ test("el parcheo solo se instala si hay un aviso en la página", () => {
   );
 });
 
-// ─── 2. El asset del cálculo, en sintonía con su fuente ──────────────────────
-
-test("pack-calc.js está regenerado desde pack-calc.ts", async () => {
-  // 🔴 La cadena que sostiene «el precio que ve el comprador es el que paga»:
-  // el widget usa un COMPILADO de `pack-calc.ts`. Si alguien toca el módulo y no
-  // corre `npm run build:pack-widget`, la tienda calcula con la versión vieja y
-  // el checkout con la nueva — y la diferencia solo se ve pagando.
-  //
-  // `npm run build` regenera el asset, así que en un despliegue normal esto no
-  // puede pasar. Este test cubre el hueco: trabajar en local, commitear y no
-  // volver a construir.
-  const esbuild = await import("esbuild");
-
-  const generado = await esbuild.build({
-    entryPoints: [path.join(RAIZ, "app/lib/discounts/pack-calc.ts")],
-    bundle: true,
-    write: false,
-    format: "iife",
-    globalName: "DiscountFlowPackCalc",
-    target: ["es2019"],
-    minify: false,
-  });
-
-  const recienCompilado = generado.outputFiles[0].text.trim();
-  const enDisco = fs.readFileSync(path.join(ASSETS, "pack-calc.js"), "utf8");
-  // Se compara solo el CUERPO que produce esbuild: el banner y el footer con la
-  // marca de versión los añade el script de build, no esbuild, así que quedan
-  // fuera de la comparación.
-  const MARCA = "/* Marca de versión";
-  const desdeUseStrict = enDisco.slice(enDisco.indexOf('"use strict";'));
-  const cuerpoEnDisco = (
-    desdeUseStrict.indexOf(MARCA) > -1
-      ? desdeUseStrict.slice(0, desdeUseStrict.indexOf(MARCA))
-      : desdeUseStrict
-  ).trim();
-
-  assert.equal(
-    cuerpoEnDisco,
-    recienCompilado,
-    "extensions/pack-widget/assets/pack-calc.js está desactualizado — corré `npm run build:pack-widget`"
-  );
-});
+// ─── 2. La sintonía del cálculo se comprueba en pack-widget-build.test.ts ────
+//
+// El test que vivía acá leía , que ya no existe: los tres
+// JS se concatenan en un único . La misma comprobación —que el
+// generado contenga el cálculo compilado desde — vive ahora junto
+// al resto de invariantes de los assets, en pack-widget-build.test.ts.
 
 // ─── 3. La clave de la propiedad, escrita en tres sitios ─────────────────────
 
@@ -175,7 +139,7 @@ test("la clave _df_pack coincide en la Function, el widget y el aviso", () => {
     path.join(RAIZ, "app/lib/discounts/pack-client.ts"),
     "utf8"
   );
-  const aviso = fs.readFileSync(path.join(ASSETS, "pack-notice.js"), "utf8");
+  const aviso = fs.readFileSync(path.join(SRC, "pack-notice.js"), "utf8");
 
   assert.ok(
     query.includes('attribute(key: "_df_pack")'),

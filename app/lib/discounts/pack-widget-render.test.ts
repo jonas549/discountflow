@@ -16,7 +16,12 @@ import fs from "node:fs";
 import path from "node:path";
 
 const RAIZ = path.resolve(import.meta.dirname, "../../..");
+const SRC = path.join(RAIZ, "scripts/pack-widget-src");
 const ASSETS = path.join(RAIZ, "extensions/pack-widget/assets");
+/** El unico JS generado, con el build en el nombre. */
+const JS_GENERADO = fs
+  .readdirSync(ASSETS)
+  .filter((f) => /^pack-\d+\.js$/.test(f))[0];
 
 // ─── Un DOM mínimo, solo lo que el widget usa ────────────────────────────────
 
@@ -174,15 +179,24 @@ async function montarWidget(lineasEnCarrito: number[]) {
     return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
   };
 
-  const calc = fs.readFileSync(path.join(ASSETS, "pack-calc.js"), "utf8");
-  const builder = fs.readFileSync(path.join(ASSETS, "pack-builder.js"), "utf8");
+  // Un solo archivo: calculo + armador + aviso, tal como lo sirve el tema.
+  const todo = fs.readFileSync(path.join(ASSETS, JS_GENERADO), "utf8");
 
-  new Function("window", "document", "setTimeout", "clearTimeout", "fetch", "Intl", calc + "\n;window.DiscountFlowPackCalc = DiscountFlowPackCalc;")(
-    win, win.document, win.setTimeout, win.clearTimeout, win.fetch, Intl
-  );
-  new Function("window", "document", "setTimeout", "clearTimeout", "fetch", "Intl", builder)(
-    win, win.document, win.setTimeout, win.clearTimeout, win.fetch, Intl
-  );
+  // El archivo generado declara `var DiscountFlowPackCalc`; en un <script> real
+  // eso crea la global. Dentro de `new Function` no, así que se asigna a mano
+  // justo antes de la marca de versión, que va después del cálculo.
+  new Function(
+    "window",
+    "document",
+    "setTimeout",
+    "clearTimeout",
+    "fetch",
+    "Intl",
+    todo.replace(
+      "window.DF_PACK_BUILD",
+      "window.DiscountFlowPackCalc = DiscountFlowPackCalc; window.DF_PACK_BUILD"
+    )
+  )(win, win.document, win.setTimeout, win.clearTimeout, win.fetch, Intl);
 
   // Dejar correr las promesas encadenadas.
   for (let i = 0; i < 30; i++) await Promise.resolve();

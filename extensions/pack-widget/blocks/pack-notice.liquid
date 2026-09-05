@@ -1,35 +1,35 @@
 {% comment %}
   DiscountFlow — Aviso del pack en el carrito.
 
-  Implementa la decisión de producto del 2026-09-05: si el comprador borra una
-  línea, el pack NO se deshace ni se bloquea nada; el carrito AVISA de lo que
-  perdió y de cómo recuperarlo.
+  Si el comprador borra una línea, el pack NO se deshace ni se bloquea nada: el
+  carrito avisa de lo que perdió y de cómo recuperarlo. Hace falta un bloque
+  propio porque el `message` del descuento solo lo pinta Shopify CUANDO el
+  descuento aplica, y el caso a cubrir es el contrario.
 
-  Hace falta un bloque propio y no basta con el `message` del descuento: ese
-  texto solo lo pinta Shopify CUANDO el descuento aplica, y el caso a cubrir es
-  justo el contrario.
-
-  🔴 Carga EXACTAMENTE los mismos assets que `pack-builder.liquid`, a propósito.
-  Ver el comentario largo de aquel archivo: con varios bloques de una misma
-  theme app extension activos, los del segundo pueden no servirse. Que los dos
-  declaren el mismo conjunto elimina el problema. NO separarlos.
+  🔴 Pide EXACTAMENTE los mismos assets que `pack-builder.liquid`, y con el
+  build en el nombre. Ver el comentario largo de aquel archivo: son las dos
+  cosas que arreglaron que el navegador recibiera un JavaScript viejo durante
+  tres rondas. NO separarlos y NO volver a un nombre sin versión.
 {% endcomment %}
 
-{{ 'pack-builder.css' | asset_url | stylesheet_tag }}
+<!-- DiscountFlow · aviso de pack · BUILD 8
+     js  = {{ 'pack-8.js' | asset_url }}
+     css = {{ 'pack-8.css' | asset_url }} -->
+
+{{ 'pack-8.css' | asset_url | stylesheet_tag }}
 
 <div
   class="df-pack-notice"
   data-df-pack-notice
-  data-df-build="7"
+  data-df-build="8"
+  data-df-js="{{ 'pack-8.js' | asset_url }}"
   data-proxy="/apps/discountflow/pack"
   hidden
   {{ block.shopify_attributes }}
 ></div>
 
-{% comment %} Los tres, en los DOS bloques. Ver el comentario de arriba. {% endcomment %}
-<script src="{{ 'pack-calc.js' | asset_url }}" defer></script>
-<script src="{{ 'pack-builder.js' | asset_url }}" defer></script>
-<script src="{{ 'pack-notice.js' | asset_url }}" defer></script>
+{% comment %} Un solo archivo, y el mismo en los DOS bloques. {% endcomment %}
+<script src="{{ 'pack-8.js' | asset_url }}" defer></script>
 
 {% schema %}
 {
