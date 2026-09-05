@@ -1,0 +1,44 @@
+query CartInput {
+  cart {
+    lines {
+      id
+      quantity
+      cost {
+        amountPerQuantity {
+          amount
+        }
+      }
+      # 🔴 `attribute` EXIGE el argumento `key`. Pedirlo sin clave devuelve null
+      # siempre — es un error reportado y resuelto en el foro de Shopify, y no
+      # da ningún aviso: parece que las propiedades de línea no llegan. No hay
+      # forma de listar los atributos, así que la clave va escrita a mano acá y
+      # tiene que coincidir EXACTAMENTE con la que escribe el widget al agregar
+      # al carrito (app/lib/discounts/pack-client.ts → PACK_LINE_ATTRIBUTE).
+      packRef: attribute(key: "_df_pack") {
+        value
+      }
+      merchandise {
+        __typename
+        ... on ProductVariant {
+          id
+          product {
+            id
+          }
+        }
+      }
+    }
+  }
+  discount {
+    discountClasses
+    # Se leen los DOS namespaces posibles, igual que en `tiered-discount`: el
+    # reservado de la app ($app:...) y uno plano. La app escribe en el plano
+    # porque MetafieldInput solo admite alfanuméricos, guiones y guiones bajos
+    # en el namespace; el reservado queda como respaldo por si se migra.
+    config: metafield(namespace: "$app:discountflow", key: "pack-config") {
+      jsonValue
+    }
+    configFallback: metafield(namespace: "discountflow", key: "pack-config") {
+      jsonValue
+    }
+  }
+}

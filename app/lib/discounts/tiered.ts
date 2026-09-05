@@ -19,13 +19,14 @@ import {
   tieredDiscountTitle,
   TIERED_METAFIELD_KEY,
 } from "./tiered-client";
+import { getDiscountFunctionId, TIERED_FUNCTION_HANDLE } from "./function-id";
 
 type AdminClient = {
   graphql: (q: string, o?: { variables: unknown }) => Promise<Response>;
 };
 
 /** Handle de la extensión (extensions/tiered-discount/shopify.extension.toml). */
-const FUNCTION_HANDLE = "tiered-discount";
+const FUNCTION_HANDLE = TIERED_FUNCTION_HANDLE;
 
 /**
  * Namespace PLANO a propósito: MetafieldInput solo admite alfanuméricos,
@@ -159,64 +160,22 @@ async function logTieredDiscountState(
 // ─── Function ID ──────────────────────────────────────────────────────────────
 
 /**
- * Busca el ID de nuestra Function en la tienda. No se hardcodea porque la app
- * de dev y la de producción tienen IDs distintos.
+ * Busca el ID de la Function de escalonados en la tienda.
  *
- * Solo se piden `id`, `title` y `apiType`: el campo `handle` de ShopifyFunction
- * NO existe en la versión 2025-10 de la Admin API, que es la que usa esta app
- * (ver ApiVersion.October25 en shopify.server.ts). El título de la Function es
- * el `name` de extensions/tiered-discount/locales/en.default.json.
+ * La lógica de emparejamiento se mudó a `function-id.ts` el 2026-09-05, cuando
+ * apareció la segunda Function de la app (`pack-discount`). Ver ese archivo
+ * para el porqué: con dos Functions instaladas los descartes por "es la única"
+ * dejan de ser seguros.
  *
- * El emparejamiento es tolerante a propósito: primero por título, y si no,
- * por tipo de API o descarte cuando solo hay una Function instalada.
+ * `allowSingleFunctionFallback: true` conserva EXACTAMENTE el comportamiento
+ * que hoy corre en producción: una tienda con una sola Function de descuento
+ * instalada sigue resolviendo aunque el título no case. No se quita sin
+ * comprobar antes, contra una tienda real, que el título casa de verdad.
  */
 export async function getTieredFunctionId(admin: AdminClient): Promise<string> {
-  const res = await admin.graphql(
-    `#graphql
-    query TieredFunctionId {
-      shopifyFunctions(first: 50) {
-        nodes { id title apiType }
-      }
-    }`
-  );
-  const json = await res.json();
-
-  if (json.errors?.length)
-    throw new Error(
-      `No se pudieron listar las Functions: ${json.errors
-        .map((e: { message: string }) => e.message)
-        .join(", ")}`
-    );
-
-  const nodes: Array<{ id: string; title: string; apiType: string }> =
-    json.data?.shopifyFunctions?.nodes ?? [];
-
-  const byTitle = nodes.find(
-    (n) => (n.title ?? "").toLowerCase().replace(/[\s_]/g, "-") === FUNCTION_HANDLE
-  );
-  const byApiType = nodes.filter((n) =>
-    (n.apiType ?? "").toLowerCase().includes("discount")
-  );
-
-  const fn =
-    byTitle ??
-    (byApiType.length === 1 ? byApiType[0] : undefined) ??
-    (nodes.length === 1 ? nodes[0] : undefined);
-
-  if (!fn?.id) {
-    const encontradas = nodes.length
-      ? ` Functions encontradas: ${nodes
-          .map((n) => `"${n.title}" (${n.apiType})`)
-          .join(", ")}.`
-      : "";
-    throw new Error(
-      "No se encontró la Function de descuentos escalonados en esta tienda. " +
-        "¿Está corriendo `shopify app dev` (o se desplegó con `shopify app deploy`)?" +
-        encontradas
-    );
-  }
-
-  return fn.id;
+  return getDiscountFunctionId(admin, FUNCTION_HANDLE, {
+    allowSingleFunctionFallback: true,
+  });
 }
 
 // ─── Resolución de productos ──────────────────────────────────────────────────

@@ -1,0 +1,26 @@
+api_version = "2026-04"
+
+[[extensions]]
+name = "t:name"
+handle = "pack-discount"
+type = "function"
+uid = "e4ff96d9-1f1a-36a0-795c-c0938670697818fb601b"
+description = "t:description"
+
+  # Una extensión Function exporta UN handler por target, y el target de líneas
+  # de carrito ya lo ocupa `tiered-discount`. Por eso los packs viven en su
+  # propia extensión y no dentro de aquélla.
+  #
+  # 🔴 Consecuencia operativa: `shopify app deploy` versiona la configuración de
+  # la app y TODAS las extensiones juntas — no se puede desplegar solo una. Desde
+  # que existe esta carpeta, cada despliegue publica también el Wasm de
+  # `tiered-discount`, y un rollback de packs devuelve la Function de escalonados
+  # a su versión anterior. Antes de desplegar, correr las fixtures de las DOS.
+  [[extensions.targeting]]
+  target = "cart.lines.discounts.generate.run"
+  input_query = "src/cart_lines_discounts_generate_run.graphql"
+  export = "cart-lines-discounts-generate-run"
+
+  [extensions.build]
+  command = ""
+  path = "dist/function.wasm"

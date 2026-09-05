@@ -1,0 +1,94 @@
+{
+  "payload": {
+    "export": "cart-lines-discounts-generate-run",
+    "target": "cart.lines.discounts.generate.run",
+    "input": {
+      "cart": {
+        "lines": [
+          {
+            "id": "gid://shopify/CartLine/0",
+            "quantity": 1,
+            "cost": {
+              "amountPerQuantity": {
+                "amount": "18990"
+              }
+            },
+            "packRef": {
+              "value": "otra_campana"
+            },
+            "merchandise": {
+              "__typename": "ProductVariant",
+              "id": "gid://shopify/ProductVariant/1",
+              "product": {
+                "id": "gid://shopify/Product/1"
+              }
+            }
+          },
+          {
+            "id": "gid://shopify/CartLine/1",
+            "quantity": 1,
+            "cost": {
+              "amountPerQuantity": {
+                "amount": "15490"
+              }
+            },
+            "packRef": {
+              "value": "otra_campana"
+            },
+            "merchandise": {
+              "__typename": "ProductVariant",
+              "id": "gid://shopify/ProductVariant/2",
+              "product": {
+                "id": "gid://shopify/Product/2"
+              }
+            }
+          }
+        ]
+      },
+      "discount": {
+        "discountClasses": [
+          "PRODUCT"
+        ],
+        "configFallback": null,
+        "config": {
+          "jsonValue": {
+            "campaignId": "camp_abc",
+            "message": "Armá tu rutina",
+            "mode": "PACK_SIZE",
+            "products": [
+              {
+                "productId": "gid://shopify/Product/1"
+              },
+              {
+                "productId": "gid://shopify/Product/2"
+              },
+              {
+                "productId": "gid://shopify/Product/3"
+              },
+              {
+                "productId": "gid://shopify/Product/4"
+              }
+            ],
+            "tiers": [
+              {
+                "minProducts": 2,
+                "percent": 10
+              },
+              {
+                "minProducts": 3,
+                "percent": 20
+              },
+              {
+                "minProducts": 4,
+                "percent": 30
+              }
+            ]
+          }
+        }
+      }
+    },
+    "output": {
+      "operations": []
+    }
+  }
+}

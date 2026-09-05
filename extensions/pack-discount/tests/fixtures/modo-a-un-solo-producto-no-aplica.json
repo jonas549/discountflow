@@ -1,0 +1,57 @@
+{
+  "payload": {
+    "export": "cart-lines-discounts-generate-run",
+    "target": "cart.lines.discounts.generate.run",
+    "input": {
+      "cart": {
+        "lines": [
+          {
+            "id": "gid://shopify/CartLine/0",
+            "quantity": 1,
+            "cost": {
+              "amountPerQuantity": {
+                "amount": "18990"
+              }
+            },
+            "packRef": {
+              "value": "camp_abc"
+            },
+            "merchandise": {
+              "__typename": "ProductVariant",
+              "id": "gid://shopify/ProductVariant/1",
+              "product": {
+                "id": "gid://shopify/Product/1"
+              }
+            }
+          }
+        ]
+      },
+      "discount": {
+        "discountClasses": [
+          "PRODUCT"
+        ],
+        "configFallback": null,
+        "config": {
+          "jsonValue": {
+            "campaignId": "camp_abc",
+            "message": "Armá tu rutina",
+            "mode": "PER_PRODUCT",
+            "products": [
+              {
+                "productId": "gid://shopify/Product/1",
+                "percent": 10
+              },
+              {
+                "productId": "gid://shopify/Product/2",
+                "percent": 15
+              }
+            ]
+          }
+        }
+      }
+    },
+    "output": {
+      "operations": []
+    }
+  }
+}
