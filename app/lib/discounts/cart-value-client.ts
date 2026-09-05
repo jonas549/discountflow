@@ -72,9 +72,17 @@ export function cartValueDiscountMessage(config: CartValueCampaignConfig): strin
   return config.message?.trim() || CART_VALUE_DEFAULT_MESSAGE;
 }
 
+/**
+ * Niveles con los que nace una campana nueva.
+ *
+ * Numeros redondos y CHICOS a proposito: se leen como lo que son —un ejemplo
+ * para cambiar— en cualquier moneda. La version anterior arrancaba en 50.000,
+ * que en una tienda en pesos es razonable y en una en dolares es un carrito que
+ * no existe: la campana se creaba sin disparar nunca y parecia rota.
+ */
 export const DEFAULT_CART_VALUE_TIERS: CartValueTier[] = [
-  { minSubtotal: 50000, percent: 5 },
-  { minSubtotal: 100000, percent: 10 },
+  { minSubtotal: 50, percent: 5 },
+  { minSubtotal: 100, percent: 10 },
 ];
 
 /** Resumen de una línea para el listado de campañas. */

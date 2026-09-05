@@ -312,12 +312,16 @@ export function CartValueCampaignForm({
                   onClick={() => {
                     marcar("tiers");
                     const ultimo = tiers[tiers.length - 1];
-                    const base = (ultimo?.minSubtotal ?? 0) + 50000;
+                    // El salto se calcula sobre lo que ya escribio el
+                    // merchant, no sobre una constante: asi el nivel nuevo cae
+                    // en su escala de precios y no en la que supusimos nosotros.
+                    const salto = Math.max(50, Math.round((ultimo?.minSubtotal ?? 50) / 2));
+                    const base = (ultimo?.minSubtotal ?? 0) + salto;
                     setTiers((ts) =>
                       ts.concat(
                         esPorcentaje
                           ? { minSubtotal: base, percent: 5 }
-                          : { minSubtotal: base, amount: 5000 }
+                          : { minSubtotal: base, amount: Math.round(base * 0.1) }
                       )
                     );
                   }}
