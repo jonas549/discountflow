@@ -7,10 +7,10 @@
  * había forma de distinguir «el asset no llegó» de «el asset llegó viejo» de
  * «el asset llegó y falló».
  * ═══════════════════════════════════════════════════════════════════════════ */
-window.DF_PACK_BUILD = 6;
+window.DF_PACK_BUILD = 7;
 window.DF_PACK_CARGADOS = (window.DF_PACK_CARGADOS || []).concat(["pack-notice"]);
 try {
-  console.log("[DiscountFlow] build 6 · pack-notice cargado");
+  console.log("[DiscountFlow] build 7 · pack-notice cargado");
 } catch (e) {}
 
 /* DiscountFlow — aviso del pack en el carrito.

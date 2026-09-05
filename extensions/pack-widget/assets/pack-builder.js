@@ -7,10 +7,10 @@
  * había forma de distinguir «el asset no llegó» de «el asset llegó viejo» de
  * «el asset llegó y falló».
  * ═══════════════════════════════════════════════════════════════════════════ */
-window.DF_PACK_BUILD = 6;
+window.DF_PACK_BUILD = 7;
 window.DF_PACK_CARGADOS = (window.DF_PACK_CARGADOS || []).concat(["pack-builder"]);
 try {
-  console.log("[DiscountFlow] build 6 · pack-builder cargado");
+  console.log("[DiscountFlow] build 7 · pack-builder cargado");
 } catch (e) {}
 
 /* DiscountFlow — widget «Armá tu pack».
@@ -574,6 +574,23 @@ try {
       );
     }
 
+    // El botón va dentro de un envoltorio que en escritorio no hace nada y en
+    // móvil ES la barra fija del pie. Un solo botón, no una copia: dos botones
+    // serían dos manejadores y dos estados que mantener en sintonía.
+    var ctaWrap = el("div", "df-pack__cta-wrap");
+
+    // Total compacto, exclusivo de la barra del pie (oculto en escritorio).
+    var barTotal = el("div", "df-pack__bar-total");
+    barTotal.appendChild(el("span", "df-pack__bar-total-label", "Total"));
+    barTotal.appendChild(
+      el(
+        "span",
+        "df-pack__bar-total-value",
+        p.applies ? money(p.total, pack.currency) : money(p.subtotal, pack.currency)
+      )
+    );
+    ctaWrap.appendChild(barTotal);
+
     var cta = el("button", "df-pack__cta " + themeBtn(true));
     cta.type = "button";
     cta.textContent = this.busy
@@ -585,7 +602,8 @@ try {
     cta.addEventListener("click", function () {
       self.addToCart();
     });
-    panel.appendChild(cta);
+    ctaWrap.appendChild(cta);
+    panel.appendChild(ctaWrap);
 
     root.appendChild(panel);
   };

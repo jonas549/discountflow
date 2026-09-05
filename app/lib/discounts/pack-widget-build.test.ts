@@ -104,3 +104,65 @@ test("🔴 los dos bloques declaran EXACTAMENTE los mismos assets", () => {
     "los dos bloques tienen que pedir los mismos assets — ver el comentario de pack-builder.liquid"
   );
 });
+
+// ─── El bug del móvil, y el invariante que lo impide ─────────────────────────
+
+test("🔴 toda regla con `position: fixed` declara `top` explícitamente", () => {
+  // El 2026-09-05 el móvil del widget estaba roto: no se veía ni un producto y
+  // había un bloque blanco enorme tapando la pantalla.
+  //
+  // La causa: la regla de escritorio deja `.df-pack__summary` en
+  // `position: sticky; top: 1em`, y la regla móvil lo pasaba a
+  // `position: fixed; bottom: 0` SIN anular ese `top`. Un elemento `fixed` con
+  // `top` Y `bottom` a la vez no se coloca: se ESTIRA de uno al otro. El panel
+  // pasaba a ocupar toda la pantalla, en blanco y con z-index 20, tapando las
+  // tarjetas. En escritorio no se veía porque `sticky` solo usa `top`.
+  //
+  // El invariante que lo cierra: si una regla fija un elemento, tiene que decir
+  // qué pasa con `top` — aunque sea `auto`. Así el estiramiento no puede
+  // colarse por herencia de otra regla.
+  const css = fs.readFileSync(path.join(EXT, "assets/pack-builder.css"), "utf8");
+  // Fuera los comentarios: el porqué de esta regla los menciona.
+  const sinComentarios = css.replace(/\/\*[\s\S]*?\*\//g, "");
+
+  const reglas = [...sinComentarios.matchAll(/([^{}]+)\{([^{}]*)\}/g)];
+  const fijas = reglas.filter((r) => /position:\s*fixed/.test(r[2]));
+
+  assert.ok(fijas.length > 0, "se esperaba al menos una regla con position: fixed");
+
+  for (const r of fijas) {
+    const selector = r[1].trim().split(/\r?\n/).pop()!.trim();
+    assert.match(
+      r[2],
+      /(^|[;{\s])top\s*:/,
+      `la regla "${selector}" fija el elemento sin declarar \`top\` — ` +
+        "si otra regla le deja un `top`, el elemento se estira en vez de colocarse"
+    );
+  }
+});
+
+test("el panel del resumen vuelve al flujo en móvil, encima de los productos", () => {
+  // El wireframe: panel arriba, productos abajo en una columna, barra al pie.
+  const css = fs.readFileSync(path.join(EXT, "assets/pack-builder.css"), "utf8");
+  const movil = css.slice(css.indexOf("@media (max-width: 749px)"));
+
+  assert.match(movil, /\.df-pack__summary\s*\{[^}]*position:\s*static/);
+  assert.match(movil, /\.df-pack__summary\s*\{[^}]*top:\s*auto/);
+  // El panel (order 2) tiene que ir ANTES que la rejilla (order 3).
+  const orderPanel = movil.match(/\.df-pack__summary\s*\{\s*order:\s*(\d+)/);
+  const orderGrid = movil.match(/\.df-pack__grid\s*\{\s*order:\s*(\d+)/);
+  assert.ok(orderPanel && orderGrid, "los dos tienen que declarar `order` en móvil");
+  assert.ok(
+    Number(orderPanel![1]) < Number(orderGrid![1]),
+    "el panel va encima de los productos"
+  );
+});
+
+test("el botón del pack es UNO solo, dentro de su envoltorio", () => {
+  // La barra fija del móvil se hace con el envoltorio, no duplicando el botón:
+  // dos botones serían dos manejadores y dos estados que mantener en sintonía.
+  const js = fs.readFileSync(path.join(EXT, "assets/pack-builder.js"), "utf8");
+  const creaciones = js.match(/el\("button", "df-pack__cta /g) ?? [];
+  assert.equal(creaciones.length, 1, "solo puede crearse un botón de CTA");
+  assert.match(js, /df-pack__cta-wrap/, "y tiene que ir dentro del envoltorio");
+});

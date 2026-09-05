@@ -29,7 +29,7 @@ import { build } from "esbuild";
  * Súbelo cada vez que cambien los assets, para que se pueda confirmar de un
  * vistazo qué versión está sirviendo el CDN.
  */
-const BUILD = 6;
+const BUILD = 7;
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 

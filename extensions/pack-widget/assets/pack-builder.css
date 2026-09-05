@@ -38,7 +38,7 @@
    la hoja que sirve el CDN es la actual sin abrir la pestaña de red. */
 .df-pack,
 .df-pack-notice {
-  --df-build: 6;
+  --df-build: 7;
 }
 
 .df-pack {
@@ -342,6 +342,27 @@
   padding-top: 0.45em;
 }
 
+/* El envoltorio del botón: en escritorio no hace nada; en móvil es la barra
+   fija del pie. Existe para que el botón sea UNO solo y no una copia. */
+.df-pack__cta-wrap {
+  display: block;
+}
+
+/* El total compacto es exclusivo de la barra del pie del móvil. */
+.df-pack__bar-total {
+  display: none;
+}
+
+.df-pack__bar-total-label {
+  font-size: 0.8em;
+  color: var(--df-dim);
+}
+
+.df-pack__bar-total-value {
+  font-size: 1.1em;
+  font-weight: 700;
+}
+
 .df-pack__cta {
   margin: 0;
   width: 100%;
@@ -412,45 +433,86 @@
   font-weight: 600;
 }
 
-/* ── Móvil: barra fija con total y CTA, como en el wireframe ── */
+/* ── Móvil ────────────────────────────────────────────────────────────────
+ *
+ * 🔴 EL BUG QUE HUBO ACÁ, PARA NO REPETIRLO
+ *
+ * La versión anterior convertía el panel entero en `position: fixed; bottom: 0`
+ * … y NO anulaba el `top: 1em` que trae la regla de escritorio. Un elemento
+ * `fixed` con `top` Y `bottom` a la vez no se coloca: se ESTIRA de uno a otro.
+ * El panel pasaba a ocupar toda la pantalla, en blanco y con `z-index: 20`,
+ * tapando las tarjetas de producto. En escritorio no se veía porque `sticky`
+ * solo usa `top`.
+ *
+ * Regla que queda: toda regla que ponga `position: fixed` declara `top`
+ * explícitamente, aunque sea `auto`. Hay un test que lo comprueba.
+ *
+ * El layout sigue al wireframe: panel arriba, productos abajo en una columna, y
+ * una barra al pie con el total y el botón.
+ */
 
 @media (max-width: 749px) {
   .df-pack {
-    grid-template-columns: minmax(0, 1fr);
-    padding-bottom: 6em;
+    /* Flex y no grid: `order` coloca el panel encima de los productos sin
+       tocar el orden del DOM, que en escritorio es el correcto. */
+    display: flex;
+    flex-direction: column;
+    gap: 1.25em;
+    /* Deja sitio para la barra del pie: sin esto tapa las últimas tarjetas. */
+    padding-bottom: 7em;
   }
 
-  .df-pack__grid {
-    grid-template-columns: minmax(0, 1fr);
+  .df-pack__head {
+    order: 0;
   }
-
+  .df-pack__progress {
+    order: 1;
+  }
   .df-pack__summary {
+    order: 2;
+  }
+  .df-pack__grid {
+    order: 3;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* El panel vuelve al flujo. `top: auto` NO es decorativo: anula el `top: 1em`
+     del escritorio, que es lo que rompió esta pantalla. */
+  .df-pack__summary {
+    position: static;
+    top: auto;
+  }
+
+  /* La barra del pie: lo único fijo, y con las cuatro coordenadas escritas. */
+  .df-pack__cta-wrap {
     position: fixed;
+    top: auto;
     left: 0;
     right: 0;
     bottom: 0;
     z-index: 20;
-    border-radius: 0;
-    border-left: 0;
-    border-right: 0;
-    border-bottom: 0;
-    /* Esta es la única superficie que NO puede ser translúcida: flota sobre el
-       contenido de la página. Se toma el fondo del tema si lo publica como
-       custom property, y si no, blanco. */
+    display: flex;
+    align-items: center;
+    gap: 0.9em;
+    /* La única superficie que NO puede ser translúcida: flota sobre la página.
+       Toma el fondo del tema si lo publica como custom property; si no, blanco. */
     background: #fff;
     background: rgb(var(--color-background, 255 255 255));
+    border-top: 1px solid var(--df-line);
     box-shadow: 0 -2px 14px rgba(0, 0, 0, 0.12);
-    gap: 0.5em;
-    padding: 0.8em 1em calc(0.8em + env(safe-area-inset-bottom, 0px));
+    padding: 0.7em 1em calc(0.7em + env(safe-area-inset-bottom, 0px));
   }
 
-  /* En la barra fija el desglose no cabe: manda el total y el botón. */
-  .df-pack__summary .df-pack__count,
-  .df-pack__summary .df-pack__items {
-    display: none;
+  .df-pack__cta-wrap .df-pack__cta {
+    width: auto;
+    flex: 1;
   }
 
-  .df-pack__summary .df-pack__totals tr:not(.df-pack__total) {
-    display: none;
+  /* El total compacto solo existe en la barra del pie. */
+  .df-pack__bar-total {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.2;
+    white-space: nowrap;
   }
 }
