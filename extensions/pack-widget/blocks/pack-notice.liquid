@@ -12,24 +12,24 @@
   tres rondas. NO separarlos y NO volver a un nombre sin versión.
 {% endcomment %}
 
-<!-- DiscountFlow · aviso de pack · BUILD 11
-     js  = {{ 'pack-11.js' | asset_url }}
-     css = {{ 'pack-11.css' | asset_url }} -->
+<!-- DiscountFlow · aviso de pack · BUILD 12
+     js  = {{ 'pack-12.js' | asset_url }}
+     css = {{ 'pack-12.css' | asset_url }} -->
 
-{{ 'pack-11.css' | asset_url | stylesheet_tag }}
+{{ 'pack-12.css' | asset_url | stylesheet_tag }}
 
 <div
   class="df-pack-notice"
   data-df-pack-notice
-  data-df-build="11"
-  data-df-js="{{ 'pack-11.js' | asset_url }}"
+  data-df-build="12"
+  data-df-js="{{ 'pack-12.js' | asset_url }}"
   data-proxy="/apps/discountflow/pack"
   hidden
   {{ block.shopify_attributes }}
 ></div>
 
 {% comment %} Un solo archivo, y el mismo en los DOS bloques. {% endcomment %}
-<script src="{{ 'pack-11.js' | asset_url }}" defer></script>
+<script src="{{ 'pack-12.js' | asset_url }}" defer></script>
 
 {% schema %}
 {

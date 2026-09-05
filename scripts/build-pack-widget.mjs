@@ -41,7 +41,7 @@ import { dirname, resolve, join } from "node:path";
  * `pack-widget-build.test.ts` lo comprueba, y además comprueba que el archivo
  * que el Liquid pide EXISTA de verdad en `assets/`.
  */
-const BUILD = 11;
+const BUILD = 12;
 
 const raiz = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SRC = join(raiz, "scripts/pack-widget-src");

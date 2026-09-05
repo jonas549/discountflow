@@ -325,3 +325,45 @@ test("la clave _df_pack coincide en la Function, el cliente y el aviso", () => {
   assert.ok(cliente.includes('PACK_LINE_ATTRIBUTE = "_df_pack"'));
   assert.ok(aviso.includes('"_df_pack"'));
 });
+
+test("🔴 en móvil el widget declara `align-items` explícitamente", () => {
+  // `align-items` alinea en el EJE TRANSVERSAL, y ese eje cambia con el modo de
+  // disposición: en la rejilla del escritorio es el vertical, y en flex-column
+  // es el HORIZONTAL. El `align-items: start` del escritorio —puesto para que la
+  // columna derecha no se estirase a lo largo— seguía aplicando en móvil, donde
+  // significaba otra cosa: encogía cada hijo al ancho de su contenido.
+  //
+  // Lo que se veía en el teléfono: la barra del pie cambiaba de ancho según el
+  // estado. Con el pack vacío el texto era largo y la barra llegaba a los
+  // bordes; al elegir productos el texto se acortaba y la barra se encogía con
+  // él. El mismo valor, dos significados, según una propiedad que la media
+  // query ni mencionaba.
+  const css = fs.readFileSync(path.join(SRC, "pack-styles.css"), "utf8");
+  const escritorio = css.slice(0, css.indexOf("@media (max-width: 749px)"));
+  const movil = css.slice(css.indexOf("@media (max-width: 749px)"));
+
+  assert.match(
+    escritorio,
+    /\.df-pack\s*\{[^}]*align-items:\s*start/,
+    "el escritorio usa `start` para que la columna derecha no se estire"
+  );
+
+  const regla = movil.match(/\.df-pack\s*\{([^}]*)\}/);
+  assert.ok(regla, "falta la regla móvil de .df-pack");
+  assert.match(
+    regla![1],
+    /align-items:\s*stretch/,
+    "🔴 en móvil hay que reponer `stretch`: si no, el `start` del escritorio " +
+      "encoge cada hijo al ancho de su contenido y la barra del pie cambia de " +
+      "ancho según el texto que le toque"
+  );
+});
+
+test("la barra del pie llega a los bordes de la pantalla", () => {
+  // Sangrado negativo para salir del padding lateral de la sección del tema.
+  const css = fs.readFileSync(path.join(SRC, "pack-styles.css"), "utf8");
+  const movil = css.slice(css.indexOf("@media (max-width: 749px)"));
+  const barra = movil.match(/\.df-pack__cta-wrap\s*\{([^}]*)\}/);
+  assert.ok(barra);
+  assert.match(barra![1], /margin:\s*0\s+-1em/);
+});

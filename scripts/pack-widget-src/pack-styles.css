@@ -38,7 +38,7 @@
    la hoja que sirve el CDN es la actual sin abrir la pestaña de red. */
 .df-pack,
 .df-pack-notice {
-  --df-build: 11;
+  --df-build: 12;
 }
 
 .df-pack {
@@ -581,6 +581,29 @@
     display: flex;
     flex-direction: column;
     gap: 1.25em;
+
+    /* 🔴 `align-items: stretch` NO ES DECORATIVO. NO LO SAQUES.
+     *
+     * `align-items` no significa lo mismo en `grid` que en `flex-direction:
+     * column`: alinea en el EJE TRANSVERSAL, y ese eje cambia con el modo de
+     * disposición. En la rejilla del escritorio el eje transversal es el
+     * VERTICAL, y ahí `align-items: start` es lo que hace que la columna
+     * derecha no se estire hasta el largo de la lista de productos. Al pasar a
+     * flex en columna, el eje transversal pasa a ser el HORIZONTAL — y ese
+     * mismo `start`, que sigue aplicando porque esta media query no lo tocaba,
+     * dejaba de alinear verticalmente y empezaba a ENCOGER cada hijo al ancho
+     * de su contenido.
+     *
+     * Lo que se veía: la barra del pie cambiaba de ancho según el estado. Con
+     * el pack vacío el texto era largo («Agregá 2 productos más…») y la barra
+     * llegaba a los bordes; al elegir dos productos el texto se acortaba
+     * («Ahorrás $X») y la barra se encogía con él, flotando como una caja
+     * suelta. Las tarjetas tenían el mismo problema, más difícil de ver porque
+     * los nombres de producto son largos.
+     *
+     * `stretch` es el valor por defecto de flex; hay que escribirlo porque acá
+     * viene heredado otro de la regla del escritorio. */
+    align-items: stretch;
   }
 
   /* 🔴 El `aside` DESAPARECE como caja.

@@ -25,7 +25,7 @@
      LISTA de productos; el precio no. Y un widget viejo no puede cobrar mal: el
      dinero lo decide la Function con el metafield del DESCUENTO, en el checkout.
 
-  2. EL NÚMERO DE BUILD VA EN EL NOMBRE DEL ARCHIVO (`pack-11.js`).
+  2. EL NÚMERO DE BUILD VA EN EL NOMBRE DEL ARCHIVO (`pack-12.js`).
 
      Durante tres rondas el widget se quedó en «Cargando tu pack…» porque el
      navegador recibía un JavaScript viejo. La causa de fondo era el nombre:
@@ -110,15 +110,15 @@
   ver el build que sirve el tema y de dónde salió la configuración. Si el JS no
   arranca, ESTA línea sigue estando.
 {%- endcomment -%}
-<!-- DiscountFlow · widget de packs · BUILD 11
-     js        = {{ 'pack-11.js' | asset_url }}
-     css       = {{ 'pack-11.css' | asset_url }}
+<!-- DiscountFlow · widget de packs · BUILD 12
+     js        = {{ 'pack-12.js' | asset_url }}
+     css       = {{ 'pack-12.css' | asset_url }}
      metafield = {{ df_fuente }}
      campana   = {{ df_id | default: '(ninguna)' }}
      Si el build de acá no es el que esperás, el tema sirve una versión vieja
      del bloque. Si metafield dice "ninguna", el widget cae al app proxy. -->
 
-{{ 'pack-11.css' | asset_url | stylesheet_tag }}
+{{ 'pack-12.css' | asset_url | stylesheet_tag }}
 
 {%- if df_pack == nil -%}
   {%- comment -%}
@@ -130,8 +130,8 @@
   <div
     class="df-pack"
     data-df-pack
-    data-df-build="11"
-    data-df-js="{{ 'pack-11.js' | asset_url }}"
+    data-df-build="12"
+    data-df-js="{{ 'pack-12.js' | asset_url }}"
     data-campaign="{{ block.settings.campaign_id | escape }}"
     data-proxy="/apps/discountflow/pack"
     data-heading="{{ block.settings.heading | escape }}"
@@ -212,8 +212,8 @@
   <div
     class="df-pack"
     data-df-pack
-    data-df-build="11"
-    data-df-js="{{ 'pack-11.js' | asset_url }}"
+    data-df-build="12"
+    data-df-js="{{ 'pack-12.js' | asset_url }}"
     data-campaign="{{ df_id | escape }}"
     data-proxy="/apps/discountflow/pack"
     data-heading="{{ block.settings.heading | escape }}"
@@ -433,7 +433,7 @@
 {%- endif -%}
 
 {% comment %} Un solo archivo, y el mismo en los DOS bloques. Ver arriba. {% endcomment %}
-<script src="{{ 'pack-11.js' | asset_url }}" defer></script>
+<script src="{{ 'pack-12.js' | asset_url }}" defer></script>
 
 {% schema %}
 {

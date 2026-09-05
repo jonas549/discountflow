@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════════════
- * DiscountFlow · widget de packs · BUILD 11
+ * DiscountFlow · widget de packs · BUILD 12
  *
  * GENERADO — NO EDITAR A MANO.
  * Fuentes: app/lib/discounts/pack-calc.ts + scripts/pack-widget-src/*.js
@@ -212,9 +212,9 @@ var DiscountFlowPackCalc = (() => {
 
 /* Marca de versión en tiempo de ejecución. La de verdad, la que se puede
    comprobar SIN ejecutar nada, está en el HTML del bloque. */
-window.DF_PACK_BUILD = 11;
+window.DF_PACK_BUILD = 12;
 try {
-  console.log("[DiscountFlow] widget de packs · build 11 cargado");
+  console.log("[DiscountFlow] widget de packs · build 12 cargado");
 } catch (e) {}
 
 /* DiscountFlow — widget «Armá tu pack».
