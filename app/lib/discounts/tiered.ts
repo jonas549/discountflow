@@ -20,6 +20,7 @@ import {
   TIERED_METAFIELD_KEY,
 } from "./tiered-client";
 import { getDiscountFunctionId, TIERED_FUNCTION_HANDLE } from "./function-id";
+import { runDiscountMutation } from "./discount-mutation";
 
 type AdminClient = {
   graphql: (q: string, o?: { variables: unknown }) => Promise<Response>;
@@ -36,44 +37,10 @@ const FUNCTION_HANDLE = TIERED_FUNCTION_HANDLE;
 const METAFIELD_NAMESPACE = "discountflow";
 
 /**
- * Ejecuta una mutación y NO deja pasar ningún fallo en silencio.
- *
- * Hay tres formas distintas de fallar y hay que mirar las tres:
- *   1. `json.errors`  → la consulta ni se ejecutó (campo o mutación que no
- *      existe en esta versión de la API). Shopify devuelve `data: null`.
- *   2. `json.data[root]` ausente → respuesta inesperada.
- *   3. `userErrors`   → la consulta corrió pero Shopify rechazó los datos.
- *
- * Mirar solo (3) —que es lo que hacía este archivo— hace que un fallo de tipo
- * (1) se trague sin excepción: la app redirige como si todo hubiera ido bien
- * mientras en Shopify no ha cambiado nada.
+ * El ejecutor de mutaciones se movió a `discount-mutation.ts` el 2026-09-05
+ * para que `pack.ts` use exactamente el mismo, en vez de una segunda copia que
+ * fuera derivando. El cuerpo no cambió.
  */
-async function runDiscountMutation(
-  admin: AdminClient,
-  query: string,
-  variables: unknown,
-  root: string
-): Promise<Record<string, unknown>> {
-  const res = await admin.graphql(query, { variables });
-  const json = await res.json();
-
-  if (json.errors?.length)
-    throw new Error(
-      `Shopify rechazó la consulta (${root}): ${json.errors
-        .map((e: { message: string }) => e.message)
-        .join(", ")}`
-    );
-
-  const result = json.data?.[root];
-  if (!result)
-    throw new Error(`Shopify no devolvió datos para ${root}.`);
-
-  const userErrors = result.userErrors as Array<{ message: string }> | undefined;
-  if (userErrors?.length)
-    throw new Error(userErrors.map((e) => e.message).join(", "));
-
-  return result;
-}
 
 /**
  * TEMPORAL [tiered-debug] — lee de Shopify cómo quedó realmente el descuento:

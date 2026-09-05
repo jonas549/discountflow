@@ -13,7 +13,10 @@
 //    julio: su lista de productos vive en el metafield). Pasan por el mismo motor
 //    para que la UI sea idéntica, y terminan en el primer lote.
 //
-//  🔸 HUECO CONOCIDO (D3): CREAR una campaña BxGy o TIERED sigue por el camino
+//  PACK se comporta igual que BXGY y TIERED: su descuento es un objeto único en
+//  Shopify, así que activar / pausar / eliminar son una sola mutación.
+//
+//  🔸 HUECO CONOCIDO (D3): CREAR una campaña BxGy, TIERED o PACK sigue por el camino
 //     síncrono antiguo y no tiene barra. Crear un TIERED de "toda la tienda" en un
 //     catálogo enorme resuelve ~80 páginas de Shopify sin sitio donde acumular los
 //     GIDs entre lotes, porque TIERED no usa CampaignProduct. Requiere decidir
@@ -32,6 +35,7 @@ import {
   type PagedSelection,
 } from "../../shopify/paged-resolve.server.ts";
 import type { TieredCampaignConfig } from "../../discounts/tiered-client.ts";
+import type { PackCampaignConfig } from "../../discounts/pack-client.ts";
 
 // bxgy.ts y tiered.ts se cargan de forma DINÁMICA, no con un import estático.
 //
@@ -46,6 +50,7 @@ import type { TieredCampaignConfig } from "../../discounts/tiered-client.ts";
 // deliberadamente fuera de esta entrega.
 const bxgyOps = () => import("../../discounts/bxgy.ts");
 const tieredOps = () => import("../../discounts/tiered.ts");
+const packOps = () => import("../../discounts/pack.ts");
 import { JobFatalError } from "../errors.ts";
 import { applyPercentCents, centsToString, toCents } from "../money.ts";
 import type {
@@ -293,7 +298,7 @@ async function runPriceUnits(
   return { succeeded: units.filter((u) => !failedNow.has(u.productId)), failures };
 }
 
-// ─── Unidad única (BXGY / TIERED) ─────────────────────────────────────────────
+// ─── Unidad única (BXGY / TIERED / PACK) ──────────────────────────────────────
 //
 // No hay filas que sellar, así que la marca de "hecho" va en resolveCursor, un
 // campo de texto libre que estos tipos no usan para nada más.
@@ -464,6 +469,21 @@ export const reactivateHandler: JobHandler = {
         ctx.campaign.endsAt
       );
       await t.activateTieredDiscount(ctx.admin, id);
+    } else if (ctx.campaign.type === "PACK") {
+      // Igual que TIERED: se reescribe el metafield antes de activar, para que
+      // el descuento refleje lo último que guardó el merchant y no la
+      // configuración con la que se creó.
+      const pk = await packOps();
+      await pk.updatePackDiscount(
+        ctx.admin,
+        ctx.campaign.id,
+        ctx.campaign.name,
+        id,
+        ctx.campaign.config as PackCampaignConfig,
+        ctx.campaign.startsAt,
+        ctx.campaign.endsAt
+      );
+      await pk.activatePackDiscount(ctx.admin, id);
     } else {
       await (await bxgyOps()).activateBxgyDiscount(ctx.admin, id);
     }
@@ -497,6 +517,8 @@ export const revertHandler: JobHandler = {
     if (!id) throw new JobFatalError("La campaña no tiene un descuento de Shopify asociado.");
     if (ctx.campaign.type === "TIERED")
       await (await tieredOps()).deactivateTieredDiscount(ctx.admin, id);
+    else if (ctx.campaign.type === "PACK")
+      await (await packOps()).deactivatePackDiscount(ctx.admin, id);
     else await (await bxgyOps()).deactivateBxgyDiscount(ctx.admin, id);
     await markSingleDone(ctx);
     return { succeeded: units, failures: [] };
@@ -532,6 +554,8 @@ export const deleteHandler: JobHandler = {
       try {
         if (ctx.campaign.type === "TIERED")
           await (await tieredOps()).deleteTieredDiscount(ctx.admin, id);
+        else if (ctx.campaign.type === "PACK")
+          await (await packOps()).deletePackDiscount(ctx.admin, id);
         else await (await bxgyOps()).deleteBxgyDiscount(ctx.admin, id);
       } catch {
         // El descuento puede haber sido borrado ya desde el admin de Shopify.

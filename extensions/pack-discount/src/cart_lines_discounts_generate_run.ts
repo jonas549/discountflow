@@ -132,6 +132,15 @@ export function cartLinesDiscountsGenerateRun(
   //   PACK_SIZE   → todas las líneas con el % del nivel alcanzado
   // Por eso no hace falta el discriminador `emit` que sí necesitan los
   // escalonados (allí un uniforme puede producir importes).
+  //
+  // ⚠️ `percentage.value` se emite como NÚMERO y el tipo generado lo declara
+  // `string` (el escalar Decimal). Eso produce un error de typecheck —el mismo,
+  // exacto, que ya arrastra `tiered-discount`— y NO se enmascara con `as`,
+  // porque este repo no lo hace en ningún sitio. Se deja como número a
+  // propósito: es lo que las fixtures verifican contra el Wasm REAL, y es lo
+  // que la Function de escalonados lleva emitiendo en producción desde julio de
+  // 2026. Divergir en esto entre las dos Functions sería peor que el error de
+  // tipos.
   const candidates: ProductDiscountCandidate[] = outcome.lines.map((l) => ({
     message,
     targets: [{cartLine: {id: l.lineId}}],

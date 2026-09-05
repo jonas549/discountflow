@@ -17,6 +17,7 @@ import {
   inputErrorStyle,
   ActionBar,
   GeneralErrorBanner,
+  DecimalInput,
 } from "./CampaignFormShared";
 import {
   buildPreviewRows,
@@ -29,7 +30,6 @@ import {
   type TierValueType,
 } from "../lib/discounts/tiered-calc";
 import type { TieredSelectionMode } from "../lib/discounts/tiered-client";
-import { formatDecimalInput, parseDecimalInput } from "../lib/decimal-input";
 import { es } from "../i18n";
 
 // Precio de referencia del preview. La tabla es ilustrativa: el cálculo real
@@ -914,61 +914,6 @@ function TieredPreview({
   );
 }
 
-/**
- * Campo de importe que conserva lo que el merchant está escribiendo.
- *
- * 🔴 NO usar `<input type="number">` controlado para importes.
- *
- * El DOM sanea el valor de un input numérico: si el contenido no es un número
- * válido —y "10." no lo es, porque está a medio escribir— `.value` devuelve
- * cadena vacía. Con `Number(e.target.value)` eso se traduce en 0, el estado se
- * resetea, React reescribe el campo a "0" y los dígitos siguientes se acumulan
- * encima. Resultado medido: tecleando 10,50 quedaba 50; 5,5 quedaba 5; 12,34
- * quedaba 34. Los enteros pasaban limpios, que es lo que lo hacía difícil de
- * ver. Tampoco acepta la coma en la mayoría de navegadores, y en español se
- * escribe 10,50.
- *
- * Aquí manda el BUFFER de texto: se guarda tal cual lo tecleado y solo se
- * propaga el número cuando ya es parseable. El valor de fuera únicamente pisa
- * el buffer si de verdad cambió (cambio de unidad, quitar un nivel, abrir para
- * editar); si no, se le borraría la coma en cada pulsación.
- */
-function DecimalInput({
-  value,
-  onChange,
-  style,
-}: {
-  value: number;
-  onChange: (n: number) => void;
-  style?: React.CSSProperties;
-}) {
-  const [text, setText] = useState(() => formatDecimalInput(value));
-
-  useEffect(() => {
-    // Si el buffer ya representa este mismo número, se deja intacto: es el
-    // merchant escribiendo, no un cambio venido de fuera.
-    if (parseDecimalInput(text) !== value) setText(formatDecimalInput(value));
-    // `text` queda fuera a propósito — este efecto solo reacciona a `value`.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value]);
-
-  return (
-    <input
-      type="text"
-      inputMode="decimal"
-      value={text}
-      onChange={(e) => {
-        const raw = e.target.value;
-        setText(raw);
-        // null = todavía no es un número ("10," a medio escribir). Se conserva
-        // el último valor bueno en vez de mandar un 0 que borraría el campo.
-        const parsed = parseDecimalInput(raw);
-        if (parsed !== null) onChange(parsed);
-      }}
-      style={style}
-    />
-  );
-}
 
 /**
  * Explica la diferencia entre modos con LOS NIVELES REALES del merchant y

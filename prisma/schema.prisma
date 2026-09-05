@@ -58,6 +58,7 @@ enum CampaignType {
   RANGE
   BXGY
   TIERED
+  PACK
 }
 
 enum CampaignStatus {
@@ -72,6 +73,14 @@ enum CampaignStatus {
 //   PERCENTAGE : { discountPercent: number, showCompareAtPrice: boolean }
 //   RANGE      : { fixedPrice: number, currency: string }
 //   BXGY       : { buyQuantity: number, getQuantity: number, getDiscountPercent: number }
+//   PACK       : { mode: "PER_PRODUCT" | "PACK_SIZE",
+//                  products: Array<{ productId: string, percent?: number }>,
+//                  tiers: Array<{ minProducts: number, percent: number }>,
+//                  items: Array<PackItemSnapshot>,   // presentacion del widget
+//                  heading?, message?,
+//                  shopifyDiscountId?, functionId? }
+//                Ver app/lib/discounts/pack-client.ts para el tipo exacto.
+//                NO crea filas en CampaignProduct (como BXGY y TIERED).
 //   TIERED     : { mode: "UNIFORM" | "INCREMENTAL",
 //                  tiers: Array<{ minQty: number, percent: number }>,
 //                  selectionMode, productIds, collectionIds, rawItems,
@@ -193,11 +202,11 @@ model CampaignJob {
   /// un identificador opaco: el historial diría "algo pasó" sin decir sobre qué.
   campaignName String?
 
-  shopId     String
-  operation  JobOperation
-  status     JobStatus    @default(QUEUED)
+  shopId    String
+  operation JobOperation
+  status    JobStatus    @default(QUEUED)
   /// RESOLVING | APPLYING | FINALIZING — qué está haciendo dentro de su estado.
-  phase      String       @default("RESOLVING")
+  phase     String       @default("RESOLVING")
 
   totalProducts     Int @default(0)
   processedProducts Int @default(0)

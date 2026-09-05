@@ -54,6 +54,12 @@ export const es = {
         "Ofrece productos gratis o con descuento cuando el cliente compre cierta cantidad.",
       ejemplo: "Compra 2 camisas, lleva una gorra gratis",
     },
+    pack: {
+      titulo: "Armá tu pack",
+      descripcion:
+        "El comprador elige productos de una lista que vos curás y ve el descuento crecer en vivo.",
+      ejemplo: "Arma tu rutina: 2 productos 10%, 3 productos 20%",
+    },
     escalonado: {
       titulo: "Descuentos escalonados",
       descripcion:
@@ -481,6 +487,92 @@ export const es = {
 
     errNombre: "Ponle un nombre a la campaña.",
     errSeleccion: "Elige a qué productos aplica la campaña.",
+    errFechas: "La fecha de fin debe ser posterior a la de inicio.",
+  },
+
+  nuevoPack: {
+    titulo: "Nueva campaña de pack",
+    tituloEditar: "Editar pack",
+    volver: "← Volver a campañas",
+
+    secInfoGeneral: "1 · Información general",
+    nombreLabel: "Nombre de la campaña",
+    nombreHelper: "Solo lo ves tú, para identificarla en tu lista.",
+    nombrePlaceholder: "Ej. Pack rutina facial",
+    headingLabel: "Título que ve el comprador",
+    headingHelper: "Es el encabezado del bloque en tu tienda.",
+    headingPorDefecto: "Armá tu pack",
+
+    secModo: "2 · ¿Cómo se calcula el descuento?",
+    modoPorProducto: "Por producto",
+    modoPorTamano: "Por tamaño del pack",
+    modoPorProductoDesc:
+      "Cada producto lleva su propio descuento, lo elijas junto a los que lo elijas.",
+    modoPorTamanoDesc:
+      "El descuento lo decide cuántos productos DISTINTOS arma el comprador.",
+
+    secProductos: "3 · Productos del pack",
+    productosHelper:
+      "Estos son los productos entre los que el comprador podrá elegir. El orden es el que verá en la tienda.",
+    btnElegirProductos: "Elegir productos",
+    columnaProducto: "Producto",
+    columnaDescuento: "Descuento",
+    sinProductos: "Todavía no elegiste productos.",
+    quitarProducto: "Quitar",
+
+    secNiveles: "4 · Niveles por tamaño",
+    nivelesHelper:
+      "Definí desde cuántos productos DISTINTOS aplica cada descuento. Dos unidades del mismo producto NO cuentan como dos.",
+    nivelDesde: "Desde",
+    nivelProductos: "productos",
+    nivelDescuento: "Descuento",
+    btnAgregarNivel: "+ Agregar nivel",
+    btnQuitarNivel: "Quitar nivel",
+
+    secProgramacion: "5 · Programar campaña",
+    fechaInicioLabel: "Fecha de inicio",
+    fechaInicioHelper: "Vacío = empieza de inmediato.",
+    fechaFinLabel: "Fecha de fin",
+    fechaFinHelper: "Vacío = sin fecha de fin.",
+
+    previewTitulo: "Vista previa",
+    previewHelper: "Así queda un pack armado con los primeros productos de tu lista.",
+    previewSubtotal: "Subtotal",
+    previewAhorro: "Ahorro",
+    previewTotal: "Total",
+    previewSinDescuento: (faltan: number) =>
+      faltan === 1
+        ? "Con 1 producto más el pack empieza a descontar."
+        : `Con ${faltan} productos más el pack empieza a descontar.`,
+
+    resumenTitulo: "Resumen",
+    resumenNombre: "Nombre",
+    resumenTipo: "Tipo",
+    resumenTipoPack: "Pack armable",
+    resumenModo: "Modo",
+    resumenProductos: "Productos",
+    resumenMinimo: "Mínimo para descontar",
+    resumenMaximo: "Descuento máximo",
+    resumenInicio: "Inicio",
+    resumenFin: "Fin",
+    resumenInmediato: "Inmediato",
+    resumenSinFin: "Sin fecha de fin",
+    sinDefinir: "Sin definir",
+
+    avisoWidget:
+      "Después de activar la campaña tenés que colocar el bloque «Armá tu pack» en tu tema, donde quieras que aparezca.",
+    avisoCarrito:
+      "El descuento se calcula en el carrito y el checkout. El precio en la página de producto no cambia.",
+    avisoSolapamiento: (campanas: string) =>
+      `Algunos productos de este pack ya están en otra campaña activa (${campanas}). Shopify aplica un solo descuento automático por línea, así que uno de los dos se perderá sin avisar.`,
+
+    btnCancelar: "Cancelar",
+    btnBorrador: "Guardar borrador",
+    btnActivar: "Activar campaña",
+    btnGuardar: "Guardar cambios",
+    btnCargando: "Guardando…",
+
+    errNombre: "Ponle un nombre a la campaña.",
     errFechas: "La fecha de fin debe ser posterior a la de inicio.",
   },
 };

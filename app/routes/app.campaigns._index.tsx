@@ -37,6 +37,18 @@ import {
   type TieredCampaignConfig,
 } from "../lib/discounts/tiered-client";
 import {
+  createPackDiscount,
+  updatePackDiscount,
+  activatePackDiscount,
+  deactivatePackDiscount,
+  deletePackDiscount,
+} from "../lib/discounts/pack";
+import {
+  packDiscountLabel,
+  packProductsLabel,
+  type PackCampaignConfig,
+} from "../lib/discounts/pack-client";
+import {
   revertRangeDiscount,
   reactivateRangeDiscount,
   type RangeCampaignConfig,
@@ -197,6 +209,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const bxgyId = (campaign.config as BxgyCampaignConfig).shopifyDiscountId;
   // TIERED guarda su descuento automático en el mismo campo del config.
   const tieredId = (campaign.config as TieredCampaignConfig).shopifyDiscountId;
+  // PACK, ídem: también es un descuento automático de app.
+  const packId = (campaign.config as PackCampaignConfig).shopifyDiscountId;
 
   try {
     // ── Camino con barra de progreso ──────────────────────────────────────────
@@ -247,6 +261,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         await deactivateBxgyDiscount(admin, exigirDescuento(bxgyId));
       } else if (campaign.type === "TIERED") {
         await deactivateTieredDiscount(admin, exigirDescuento(tieredId));
+      } else if (campaign.type === "PACK") {
+        await deactivatePackDiscount(admin, exigirDescuento(packId));
       }
       await prisma.campaign.update({ where: { id: campaignId }, data: { status: "PAUSED" } });
     } else if (actionType === "activate" && campaign.status === "DRAFT") {
@@ -307,6 +323,31 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             campaign.endsAt
           );
         }
+      } else if (campaign.type === "PACK") {
+        if (packId) {
+          // Mismo motivo que en TIERED: se reescribe la configuración antes de
+          // activar, para que el metafield refleje lo último que guardó el
+          // merchant y no lo que había cuando se creó el descuento.
+          await updatePackDiscount(
+            admin,
+            campaignId,
+            campaign.name,
+            packId,
+            campaign.config as PackCampaignConfig,
+            campaign.startsAt,
+            campaign.endsAt
+          );
+          await activatePackDiscount(admin, packId);
+        } else {
+          await createPackDiscount(
+            admin,
+            campaignId,
+            campaign.name,
+            campaign.config as PackCampaignConfig,
+            campaign.startsAt,
+            campaign.endsAt
+          );
+        }
       } else {
         return Response.json(
           {
@@ -355,6 +396,21 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           campaign.endsAt
         );
         await activateTieredDiscount(admin, idTiered);
+      } else if (campaign.type === "PACK") {
+        const idPack = exigirDescuento(packId);
+        // Se reescribe la configuración antes de activar, por el mismo motivo
+        // que en TIERED: una campaña pudo pasar semanas pausada y el metafield
+        // tiene que reflejar lo último que guardó el merchant.
+        await updatePackDiscount(
+          admin,
+          campaignId,
+          campaign.name,
+          idPack,
+          campaign.config as PackCampaignConfig,
+          campaign.startsAt,
+          campaign.endsAt
+        );
+        await activatePackDiscount(admin, idPack);
       }
       await prisma.campaign.update({ where: { id: campaignId }, data: { status: "ACTIVE" } });
     } else if (actionType === "delete") {
@@ -367,6 +423,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           try { await deleteBxgyDiscount(admin, bxgyId); } catch { /* discount may already be gone */ }
         } else if (campaign.type === "TIERED" && tieredId) {
           try { await deleteTieredDiscount(admin, tieredId); } catch { /* discount may already be gone */ }
+        } else if (campaign.type === "PACK" && packId) {
+          try { await deletePackDiscount(admin, packId); } catch { /* discount may already be gone */ }
         }
       }
       await prisma.campaign.delete({ where: { id: campaignId } });
@@ -626,6 +684,75 @@ function MockupEscalonado() {
           </span>
         </div>
       ))}
+    </div>
+  );
+}
+
+/**
+ * Mockup del armador de packs: tres tarjetas de producto, dos ya elegidas, y el
+ * total con el ahorro. Es la lectura de un vistazo de lo que hace el tipo.
+ */
+function MockupPack() {
+  const items = [
+    { elegido: true },
+    { elegido: true },
+    { elegido: false },
+  ];
+  return (
+    <div
+      style={{
+        background: "#f8fafb",
+        border: "1px solid #e1e3e5",
+        borderRadius: "8px",
+        padding: "12px 14px",
+        marginBottom: "16px",
+      }}
+    >
+      <div style={{ display: "flex", gap: "6px", marginBottom: "8px" }}>
+        {items.map((it, i) => (
+          <div
+            key={i}
+            style={{
+              flex: 1,
+              height: "30px",
+              borderRadius: "4px",
+              background: it.elegido ? "#e8f5e9" : "#ffffff",
+              border: `1px solid ${it.elegido ? "#2e7d32" : "#e1e3e5"}`,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: "9px",
+              fontWeight: 700,
+              color: it.elegido ? "#2e7d32" : "#c9cccf",
+            }}
+          >
+            {it.elegido ? "✓" : "+"}
+          </div>
+        ))}
+      </div>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          borderTop: "1px solid #edeef0",
+          paddingTop: "6px",
+        }}
+      >
+        <span style={{ fontSize: "10px", color: "#6d7175" }}>2 productos</span>
+        <span
+          style={{
+            background: "#e8f5e9",
+            color: "#2e7d32",
+            fontSize: "9px",
+            fontWeight: "700",
+            padding: "1px 6px",
+            borderRadius: "8px",
+          }}
+        >
+          10%
+        </span>
+      </div>
     </div>
   );
 }
@@ -1041,6 +1168,13 @@ export default function Campaigns() {
             ejemplo={es.campanas.escalonado.ejemplo}
             href="/app/campaigns/new/tiered"
           />
+          <CampaignCard
+            mockup={<MockupPack />}
+            title={es.campanas.pack.titulo}
+            description={es.campanas.pack.descripcion}
+            ejemplo={es.campanas.pack.ejemplo}
+            href="/app/campaigns/new/pack"
+          />
         </div>
       </s-section>
 
@@ -1107,6 +1241,8 @@ export default function Campaigns() {
                         : `$${rangeConfig.value} de descuento`
                       : c.type === "TIERED"
                       ? tieredDiscountLabel(c.config as TieredCampaignConfig)
+                      : c.type === "PACK"
+                      ? packDiscountLabel(c.config as PackCampaignConfig)
                       : "—";
                   const editHref =
                     c.type === "BXGY"
@@ -1115,6 +1251,8 @@ export default function Campaigns() {
                       ? `/app/campaigns/${c.id}/edit/range`
                       : c.type === "TIERED"
                       ? `/app/campaigns/${c.id}/edit/tiered`
+                      : c.type === "PACK"
+                      ? `/app/campaigns/${c.id}/edit/pack`
                       : `/app/campaigns/${c.id}/edit`;
                   const jobId = jobIdFor(c);
                   return (
@@ -1166,10 +1304,12 @@ export default function Campaigns() {
                       </td>
                       <td style={{ padding: "12px", color: "#6d7175" }}>{discount}</td>
                       <td style={{ padding: "12px", color: "#6d7175" }}>
-                        {/* TIERED no crea filas en CampaignProduct: su conteo
-                            sale del config. El resto de tipos no se toca. */}
+                        {/* TIERED y PACK no crean filas en CampaignProduct:
+                            su conteo sale del config. El resto no se toca. */}
                         {c.type === "TIERED"
                           ? tieredProductsLabel(c.config as TieredCampaignConfig)
+                          : c.type === "PACK"
+                          ? packProductsLabel(c.config as PackCampaignConfig)
                           : c.productsCount}
                       </td>
                       <td
@@ -1232,7 +1372,9 @@ export default function Campaigns() {
                               se activan desde su edición, donde se aplican precios. */}
                           {(c.status === "PAUSED" ||
                             (c.status === "DRAFT" &&
-                              (c.type === "BXGY" || c.type === "TIERED"))) && (
+                              (c.type === "BXGY" ||
+                                c.type === "TIERED" ||
+                                c.type === "PACK"))) && (
                             <Btn
                               variant="primary"
                               size="sm"
