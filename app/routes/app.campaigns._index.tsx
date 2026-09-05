@@ -12,6 +12,17 @@ import { prisma } from "../lib/db";
 import { getOrCreateShop } from "../lib/shopify/shop.server";
 import { sincronizarMetafieldDeWidget } from "../lib/discounts/pack-widget-metafield.server";
 import {
+  createCartValueDiscount,
+  updateCartValueDiscount,
+  activateCartValueDiscount,
+  deactivateCartValueDiscount,
+  deleteCartValueDiscount,
+} from "../lib/discounts/cart-value";
+import {
+  cartValueLabel,
+  type CartValueCampaignConfig,
+} from "../lib/discounts/cart-value-client";
+import {
   revertPercentageDiscount,
   reactivatePercentageDiscount,
 } from "../lib/discounts/percentage";
@@ -206,6 +217,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const tieredId = (campaign.config as TieredCampaignConfig).shopifyDiscountId;
   // PACK, ídem: también es un descuento automático de app.
   const packId = (campaign.config as PackCampaignConfig).shopifyDiscountId;
+  // CART_VALUE es el primero de clase ORDER, pero se gestiona igual.
+  const cartValueId = (campaign.config as CartValueCampaignConfig).shopifyDiscountId;
 
   try {
     // ── Camino con barra de progreso ──────────────────────────────────────────
@@ -258,6 +271,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         await deactivateTieredDiscount(admin, exigirDescuento(tieredId));
       } else if (campaign.type === "PACK") {
         await deactivatePackDiscount(admin, exigirDescuento(packId));
+      } else if (campaign.type === "CART_VALUE") {
+        await deactivateCartValueDiscount(admin, exigirDescuento(cartValueId));
       }
       await prisma.campaign.update({ where: { id: campaignId }, data: { status: "PAUSED" } });
     } else if (actionType === "activate" && campaign.status === "DRAFT") {
@@ -343,6 +358,28 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             campaign.endsAt
           );
         }
+      } else if (campaign.type === "CART_VALUE") {
+        if (cartValueId) {
+          await updateCartValueDiscount(
+            admin,
+            campaignId,
+            campaign.name,
+            cartValueId,
+            campaign.config as CartValueCampaignConfig,
+            campaign.startsAt,
+            campaign.endsAt
+          );
+          await activateCartValueDiscount(admin, cartValueId);
+        } else {
+          await createCartValueDiscount(
+            admin,
+            campaignId,
+            campaign.name,
+            campaign.config as CartValueCampaignConfig,
+            campaign.startsAt,
+            campaign.endsAt
+          );
+        }
       } else {
         return Response.json(
           {
@@ -406,6 +443,21 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           campaign.endsAt
         );
         await activatePackDiscount(admin, idPack);
+      } else if (campaign.type === "CART_VALUE") {
+        const idCv = exigirDescuento(cartValueId);
+        // Se reescribe la configuración antes de activar, igual que en los
+        // otros dos: una campaña pudo pasar semanas pausada y el metafield
+        // tiene que reflejar lo último que guardó el merchant.
+        await updateCartValueDiscount(
+          admin,
+          campaignId,
+          campaign.name,
+          idCv,
+          campaign.config as CartValueCampaignConfig,
+          campaign.startsAt,
+          campaign.endsAt
+        );
+        await activateCartValueDiscount(admin, idCv);
       }
       await prisma.campaign.update({ where: { id: campaignId }, data: { status: "ACTIVE" } });
     } else if (actionType === "delete") {
@@ -420,6 +472,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           try { await deleteTieredDiscount(admin, tieredId); } catch { /* discount may already be gone */ }
         } else if (campaign.type === "PACK" && packId) {
           try { await deletePackDiscount(admin, packId); } catch { /* discount may already be gone */ }
+        } else if (campaign.type === "CART_VALUE" && cartValueId) {
+          try { await deleteCartValueDiscount(admin, cartValueId); } catch { /* discount may already be gone */ }
         }
       }
       await prisma.campaign.delete({ where: { id: campaignId } });
@@ -1177,6 +1231,13 @@ export default function Campaigns() {
             ejemplo={es.campanas.pack.ejemplo}
             href="/app/campaigns/new/pack"
           />
+          <CampaignCard
+            mockup={<MockupPack />}
+            title={es.campanas.valorCarrito.titulo}
+            description={es.campanas.valorCarrito.descripcion}
+            ejemplo={es.campanas.valorCarrito.ejemplo}
+            href="/app/campaigns/new/cart-value"
+          />
         </div>
       </s-section>
 
@@ -1245,6 +1306,8 @@ export default function Campaigns() {
                       ? tieredDiscountLabel(c.config as TieredCampaignConfig)
                       : c.type === "PACK"
                       ? packDiscountLabel(c.config as PackCampaignConfig)
+                      : c.type === "CART_VALUE"
+                      ? cartValueLabel(c.config as CartValueCampaignConfig)
                       : "—";
                   const editHref =
                     c.type === "BXGY"
@@ -1255,6 +1318,8 @@ export default function Campaigns() {
                       ? `/app/campaigns/${c.id}/edit/tiered`
                       : c.type === "PACK"
                       ? `/app/campaigns/${c.id}/edit/pack`
+                      : c.type === "CART_VALUE"
+                      ? `/app/campaigns/${c.id}/edit/cart-value`
                       : `/app/campaigns/${c.id}/edit`;
                   const jobId = jobIdFor(c);
                   return (
@@ -1312,6 +1377,8 @@ export default function Campaigns() {
                           ? tieredProductsLabel(c.config as TieredCampaignConfig)
                           : c.type === "PACK"
                           ? packProductsLabel(c.config as PackCampaignConfig)
+                          : c.type === "CART_VALUE"
+                          ? "Todo el carrito"
                           : c.productsCount}
                       </td>
                       <td
@@ -1376,7 +1443,8 @@ export default function Campaigns() {
                             (c.status === "DRAFT" &&
                               (c.type === "BXGY" ||
                                 c.type === "TIERED" ||
-                                c.type === "PACK"))) && (
+                                c.type === "PACK" ||
+                                c.type === "CART_VALUE"))) && (
                             <Btn
                               variant="primary"
                               size="sm"

@@ -10,7 +10,7 @@ export type Plan = (typeof PLANS)[number];
  * PERCENTAGE y RANGE quedan fuera a propósito: están en todos los planes y se
  * topan por cantidad de variantes, que es otro eje.
  */
-export type TypeLimitedCampaign = "BXGY" | "TIERED" | "PACK";
+export type TypeLimitedCampaign = "BXGY" | "TIERED" | "PACK" | "CART_VALUE";
 
 /**
  * Qué puede hacer un plan con un tipo de campaña.
@@ -44,6 +44,7 @@ export const PLAN_LIMITS = {
       BXGY: { incluido: false },
       TIERED: { incluido: false },
       PACK: { incluido: false },
+      CART_VALUE: { incluido: false },
     },
     price: 0,
     trialDays: 0,
@@ -57,6 +58,11 @@ export const PLAN_LIMITS = {
       BXGY: { incluido: true, max: 4 },
       TIERED: { incluido: true, max: 2 },
       PACK: { incluido: false },
+      // 🔴 SUPUESTO, no una decision tomada por Jonas. Es el tipo mas simple de
+      // los tres de pago y el mejor gancho para salir de FREE, asi que entra
+      // desde LITE con un tope bajo. Si la tabla real dice otra cosa, se cambia
+      // este renglon y el de `plan-limits.test.ts`: no hay un tercer sitio.
+      CART_VALUE: { incluido: true, max: 2 },
     },
     price: 9.99,
     trialDays: 0,
@@ -71,6 +77,7 @@ export const PLAN_LIMITS = {
       TIERED: { incluido: true, max: 10 },
       // Sin sublímite propio: lo acota el tope general de 50 campañas.
       PACK: { incluido: true, max: null },
+      CART_VALUE: { incluido: true, max: null },
     },
     price: 27.99,
     trialDays: 0,
@@ -84,6 +91,7 @@ export const PLAN_LIMITS = {
       BXGY: { incluido: true, max: null },
       TIERED: { incluido: true, max: null },
       PACK: { incluido: true, max: null },
+      CART_VALUE: { incluido: true, max: null },
     },
     price: 44.99,
     trialDays: 0,
@@ -97,7 +105,12 @@ export const PLAN_LIMITS = {
  * `null` y no pasa por este eje.
  */
 export function esTipoLimitadoPorPlan(type: string): type is TypeLimitedCampaign {
-  return type === "BXGY" || type === "TIERED" || type === "PACK";
+  return (
+    type === "BXGY" ||
+    type === "TIERED" ||
+    type === "PACK" ||
+    type === "CART_VALUE"
+  );
 }
 
 /**

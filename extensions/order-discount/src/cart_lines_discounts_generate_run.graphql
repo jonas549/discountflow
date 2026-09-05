@@ -20,6 +20,18 @@ query CartInput {
     lines {
       id
       quantity
+      # 🔴 LA IDENTIDAD DEL PACK QUE ARMO EL COMPRADOR.
+      #
+      # Es la unica marca que una linea del carrito lleva sobre que campana de
+      # DiscountFlow la puso ahi. La escribe el widget al agregar el pack y es la
+      # misma que usa `pack-discount` para decidir que lineas participan.
+      #
+      # Sirve para la EXCLUSION ENTRE CAMPANAS: si el merchant dijo "cuando este
+      # pack aplique, el descuento por monto no", esto es lo que permite saberlo
+      # sin adivinar. Ver el comentario de `excludeIfPackIds` en el .ts.
+      packId: attribute(key: "_df_pack") {
+        value
+      }
       cost {
         amountPerQuantity {
           amount

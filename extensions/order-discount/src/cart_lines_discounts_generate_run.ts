@@ -31,6 +31,30 @@ type CartValueFunctionConfig = {
   tiers?: CartValueTier[];
   /** Texto que ve el comprador en el carrito. */
   message?: string;
+  /**
+   * Campanas de PACK cuya presencia en el carrito anula este descuento.
+   *
+   * ═════════════════════════════════════════════════════════════════════════
+   * 🔴 POR QUE EXISTE, Y POR QUE NO ALCANZABA CON `combinesWith`
+   *
+   * `combinesWith` solo ofrece dos comportamientos: los dos descuentos se
+   * suman, o NO se suman y Shopify elige uno con su propio criterio, sin
+   * decirselo a nadie. Eso segundo es lo que paso el 2026-09-05 en dev: un
+   * pack de $278 aplico su 30% y el descuento por monto de compra, que a
+   * $194,60 tenia que dar $25, desaparecio sin dejar rastro.
+   *
+   * Decision de producto: el merchant decide quien gana, no Shopify. Asi que
+   * los dos descuentos se declaran combinables —para que Shopify no descarte
+   * nada por su cuenta— y la exclusion se evalua ACA, donde se puede registrar
+   * el motivo.
+   *
+   * ⚠️ Solo funciona contra PACKS, y es una limitacion real: una linea del
+   * carrito solo lleva marca de campana si la puso el widget de packs
+   * (`_df_pack`). Una campana escalonada o de porcentaje no marca nada, asi que
+   * desde aca no hay forma de saber si esta aplicando.
+   * ═════════════════════════════════════════════════════════════════════════
+   */
+  excludeIfPackIds?: string[];
 };
 
 const NO_DISCOUNT: CartLinesDiscountsGenerateRunResult = {operations: []};
@@ -56,6 +80,24 @@ export function cartLinesDiscountsGenerateRun(
   }
 
   const valueType: CartValueType = config.valueType === 'AMOUNT' ? 'AMOUNT' : 'PERCENT';
+
+  // ── Exclusion entre campanas ─────────────────────────────────────────────
+  //
+  // Antes de calcular nada: si el comprador tiene en el carrito un pack que el
+  // merchant marco como excluyente, este descuento no aplica. Y se dice por que,
+  // que es la mitad del punto: el fallo anterior era MUDO.
+  const excluidos = Array.isArray(config.excludeIfPackIds) ? config.excludeIfPackIds : [];
+  if (excluidos.length > 0) {
+    for (const line of input.cart.lines) {
+      const packId = line.packId?.value;
+      if (packId && excluidos.indexOf(packId) !== -1) {
+        console.log(
+          `[cart-value] sin-descuento motivo=excluido-por-campana pack=${packId}`,
+        );
+        return NO_DISCOUNT;
+      }
+    }
+  }
 
   // ── El subtotal contra el que se mide el umbral ──────────────────────────
   //

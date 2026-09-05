@@ -23,7 +23,8 @@
               "totalAmount": {
                 "amount": "50.00"
               }
-            }
+            },
+            "packId": null
           },
           {
             "id": "gid://shopify/CartLine/1",
@@ -38,7 +39,8 @@
               "totalAmount": {
                 "amount": "80.00"
               }
-            }
+            },
+            "packId": null
           }
         ]
       },

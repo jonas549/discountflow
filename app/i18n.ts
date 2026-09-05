@@ -60,6 +60,12 @@ export const es = {
         "El comprador elige productos de una lista que vos curás y ve el descuento crecer en vivo.",
       ejemplo: "Arma tu rutina: 2 productos 10%, 3 productos 20%",
     },
+    valorCarrito: {
+      titulo: "Descuento por monto de compra",
+      descripcion:
+        "Cuanto más gasta el comprador, más ahorra. Se aplica al total del carrito, sin importar qué productos lleve.",
+      ejemplo: "Gastá $50.000 y ahorrás 5%; $100.000 y ahorrás 10%",
+    },
     escalonado: {
       titulo: "Descuentos escalonados",
       descripcion:

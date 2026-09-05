@@ -23,10 +23,12 @@
       "routes/auth.login": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/auth.$": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/_index": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/app.campaigns.$id.edit_.cart-value": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/app.campaigns.$id.edit_.tiered": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/app.campaigns.$id.edit_.range": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/app.campaigns.$id.edit_.bxgy": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/app.campaigns.$id.edit_.pack": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/app.campaigns.new.cart-value": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/app.campaigns.new.percentage": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/app.campaigns.new.tiered": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/app.campaigns.new.range": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
@@ -172,6 +174,15 @@
         "path": "app",
         "config": {}
       },
+      "routes/app.campaigns.$id.edit_.cart-value": {
+        "id": "routes/app.campaigns.$id.edit_.cart-value",
+        "parentId": "routes/app",
+        "file": "app/routes/app.campaigns.$id.edit_.cart-value.tsx",
+        "path": "campaigns/:id/edit/cart-value",
+        "config": {
+          "runtime": "nodejs"
+        }
+      },
       "routes/app.campaigns.$id.edit_.tiered": {
         "id": "routes/app.campaigns.$id.edit_.tiered",
         "parentId": "routes/app",
@@ -204,6 +215,15 @@
         "parentId": "routes/app",
         "file": "app/routes/app.campaigns.$id.edit_.pack.tsx",
         "path": "campaigns/:id/edit/pack",
+        "config": {
+          "runtime": "nodejs"
+        }
+      },
+      "routes/app.campaigns.new.cart-value": {
+        "id": "routes/app.campaigns.new.cart-value",
+        "parentId": "routes/app",
+        "file": "app/routes/app.campaigns.new.cart-value.tsx",
+        "path": "campaigns/new/cart-value",
         "config": {
           "runtime": "nodejs"
         }
@@ -431,6 +451,12 @@
         "file": "routes/app.tsx",
         "path": "app"
       },
+      "routes/app.campaigns.$id.edit_.cart-value": {
+        "id": "routes/app.campaigns.$id.edit_.cart-value",
+        "parentId": "routes/app",
+        "file": "routes/app.campaigns.$id.edit_.cart-value.tsx",
+        "path": "campaigns/:id/edit/cart-value"
+      },
       "routes/app.campaigns.$id.edit_.tiered": {
         "id": "routes/app.campaigns.$id.edit_.tiered",
         "parentId": "routes/app",
@@ -454,6 +480,12 @@
         "parentId": "routes/app",
         "file": "routes/app.campaigns.$id.edit_.pack.tsx",
         "path": "campaigns/:id/edit/pack"
+      },
+      "routes/app.campaigns.new.cart-value": {
+        "id": "routes/app.campaigns.new.cart-value",
+        "parentId": "routes/app",
+        "file": "routes/app.campaigns.new.cart-value.tsx",
+        "path": "campaigns/new/cart-value"
       },
       "routes/app.campaigns.new.percentage": {
         "id": "routes/app.campaigns.new.percentage",
@@ -621,6 +653,11 @@
             "path": "app",
             "children": [
               {
+                "id": "routes/app.campaigns.$id.edit_.cart-value",
+                "file": "routes/app.campaigns.$id.edit_.cart-value.tsx",
+                "path": "campaigns/:id/edit/cart-value"
+              },
+              {
                 "id": "routes/app.campaigns.$id.edit_.tiered",
                 "file": "routes/app.campaigns.$id.edit_.tiered.tsx",
                 "path": "campaigns/:id/edit/tiered"
@@ -639,6 +676,11 @@
                 "id": "routes/app.campaigns.$id.edit_.pack",
                 "file": "routes/app.campaigns.$id.edit_.pack.tsx",
                 "path": "campaigns/:id/edit/pack"
+              },
+              {
+                "id": "routes/app.campaigns.new.cart-value",
+                "file": "routes/app.campaigns.new.cart-value.tsx",
+                "path": "campaigns/new/cart-value"
               },
               {
                 "id": "routes/app.campaigns.new.percentage",

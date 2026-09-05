@@ -1,0 +1,121 @@
+{
+  "payload": {
+    "export": "cart-lines-discounts-generate-run",
+    "target": "cart.lines.discounts.generate.run",
+    "input": {
+      "cart": {
+        "cost": {
+          "subtotalAmount": {
+            "amount": "194.60"
+          }
+        },
+        "lines": [
+          {
+            "id": "gid://shopify/CartLine/0",
+            "quantity": 1,
+            "cost": {
+              "amountPerQuantity": {
+                "amount": "48.65"
+              },
+              "subtotalAmount": {
+                "amount": "48.65"
+              },
+              "totalAmount": {
+                "amount": "48.65"
+              }
+            },
+            "packId": {
+              "value": "camp_pack"
+            }
+          },
+          {
+            "id": "gid://shopify/CartLine/1",
+            "quantity": 1,
+            "cost": {
+              "amountPerQuantity": {
+                "amount": "48.65"
+              },
+              "subtotalAmount": {
+                "amount": "48.65"
+              },
+              "totalAmount": {
+                "amount": "48.65"
+              }
+            },
+            "packId": {
+              "value": "camp_pack"
+            }
+          },
+          {
+            "id": "gid://shopify/CartLine/2",
+            "quantity": 1,
+            "cost": {
+              "amountPerQuantity": {
+                "amount": "48.65"
+              },
+              "subtotalAmount": {
+                "amount": "48.65"
+              },
+              "totalAmount": {
+                "amount": "48.65"
+              }
+            },
+            "packId": {
+              "value": "camp_pack"
+            }
+          },
+          {
+            "id": "gid://shopify/CartLine/3",
+            "quantity": 1,
+            "cost": {
+              "amountPerQuantity": {
+                "amount": "48.65"
+              },
+              "subtotalAmount": {
+                "amount": "48.65"
+              },
+              "totalAmount": {
+                "amount": "48.65"
+              }
+            },
+            "packId": {
+              "value": "camp_pack"
+            }
+          }
+        ]
+      },
+      "discount": {
+        "discountClasses": [
+          "ORDER"
+        ],
+        "configFallback": null,
+        "config": {
+          "jsonValue": {
+            "valueType": "AMOUNT",
+            "tiers": [
+              {
+                "minSubtotal": 50,
+                "amount": 10
+              },
+              {
+                "minSubtotal": 100,
+                "amount": 25
+              },
+              {
+                "minSubtotal": 200,
+                "amount": 70
+              }
+            ],
+            "message": "Descuento por monto de compra",
+            "excludeIfPackIds": [
+              "camp_pack"
+            ]
+          }
+        }
+      }
+    },
+    "output": {
+      "operations": []
+    }
+  }
+}

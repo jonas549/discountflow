@@ -59,6 +59,7 @@ enum CampaignType {
   BXGY
   TIERED
   PACK
+  CART_VALUE
 }
 
 enum CampaignStatus {

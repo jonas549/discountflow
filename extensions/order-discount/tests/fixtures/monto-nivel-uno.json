@@ -23,7 +23,8 @@
               "totalAmount": {
                 "amount": "60.00"
               }
-            }
+            },
+            "packId": null
           }
         ]
       },

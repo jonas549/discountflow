@@ -118,6 +118,42 @@ export async function getPackProductSnapshots(
     .filter((s): s is PackItemSnapshot => Boolean(s));
 }
 
+/**
+ * Con qué otros descuentos automáticos convive un pack.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * 🔴 `orderDiscounts: true` — POR QUÉ CAMBIÓ, Y QUÉ SE MIDIÓ
+ *
+ * Estaba en `false`, y eso hacía DESAPARECER el descuento por monto de compra.
+ * Medido en la tienda de dev el 2026-09-05: un pack de 4 productos ($278 de
+ * lista) aplicaba su 30% y dejaba el carrito en $194,60; el descuento de valor
+ * de carrito, que a $194,60 tenía que dar $25, no aparecía por ningún lado.
+ *
+ * `combinesWith` es BILATERAL: los dos descuentos tienen que decir que sí. El
+ * de valor de carrito decía `productDiscounts: true`; el pack decía
+ * `orderDiscounts: false`. Con uno solo que diga no, Shopify descarta al otro
+ * — y no avisa a nadie. Comprobado leyendo los dos descuentos de la tienda:
+ *
+ *   [DiscountFlow] Pack prueba          PRODUCT  order:false product:false
+ *   [DiscountFlow · PRUEBA F1] ...      ORDER    order:false product:true
+ *
+ * Ahora los dos dicen que sí, y quién gana deja de decidirlo Shopify en
+ * silencio: lo decide el merchant con la EXCLUSIÓN ENTRE CAMPAÑAS, que se
+ * evalúa dentro de nuestra Function y deja un log de por qué no aplicó. Ver
+ * `cart-value-client.ts`.
+ *
+ * `productDiscounts` sigue en `false` a propósito: es otra pregunta —si un pack
+ * se suma a un escalonado sobre los MISMOS productos— y esa sí sería regalar
+ * descuento sobre descuento. Se gestiona avisando en el formulario, con
+ * `findPackOverlaps`.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+const COMBINACION_DEL_PACK = {
+  orderDiscounts: true,
+  productDiscounts: false,
+  shippingDiscounts: false,
+};
+
 // ─── Solapamiento con otras campañas ─────────────────────────────────────────
 
 export type PackOverlap = { campaignName: string; productCount: number };
@@ -215,15 +251,7 @@ export async function createPackDiscount(
         startsAt: (startsAt ?? new Date()).toISOString(),
         endsAt: endsAt?.toISOString() ?? null,
         discountClasses: ["PRODUCT"],
-        // Mismo criterio que el resto de la app. El riesgo de que un pack se
-        // pierda frente a otro descuento automático se gestiona AVISANDO al
-        // merchant en el formulario (`findPackOverlaps`), no cambiando las
-        // reglas de combinación sin haberlas probado en una tienda real.
-        combinesWith: {
-          orderDiscounts: false,
-          productDiscounts: false,
-          shippingDiscounts: false,
-        },
+        combinesWith: COMBINACION_DEL_PACK,
         metafields: [
           {
             namespace: METAFIELD_NAMESPACE,
@@ -294,6 +322,10 @@ export async function updatePackDiscount(
         title: packDiscountTitle(campaignName),
         startsAt: (startsAt ?? new Date()).toISOString(),
         endsAt: endsAt?.toISOString() ?? null,
+        // 🔴 Se reescribe TAMBIEN al actualizar. Sin esto, un descuento creado
+        // antes del 2026-09-05 se quedaria con `orderDiscounts: false` para
+        // siempre y el descuento por monto de compra seguiria perdiendose.
+        combinesWith: COMBINACION_DEL_PACK,
         metafields: [
           {
             namespace: METAFIELD_NAMESPACE,
