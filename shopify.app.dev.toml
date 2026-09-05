@@ -57,5 +57,21 @@ redirect_urls = [
   "http://localhost:3000/auth/shopify/callback"
 ]
 
+# ── App proxy: el widget de packs pide su configuración por acá ──────────────
+#
+# En la tienda, `/apps/discountflow/*` se reenvía FIRMADO a `url` + el resto del
+# path. Ver app/routes/apps.discountflow.pack.tsx.
+#
+# NO añade ningún scope, así que la app no pide reautorización al merchant.
+#
+# ⚠️ `url` es un placeholder: `shopify app dev` lo reescribe con la URL del túnel
+#    gracias a automatically_update_urls_on_dev. Si el widget devolviera 502,
+#    lo primero que hay que mirar es si esta URL quedó apuntando a un túnel
+#    muerto (Partner Dashboard → App setup → App proxy).
+[app_proxy]
+url = "https://discountflow-app.vercel.app/apps/discountflow"
+subpath = "discountflow"
+prefix = "apps"
+
 [build]
 automatically_update_urls_on_dev = true

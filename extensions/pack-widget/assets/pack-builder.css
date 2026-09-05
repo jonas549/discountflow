@@ -1,0 +1,311 @@
+/* DiscountFlow — estilos del armador de packs.
+ *
+ * Deliberadamente neutros y con prefijo `df-pack`: el bloque se inserta en el
+ * tema del merchant, que no controlamos. Hereda tipografía y colores del tema
+ * donde puede, y solo impone lo estructural.
+ */
+
+.df-pack {
+  --df-pack-cols: 2;
+  --df-pack-accent: #1b1917;
+  --df-pack-ok: #2f6f4e;
+  --df-pack-border: rgba(0, 0, 0, 0.12);
+  font-family: inherit;
+  color: inherit;
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(240px, 1fr);
+  gap: 24px;
+  align-items: start;
+  padding: 20px 0;
+}
+
+.df-pack__head {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.df-pack__title {
+  margin: 0;
+  font-size: 1.6rem;
+  line-height: 1.15;
+}
+
+.df-pack__subtitle {
+  margin: 0;
+  font-size: 0.85rem;
+  opacity: 0.7;
+}
+
+/* ── Progreso hacia el siguiente nivel ── */
+
+.df-pack__progress {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.df-pack__progress-text {
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.df-pack__bar {
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+}
+
+.df-pack__bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--df-pack-ok);
+  transition: width 0.35s ease;
+}
+
+/* ── Catálogo ── */
+
+.df-pack__grid {
+  display: grid;
+  grid-template-columns: repeat(var(--df-pack-cols), minmax(0, 1fr));
+  gap: 14px;
+}
+
+.df-pack__card {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--df-pack-border);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.6);
+  transition: border-color 0.15s ease;
+}
+
+.df-pack__card.is-selected {
+  border-color: var(--df-pack-ok);
+}
+
+.df-pack__media {
+  flex: 0 0 68px;
+  height: 82px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+}
+
+.df-pack__media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.df-pack__body {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+  flex: 1;
+}
+
+.df-pack__name {
+  font-size: 0.92rem;
+  font-weight: 500;
+  line-height: 1.25;
+}
+
+.df-pack__pricerow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.df-pack__price {
+  font-size: 0.95rem;
+}
+
+.df-pack__off {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--df-pack-ok);
+}
+
+.df-pack__toggle {
+  align-self: flex-start;
+  appearance: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 500;
+  padding: 7px 12px;
+  border-radius: 4px;
+  border: 1px solid var(--df-pack-accent);
+  background: transparent;
+  color: var(--df-pack-accent);
+}
+
+.df-pack__toggle.is-selected {
+  background: var(--df-pack-ok);
+  border-color: var(--df-pack-ok);
+  color: #fff;
+}
+
+/* ── Resumen ── */
+
+.df-pack__summary {
+  border: 1px solid var(--df-pack-border);
+  border-radius: 6px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  position: sticky;
+  top: 16px;
+}
+
+.df-pack__count {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.65;
+}
+
+.df-pack__hint {
+  margin: 0;
+  font-size: 0.88rem;
+  opacity: 0.75;
+  line-height: 1.45;
+}
+
+.df-pack__totals {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.df-pack__totals td {
+  padding: 3px 0;
+}
+
+.df-pack__totals td:last-child {
+  text-align: right;
+}
+
+.df-pack__totals .df-pack__save td {
+  color: var(--df-pack-ok);
+}
+
+.df-pack__totals .df-pack__total td {
+  font-weight: 600;
+  border-top: 1px solid var(--df-pack-border);
+  padding-top: 7px;
+}
+
+.df-pack__cta {
+  appearance: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 500;
+  padding: 13px 16px;
+  border: none;
+  border-radius: 4px;
+  background: var(--df-pack-accent);
+  color: #fff;
+  width: 100%;
+}
+
+.df-pack__cta:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── Estados ── */
+
+.df-pack__loading {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.9rem;
+  opacity: 0.6;
+}
+
+.df-pack__spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  animation: df-pack-spin 0.7s linear infinite;
+}
+
+@keyframes df-pack-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.df-pack__empty {
+  grid-column: 1 / -1;
+  font-size: 0.9rem;
+  opacity: 0.7;
+}
+
+/* ── Aviso del carrito ── */
+
+.df-pack-notice {
+  font-size: 0.9rem;
+  line-height: 1.45;
+  padding: 11px 14px;
+  border-radius: 5px;
+  margin: 12px 0;
+}
+
+.df-pack-notice--info {
+  background: rgba(47, 111, 78, 0.08);
+  color: #2f6f4e;
+}
+
+.df-pack-notice--warn {
+  background: rgba(196, 105, 74, 0.1);
+  color: #a0522d;
+}
+
+/* ── Móvil: barra fija con total y CTA, como en el wireframe ── */
+
+@media (max-width: 749px) {
+  .df-pack {
+    grid-template-columns: minmax(0, 1fr);
+    padding-bottom: 90px;
+  }
+
+  .df-pack__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .df-pack__summary {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 20;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+    background: #fff;
+    box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.08);
+    gap: 8px;
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .df-pack__summary .df-pack__count {
+    display: none;
+  }
+}

@@ -1,0 +1,36 @@
+{% comment %}
+  DiscountFlow — Aviso del pack en el carrito.
+
+  Implementa la decisión de producto del 2026-09-05: si el comprador borra una
+  línea del carrito, el pack NO se deshace ni se bloquea nada; el carrito AVISA
+  de lo que perdió y de cómo recuperarlo.
+
+  Por qué hace falta un bloque aparte y no basta con el `message` del descuento:
+  ese texto solo lo pinta Shopify CUANDO el descuento aplica. El caso que hay
+  que cubrir es justo el contrario — el pack cayó por debajo del mínimo y ya no
+  hay descuento, así que no hay mensaje donde colgarse.
+
+  El merchant lo coloca en su sección de carrito. Si no lo coloca, no pasa nada
+  malo: simplemente no hay aviso.
+{% endcomment %}
+
+{{ 'pack-builder.css' | asset_url | stylesheet_tag }}
+
+<div
+  class="df-pack-notice"
+  data-df-pack-notice
+  data-proxy="/apps/discountflow/pack"
+  hidden
+  {{ block.shopify_attributes }}
+></div>
+
+<script src="{{ 'pack-calc.js' | asset_url }}" defer></script>
+<script src="{{ 'pack-notice.js' | asset_url }}" defer></script>
+
+{% schema %}
+{
+  "name": "Aviso de pack (carrito)",
+  "target": "section",
+  "settings": []
+}
+{% endschema %}

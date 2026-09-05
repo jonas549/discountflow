@@ -1,0 +1,8 @@
+api_version = "2026-04"
+
+[[extensions]]
+name = "t:name"
+handle = "pack-widget"
+type = "theme"
+uid = "5bfea1e5-b48d-fa0f-f23b-92b2d95064a5f41ffe69"
+description = "t:description"

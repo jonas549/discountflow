@@ -1,0 +1,82 @@
+{% comment %}
+  DiscountFlow — Armá tu pack.
+
+  App BLOCK, no app embed. La diferencia importa: un app embed se inyecta antes
+  del cierre de <body> y el merchant no puede colocarlo donde quiera; un app
+  block se arrastra dentro de la sección que él elija (home, ficha de producto,
+  landing), que es exactamente el requisito.
+
+  Límites que hay que conocer y que el merchant tiene que poder entender:
+    · Solo temas Online Store 2.0 (plantillas JSON).
+    · Solo en secciones que declaren bloques de tipo @app.
+    · En temas vintage no aparece.
+
+  Los datos NO se renderizan en Liquid: los pide el widget al app proxy. Así el
+  bloque no depende de que el catálogo esté en un metafield ni se queda viejo.
+{% endcomment %}
+
+{{ 'pack-builder.css' | asset_url | stylesheet_tag }}
+
+<div
+  class="df-pack"
+  data-df-pack
+  data-campaign="{{ block.settings.campaign_id | escape }}"
+  data-proxy="/apps/discountflow/pack"
+  data-heading="{{ block.settings.heading | escape }}"
+  data-cta="{{ block.settings.cta_label | escape }}"
+  data-columns="{{ block.settings.columns }}"
+  {{ block.shopify_attributes }}
+>
+  {%- comment -%}
+    Estado inicial: el widget lo reemplaza en cuanto responde el proxy. Si el
+    JavaScript no corriera, el comprador ve un mensaje honesto en vez de un
+    hueco vacío.
+  {%- endcomment -%}
+  <div class="df-pack__loading" data-df-pack-loading>
+    <span class="df-pack__spinner" aria-hidden="true"></span>
+    <span>Cargando tu pack…</span>
+  </div>
+
+  <noscript>
+    <p class="df-pack__empty">Activá JavaScript para armar tu pack.</p>
+  </noscript>
+</div>
+
+<script src="{{ 'pack-calc.js' | asset_url }}" defer></script>
+<script src="{{ 'pack-builder.js' | asset_url }}" defer></script>
+
+{% schema %}
+{
+  "name": "Armá tu pack",
+  "target": "section",
+  "settings": [
+    {
+      "type": "text",
+      "id": "campaign_id",
+      "label": "ID de la campaña",
+      "info": "Copialo desde DiscountFlow → Campañas → tu pack. Si lo dejás vacío se usa el pack activo más reciente."
+    },
+    {
+      "type": "text",
+      "id": "heading",
+      "label": "Título",
+      "info": "Vacío = el título que pusiste en la campaña."
+    },
+    {
+      "type": "text",
+      "id": "cta_label",
+      "label": "Texto del botón",
+      "default": "Agregar pack al carrito"
+    },
+    {
+      "type": "range",
+      "id": "columns",
+      "label": "Columnas en escritorio",
+      "min": 1,
+      "max": 3,
+      "step": 1,
+      "default": 2
+    }
+  ]
+}
+{% endschema %}

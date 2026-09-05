@@ -2,7 +2,7 @@
   "name": "discountflow",
   "private": true,
   "scripts": {
-    "build": "react-router build",
+    "build": "npm run build:pack-widget && react-router build",
     "dev": "shopify app dev",
     "config:link": "shopify app config link",
     "generate": "shopify app generate",
@@ -19,7 +19,8 @@
     "prisma": "prisma",
     "graphql-codegen": "graphql-codegen",
     "vite": "vite",
-    "typecheck": "react-router typegen && tsc --noEmit"
+    "typecheck": "react-router typegen && tsc --noEmit",
+    "build:pack-widget": "node scripts/build-pack-widget.mjs"
   },
   "type": "module",
   "engines": {
@@ -64,7 +65,8 @@
     "graphql-config": "^5.1.1",
     "prettier": "^3.6.2",
     "typescript": "^5.9.3",
-    "vite": "^6.3.6"
+    "vite": "^6.3.6",
+    "esbuild": "^0.25.0"
   },
   "workspaces": [
     "extensions/*"
