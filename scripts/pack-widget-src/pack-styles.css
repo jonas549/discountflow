@@ -476,6 +476,17 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
+  /* Las tarjetas, alineadas con el panel de arriba.
+   *
+   * Dos cosas estaban descuadradas: la tarjeta usaba `padding: 0.85em` y el
+   * panel `1.15em`, así que sus columnas internas no arrancaban en la misma
+   * línea; y sin `align-items` la foto se pegaba arriba en vez de centrarse
+   * contra el bloque de texto, que es más alto. */
+  .df-pack__card {
+    align-items: center;
+    padding: 1.15em;
+  }
+
   /* El panel vuelve al flujo. `top: auto` NO es decorativo: anula el `top: 1em`
      del escritorio, que es lo que rompió esta pantalla. */
   .df-pack__summary {
