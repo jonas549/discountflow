@@ -293,9 +293,27 @@
           <div class="df-pack__card{% if df_esta %} is-selected{% endif %}">
             <div class="df-pack__media">
               {%- if df_p.featured_image -%}
+                {%- comment -%}
+                  `width` y `height` son OBLIGATORIOS para theme-check
+                  (`ImgWidthAndHeight`), que lo reporta como error al desplegar
+                  la extension de tema. Y no son burocracia: sin ellos el
+                  navegador no reserva el espacio y la tarjeta salta cuando
+                  carga la foto.
+
+                  Salen del objeto de imagen, no de numeros fijos, para que la
+                  relacion de aspecto sea la real. NO cambian como se ve: el CSS
+                  manda con `.df-pack__media img { width:100%; height:100% }`
+                  sobre un contenedor de tamano fijo, y `object-fit: cover`
+                  resuelve el recorte.
+
+                  Van dentro del `if featured_image`, asi que nunca quedan
+                  vacios.
+                {%- endcomment -%}
                 <img
                   src="{{ df_p.featured_image | image_url: width: 400 }}"
                   alt="{{ df_p.title | escape }}"
+                  width="{{ df_p.featured_image.width }}"
+                  height="{{ df_p.featured_image.height }}"
                   loading="lazy"
                 >
               {%- endif -%}
