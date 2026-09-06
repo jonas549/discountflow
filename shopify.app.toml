@@ -39,6 +39,24 @@ api_version = "2026-07"
   compliance_topics = ["shop/redact"]
   uri = "/webhooks/shop/redact"
 
+# ══════════════════════════════════════════════════════════════════════════════
+# App proxy: lo necesita el widget de packs.
+#
+# Ruta publica en el storefront: /apps/discountflow/pack
+#
+# NO es el camino normal —el bloque de tema se pinta entero en el servidor
+# leyendo el metafield— pero es la red de seguridad: repara el catalogo cuando
+# `all_products` de Liquid resuelve menos de 20 handles (su limite por pagina,
+# compartido con el resto del tema) y revalida en segundo plano.
+#
+# Sin este bloque packs funciona, pero el comprador puede ver menos productos de
+# los configurados sin que nadie se entere.
+# ══════════════════════════════════════════════════════════════════════════════
+[app_proxy]
+url = "https://discountflow-app.vercel.app/apps/discountflow"
+subpath = "discountflow"
+prefix = "apps"
+
 [auth]
 redirect_urls = [
   "https://discountflow-app.vercel.app/auth/callback",
