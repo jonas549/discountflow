@@ -10,11 +10,11 @@
 
 | | |
 |---|---|
-| **Producción (Vercel)** | 🟢 **`3d84c3f`** · despliega desde **`main`** · desplegado 2026-09-06 |
+| **Producción (Vercel)** | 🟢 **`92b7d4e`** · despliega desde **`main`** · último deploy 2026-09-06 |
 | App version en Shopify | 🟢 **`discountflow-10`** — 4 Functions + bloque de tema + `[app_proxy]` |
-| **Ramas** | `main` = `dev` = **`3d84c3f`**, las dos pusheadas |
+| **Ramas** | `main` = `dev` = **`92b7d4e`**, las dos pusheadas |
 | Base de datos | Neon, ramas separadas. 🟢 **Las 3 migraciones aplicadas en el build** |
-| Tests de la app | **344** verdes (`npm test` — es `node --test`, **no** vitest) |
+| Tests de la app | **351** verdes (`npm test` — es `node --test`, **no** vitest) |
 | Fixtures contra el Wasm real | **81/81** · tiered 16 · pack 13 · order 16 · **cupón 36** |
 | Typecheck | **173** (línea base 170) · solo `TS2345`, `TS2322`, `TS2367` |
 | Build | Verde |
@@ -221,6 +221,29 @@ que un 404 de asset no prueba nada). Las rutas nuevas no existen en `e7be44d`:
 Instant Rollback.** El sondeo por ruta es el sustituto. Rollback disponible sin
 Vercel: `git revert` + push, y para la Function
 `shopify app release --version=discountflow-8 --force`.
+
+## Segundo despliegue del 2026-09-06 — `92b7d4e`
+
+**Sin app version**: `discountflow-10` se queda. Se comprobó que `extensions/`
+tenía **cero cambios reales** (los dos assets que git marcaba como modificados
+daban `+-0`: solo el flip de CRLF del checkout anterior).
+
+| Qué | |
+|---|---|
+| Arreglos del cupón | Pausar/eliminar toleran que el descuento ya no exista; el cambio de método ya no deja un id colgando |
+| Textos de los planes | Los cuatro decían «Porcentaje, Rango de precio, BxGy», y en GRATIS eso era **falso** desde F4 |
+| Guard nuevo | `plan-features.test.ts` compara el texto contra `PLAN_LIMITS` con `reglaDeTipo` |
+
+🔴 **Cómo se verificó sin token de Vercel, cuando NO hay rutas nuevas**: el truco
+de las rutas (410 vs 404) solo sirve si el deploy agrega superficie. Acá se
+capturó el hash del manifest ANTES del push y se sondeó hasta que cambiara:
+
+```
+antes:   /assets/manifest-195c089f.js
+después: /assets/manifest-971cefce.js   ← ~4 min
+```
+
+Es la señal genérica: cualquier build nuevo cambia ese hash.
 
 ## Estado del despliegue (plan)
 
