@@ -32,6 +32,8 @@ import {
 import {
   originalPriceLabel,
   type OriginalPriceCampaignConfig,
+  originalPriceMetodo,
+  originalPriceProductsLabel,
 } from "../lib/discounts/original-price-client";
 import {
   revertPercentageDiscount,
@@ -288,7 +290,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       } else if (campaign.type === "CART_VALUE") {
         await deactivateCartValueDiscount(admin, exigirDescuento(cartValueId));
       } else if (campaign.type === "CODE_ORIGINAL_PRICE") {
-        await deactivateOriginalPriceDiscount(admin, exigirDescuento(cuponId));
+        await deactivateOriginalPriceDiscount(
+          admin,
+          exigirDescuento(cuponId),
+          originalPriceMetodo(campaign.config as OriginalPriceCampaignConfig)
+        );
       }
       await prisma.campaign.update({ where: { id: campaignId }, data: { status: "PAUSED" } });
     } else if (actionType === "activate" && campaign.status === "DRAFT") {
@@ -407,7 +413,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             campaign.startsAt,
             campaign.endsAt
           );
-          await activateOriginalPriceDiscount(admin, cuponId);
+          await activateOriginalPriceDiscount(
+            admin,
+            cuponId,
+            originalPriceMetodo(campaign.config as OriginalPriceCampaignConfig)
+          );
         } else {
           await createOriginalPriceDiscount(
             admin,
@@ -507,7 +517,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           campaign.startsAt,
           campaign.endsAt
         );
-        await activateOriginalPriceDiscount(admin, idCupon);
+        await activateOriginalPriceDiscount(
+          admin,
+          idCupon,
+          originalPriceMetodo(campaign.config as OriginalPriceCampaignConfig)
+        );
       }
       await prisma.campaign.update({ where: { id: campaignId }, data: { status: "ACTIVE" } });
     } else if (actionType === "delete") {
@@ -525,7 +539,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         } else if (campaign.type === "CART_VALUE" && cartValueId) {
           try { await deleteCartValueDiscount(admin, cartValueId); } catch { /* discount may already be gone */ }
         } else if (campaign.type === "CODE_ORIGINAL_PRICE" && cuponId) {
-          try { await deleteOriginalPriceDiscount(admin, cuponId); } catch { /* discount may already be gone */ }
+          try {
+            await deleteOriginalPriceDiscount(
+              admin,
+              cuponId,
+              originalPriceMetodo(campaign.config as OriginalPriceCampaignConfig)
+            );
+          } catch { /* discount may already be gone */ }
         }
       }
       await prisma.campaign.delete({ where: { id: campaignId } });
@@ -1540,8 +1560,12 @@ export default function Campaigns() {
                       : "—";
                   // El codigo del cupon, para que el merchant reconozca a su
                   // influencer en la fila sin tener que abrir la campana.
+                  // Solo en el método de CÓDIGO: un cupón automático no tiene
+                  // código, y un chip vacío es peor que ningún chip.
                   const codigoCupon =
-                    c.type === "CODE_ORIGINAL_PRICE"
+                    c.type === "CODE_ORIGINAL_PRICE" &&
+                    originalPriceMetodo(c.config as OriginalPriceCampaignConfig) ===
+                      "CODE"
                       ? (c.config as OriginalPriceCampaignConfig).code
                       : null;
                   const editHref =
@@ -1638,7 +1662,9 @@ export default function Campaigns() {
                           : c.type === "CART_VALUE"
                           ? "Todo el carrito"
                           : c.type === "CODE_ORIGINAL_PRICE"
-                          ? "Toda la tienda"
+                          ? originalPriceProductsLabel(
+                              c.config as OriginalPriceCampaignConfig
+                            )
                           : c.productsCount}
                       </td>
                       <td

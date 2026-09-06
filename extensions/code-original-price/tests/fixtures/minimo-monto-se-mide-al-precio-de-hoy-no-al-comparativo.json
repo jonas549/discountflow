@@ -6,7 +6,7 @@
       "cart": {
         "cost": {
           "subtotalAmount": {
-            "amount": "50.00"
+            "amount": "85.00"
           }
         },
         "lines": [
@@ -15,7 +15,7 @@
             "quantity": 1,
             "cost": {
               "amountPerQuantity": {
-                "amount": "50.00"
+                "amount": "85.00"
               },
               "compareAtAmountPerQuantity": {
                 "amount": "100.00"
@@ -42,38 +42,14 @@
             "message": "Descuento sobre el precio original",
             "scope": "all",
             "productIds": [],
-            "minSubtotal": null,
+            "minSubtotal": 90,
             "minQuantity": null
           }
         }
       }
     },
     "output": {
-      "operations": [
-        {
-          "productDiscountsAdd": {
-            "candidates": [
-              {
-                "message": "Descuento sobre el precio original",
-                "targets": [
-                  {
-                    "cartLine": {
-                      "id": "gid://shopify/CartLine/0"
-                    }
-                  }
-                ],
-                "value": {
-                  "fixedAmount": {
-                    "amount": 10,
-                    "appliesToEachItem": true
-                  }
-                }
-              }
-            ],
-            "selectionStrategy": "ALL"
-          }
-        }
-      ]
+      "operations": []
     }
   }
 }

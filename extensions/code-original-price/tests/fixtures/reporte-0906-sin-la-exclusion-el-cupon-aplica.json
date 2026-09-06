@@ -6,35 +6,16 @@
       "cart": {
         "cost": {
           "subtotalAmount": {
-            "amount": "165.00"
+            "amount": "196.00"
           }
         },
         "lines": [
           {
             "id": "gid://shopify/CartLine/0",
-            "quantity": 1,
-            "cost": {
-              "amountPerQuantity": {
-                "amount": "85.00"
-              },
-              "compareAtAmountPerQuantity": {
-                "amount": "100.00"
-              }
-            },
-            "packId": null,
-            "merchandise": {
-              "__typename": "ProductVariant",
-              "product": {
-                "id": "gid://shopify/Product/1"
-              }
-            }
-          },
-          {
-            "id": "gid://shopify/CartLine/1",
             "quantity": 2,
             "cost": {
               "amountPerQuantity": {
-                "amount": "40.00"
+                "amount": "98.00"
               },
               "compareAtAmountPerQuantity": null
             },
@@ -42,7 +23,7 @@
             "merchandise": {
               "__typename": "ProductVariant",
               "product": {
-                "id": "gid://shopify/Product/2"
+                "id": "gid://shopify/Product/8923218772104"
               }
             }
           }
@@ -57,9 +38,21 @@
           "jsonValue": {
             "percent": 10,
             "message": "Descuento sobre el precio original",
-            "scope": "all",
-            "productIds": [],
-            "minSubtotal": null,
+            "excludeIfPackIds": [
+              "cmtps9ixg002wuj7w50s1cx97"
+            ],
+            "excludeIfCartValue": [],
+            "scope": "selected",
+            "productIds": [
+              "gid://shopify/Product/8923218182280",
+              "gid://shopify/Product/8923218772104",
+              "gid://shopify/Product/8923218903176",
+              "gid://shopify/Product/8923218346120",
+              "gid://shopify/Product/8923217920136",
+              "gid://shopify/Product/8923218641032",
+              "gid://shopify/Product/8923218411656"
+            ],
+            "minSubtotal": 120,
             "minQuantity": null
           }
         }
@@ -81,23 +74,7 @@
                 ],
                 "value": {
                   "fixedAmount": {
-                    "amount": 10,
-                    "appliesToEachItem": true
-                  }
-                }
-              },
-              {
-                "message": "Descuento sobre el precio original",
-                "targets": [
-                  {
-                    "cartLine": {
-                      "id": "gid://shopify/CartLine/1"
-                    }
-                  }
-                ],
-                "value": {
-                  "fixedAmount": {
-                    "amount": 4,
+                    "amount": 9.8,
                     "appliesToEachItem": true
                   }
                 }

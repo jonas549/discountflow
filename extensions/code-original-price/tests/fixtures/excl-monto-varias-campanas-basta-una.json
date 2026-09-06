@@ -6,7 +6,7 @@
       "cart": {
         "cost": {
           "subtotalAmount": {
-            "amount": "50.00"
+            "amount": "80.00"
           }
         },
         "lines": [
@@ -15,7 +15,7 @@
             "quantity": 1,
             "cost": {
               "amountPerQuantity": {
-                "amount": "50.00"
+                "amount": "80.00"
               },
               "compareAtAmountPerQuantity": {
                 "amount": "100.00"
@@ -43,37 +43,24 @@
             "scope": "all",
             "productIds": [],
             "minSubtotal": null,
-            "minQuantity": null
+            "minQuantity": null,
+            "excludeIfPackIds": [],
+            "excludeIfCartValue": [
+              {
+                "campaignId": "camp_alta",
+                "minSubtotal": 200
+              },
+              {
+                "campaignId": "camp_baja",
+                "minSubtotal": 60
+              }
+            ]
           }
         }
       }
     },
     "output": {
-      "operations": [
-        {
-          "productDiscountsAdd": {
-            "candidates": [
-              {
-                "message": "Descuento sobre el precio original",
-                "targets": [
-                  {
-                    "cartLine": {
-                      "id": "gid://shopify/CartLine/0"
-                    }
-                  }
-                ],
-                "value": {
-                  "fixedAmount": {
-                    "amount": 10,
-                    "appliesToEachItem": true
-                  }
-                }
-              }
-            ],
-            "selectionStrategy": "ALL"
-          }
-        }
-      ]
+      "operations": []
     }
   }
 }

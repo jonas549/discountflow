@@ -6,28 +6,24 @@
       "cart": {
         "cost": {
           "subtotalAmount": {
-            "amount": "85.00"
+            "amount": "196.00"
           }
         },
         "lines": [
           {
             "id": "gid://shopify/CartLine/0",
-            "quantity": 1,
+            "quantity": 2,
             "cost": {
               "amountPerQuantity": {
-                "amount": "85.00"
+                "amount": "98.00"
               },
-              "compareAtAmountPerQuantity": {
-                "amount": "100.00"
-              }
+              "compareAtAmountPerQuantity": null
             },
-            "packId": {
-              "value": "camp_pack"
-            },
+            "packId": null,
             "merchandise": {
               "__typename": "ProductVariant",
               "product": {
-                "id": "gid://shopify/Product/1"
+                "id": "gid://shopify/Product/8923218772104"
               }
             }
           }
@@ -43,11 +39,25 @@
             "percent": 10,
             "message": "Descuento sobre el precio original",
             "excludeIfPackIds": [
-              "camp_pack"
+              "cmtps9ixg002wuj7w50s1cx97"
             ],
-            "scope": "all",
-            "productIds": [],
-            "minSubtotal": null,
+            "excludeIfCartValue": [
+              {
+                "campaignId": "cmtpstqe40039uj7wzpwwijge",
+                "minSubtotal": 50
+              }
+            ],
+            "scope": "selected",
+            "productIds": [
+              "gid://shopify/Product/8923218182280",
+              "gid://shopify/Product/8923218772104",
+              "gid://shopify/Product/8923218903176",
+              "gid://shopify/Product/8923218346120",
+              "gid://shopify/Product/8923217920136",
+              "gid://shopify/Product/8923218641032",
+              "gid://shopify/Product/8923218411656"
+            ],
+            "minSubtotal": 120,
             "minQuantity": null
           }
         }

@@ -37,7 +37,25 @@ import {
 import type { TieredCampaignConfig } from "../../discounts/tiered-client.ts";
 import type { PackCampaignConfig } from "../../discounts/pack-client.ts";
 import type { CartValueCampaignConfig } from "../../discounts/cart-value-client.ts";
-import type { OriginalPriceCampaignConfig } from "../../discounts/original-price-client.ts";
+import type {
+  OriginalPriceCampaignConfig,
+  OriginalPriceMetodo,
+} from "../../discounts/original-price-client.ts";
+
+/**
+ * Código o automático, leído de la config sin importar el módulo cliente.
+ *
+ * Este archivo carga los módulos de descuentos por import DINÁMICO a propósito
+ * (los usa el motor de jobs y no quiere arrastrarlos todos en cada arranque),
+ * así que replica esta única línea en vez de importar `originalPriceMetodo`.
+ * Es una línea y está probada del otro lado; importarla obligaría a un `await`
+ * en tres sitios más.
+ */
+function metodoDelCupon(config: unknown): OriginalPriceMetodo {
+  return (config as OriginalPriceCampaignConfig | null)?.metodo === "AUTOMATIC"
+    ? "AUTOMATIC"
+    : "CODE";
+}
 
 // bxgy.ts y tiered.ts se cargan de forma DINÁMICA, no con un import estático.
 //
@@ -520,7 +538,11 @@ export const reactivateHandler: JobHandler = {
         ctx.campaign.startsAt,
         ctx.campaign.endsAt
       );
-      await cp.activateOriginalPriceDiscount(ctx.admin, id);
+      await cp.activateOriginalPriceDiscount(
+        ctx.admin,
+        id,
+        metodoDelCupon(ctx.campaign.config)
+      );
     } else {
       await (await bxgyOps()).activateBxgyDiscount(ctx.admin, id);
     }
@@ -560,7 +582,11 @@ export const revertHandler: JobHandler = {
     } else if (ctx.campaign.type === "CART_VALUE")
       await (await cartValueOps()).deactivateCartValueDiscount(ctx.admin, id);
     else if (ctx.campaign.type === "CODE_ORIGINAL_PRICE")
-      await (await cuponOps()).deactivateOriginalPriceDiscount(ctx.admin, id);
+      await (await cuponOps()).deactivateOriginalPriceDiscount(
+        ctx.admin,
+        id,
+        metodoDelCupon(ctx.campaign.config)
+      );
     else await (await bxgyOps()).deactivateBxgyDiscount(ctx.admin, id);
     await markSingleDone(ctx);
     return { succeeded: units, failures: [] };
@@ -601,7 +627,11 @@ export const deleteHandler: JobHandler = {
         else if (ctx.campaign.type === "CART_VALUE")
           await (await cartValueOps()).deleteCartValueDiscount(ctx.admin, id);
         else if (ctx.campaign.type === "CODE_ORIGINAL_PRICE")
-          await (await cuponOps()).deleteOriginalPriceDiscount(ctx.admin, id);
+          await (await cuponOps()).deleteOriginalPriceDiscount(
+            ctx.admin,
+            id,
+            metodoDelCupon(ctx.campaign.config)
+          );
         else await (await bxgyOps()).deleteBxgyDiscount(ctx.admin, id);
       } catch {
         // El descuento puede haber sido borrado ya desde el admin de Shopify.

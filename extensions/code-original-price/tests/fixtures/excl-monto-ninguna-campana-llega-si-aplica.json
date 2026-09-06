@@ -6,7 +6,7 @@
       "cart": {
         "cost": {
           "subtotalAmount": {
-            "amount": "165.00"
+            "amount": "30.00"
           }
         },
         "lines": [
@@ -15,10 +15,10 @@
             "quantity": 1,
             "cost": {
               "amountPerQuantity": {
-                "amount": "85.00"
+                "amount": "30.00"
               },
               "compareAtAmountPerQuantity": {
-                "amount": "100.00"
+                "amount": "40.00"
               }
             },
             "packId": null,
@@ -26,23 +26,6 @@
               "__typename": "ProductVariant",
               "product": {
                 "id": "gid://shopify/Product/1"
-              }
-            }
-          },
-          {
-            "id": "gid://shopify/CartLine/1",
-            "quantity": 2,
-            "cost": {
-              "amountPerQuantity": {
-                "amount": "40.00"
-              },
-              "compareAtAmountPerQuantity": null
-            },
-            "packId": null,
-            "merchandise": {
-              "__typename": "ProductVariant",
-              "product": {
-                "id": "gid://shopify/Product/2"
               }
             }
           }
@@ -60,7 +43,18 @@
             "scope": "all",
             "productIds": [],
             "minSubtotal": null,
-            "minQuantity": null
+            "minQuantity": null,
+            "excludeIfPackIds": [],
+            "excludeIfCartValue": [
+              {
+                "campaignId": "camp_alta",
+                "minSubtotal": 200
+              },
+              {
+                "campaignId": "camp_baja",
+                "minSubtotal": 60
+              }
+            ]
           }
         }
       }
@@ -76,22 +70,6 @@
                   {
                     "cartLine": {
                       "id": "gid://shopify/CartLine/0"
-                    }
-                  }
-                ],
-                "value": {
-                  "fixedAmount": {
-                    "amount": 10,
-                    "appliesToEachItem": true
-                  }
-                }
-              },
-              {
-                "message": "Descuento sobre el precio original",
-                "targets": [
-                  {
-                    "cartLine": {
-                      "id": "gid://shopify/CartLine/1"
                     }
                   }
                 ],

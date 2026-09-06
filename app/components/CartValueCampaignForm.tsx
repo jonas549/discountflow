@@ -57,9 +57,36 @@ export type CartValueFormErrors = {
 export type PackParaExcluir = { id: string; name: string };
 
 /** Lo que el formulario necesita saber sobre el resto de campañas de la tienda. */
+/**
+ * Una campaña de monto de compra que se puede excluir desde el cupón.
+ *
+ * Viaja con su umbral MÁS BAJO porque es lo único que hace falta para saber, en
+ * el checkout, si esa campaña está aplicando: por debajo del primer nivel no
+ * descuenta nada, y por encima descuenta siempre. Ver
+ * `evaluarExclusionPorMonto` en `original-price-calc.ts`.
+ */
+export type MontoParaExcluir = { id: string; name: string; minSubtotal: number };
+
 export type CampanasQuePuedenChocar = {
   /** Packs: el merchant elige si se suman o se excluyen. */
   packs: PackParaExcluir[];
+  /**
+   * Campañas de monto de compra activas o pausadas.
+   *
+   * 🔴 Es el ÚNICO tipo que puede convivir de verdad con el cupón, y por eso
+   * es el único que hace falta poder excluir. La razón está en `combinesWith`,
+   * que es bilateral:
+   *
+   *   Cupón           PRODUCT  order:true   product:true
+   *   Monto de compra ORDER    order:false  product:true   → 🟢 conviven
+   *   Pack            PRODUCT  order:true   product:false  → ✗ no conviven
+   *   Escalonado      PRODUCT  order:false  product:false  → ✗ no conviven
+   *   BxGy            PRODUCT  order:false  product:false  → ✗ no conviven
+   *
+   * Confirmado en un pedido real el 2026-09-06: el cupón (−$10,80) y el
+   * descuento por monto (−$3,46) aparecieron como dos líneas separadas.
+   */
+  montosDeCompra: MontoParaExcluir[];
   /**
    * Escalonados y BxGy: NO se puede elegir. Sus descuentos se crean con
    * `combinesWith.orderDiscounts: false`, así que Shopify descarta este

@@ -1,8 +1,34 @@
 query CartInput {
   cart {
+    # El subtotal, para saber si esta aplicando una campana de MONTO DE COMPRA
+    # que el merchant excluyo.
+    #
+    # 🔴 Es EL MISMO campo que lee la Function de monto de compra para decidir,
+    # en el mismo instante y con el mismo valor. Por eso comparar contra el
+    # umbral de esa campana no es una aproximacion: si ella descuenta, este
+    # numero lo dice. Ver `evaluarExclusionPorMonto`.
+    cost {
+      subtotalAmount {
+        amount
+      }
+    }
+
     lines {
       id
       quantity
+
+      # El producto de la linea, para decidir si entra en el alcance de la
+      # campana. Se compara PRODUCTO contra PRODUCTO: el merchant elige
+      # productos, no variantes, y comparar contra la variante dejaria fuera a
+      # todas las demas del mismo producto.
+      merchandise {
+        __typename
+        ... on ProductVariant {
+          product {
+            id
+          }
+        }
+      }
 
       cost {
         # El precio que paga hoy el comprador.

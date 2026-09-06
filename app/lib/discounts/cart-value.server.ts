@@ -6,10 +6,15 @@
 import { prisma } from "../db";
 import type {
   PackParaExcluir,
+  MontoParaExcluir,
   CampanasQuePuedenChocar,
 } from "../../components/CartValueCampaignForm";
+import {
+  type CartValueCampaignConfig,
+  cartValueMinimum,
+} from "./cart-value-client";
 
-export type { PackParaExcluir, CampanasQuePuedenChocar };
+export type { PackParaExcluir, MontoParaExcluir, CampanasQuePuedenChocar };
 
 /**
  * Qué otras campañas activas pueden interferir con un descuento por monto.
@@ -40,11 +45,14 @@ export async function campanasQuePuedenChocar(
   const campanas = await prisma.campaign.findMany({
     where: {
       shopId,
-      type: { in: ["PACK", "TIERED", "BXGY"] },
+      type: { in: ["PACK", "TIERED", "BXGY", "CART_VALUE"] },
       status: { in: ["ACTIVE", "PAUSED"] },
     },
     orderBy: { createdAt: "desc" },
-    select: { id: true, name: true, type: true, status: true },
+    // `config` solo hace falta para las de monto de compra, de las que se saca
+    // el umbral más bajo. Se pide para todas porque filtrar por tipo dentro de
+    // un `select` de Prisma no se puede, y son pocas filas.
+    select: { id: true, name: true, type: true, status: true, config: true },
   });
 
   const etiqueta = (c: { name: string; status: string }) =>
@@ -60,8 +68,30 @@ export async function campanasQuePuedenChocar(
     packs: campanas
       .filter((c) => c.type === "PACK")
       .map((c): PackParaExcluir => ({ id: c.id, name: etiqueta(c) })),
+
+    // Las de monto de compra viajan con su umbral más bajo: es lo único que la
+    // Function del cupón necesita para saber si están aplicando.
+    montosDeCompra: campanas
+      .filter((c) => c.type === "CART_VALUE")
+      .map(
+        (c): MontoParaExcluir => ({
+          id: c.id,
+          name: etiqueta(c),
+          minSubtotal: cartValueMinimum(
+            c.config as unknown as CartValueCampaignConfig
+          ),
+        })
+      )
+      // Un umbral de 0 o ilegible no se puede evaluar: se deja fuera de la
+      // lista en vez de ofrecer una casilla que no haría nada.
+      .filter((m) => m.minSubtotal > 0),
+
+    // 🔴 Escalonados y BxGy. NO son excluibles, y no por falta de mecanismo:
+    // `combinesWith` es bilateral y los dos declaran `productDiscounts: false`,
+    // así que Shopify descarta al cupón (que es PRODUCT) antes de que ninguna
+    // Function opine. Ofrecer una casilla sería mentir. Se listan para avisar.
     bloqueantes: campanas
-      .filter((c) => c.type !== "PACK")
+      .filter((c) => c.type === "TIERED" || c.type === "BXGY")
       .map((c) => etiqueta(c)),
   };
 }

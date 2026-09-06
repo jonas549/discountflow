@@ -4,6 +4,11 @@
     "target": "cart.lines.discounts.generate.run",
     "input": {
       "cart": {
+        "cost": {
+          "subtotalAmount": {
+            "amount": "85.00"
+          }
+        },
         "lines": [
           {
             "id": "gid://shopify/CartLine/0",
@@ -18,6 +23,12 @@
             },
             "packId": {
               "value": "camp_pack"
+            },
+            "merchandise": {
+              "__typename": "ProductVariant",
+              "product": {
+                "id": "gid://shopify/Product/1"
+              }
             }
           }
         ]
@@ -30,7 +41,11 @@
         "config": {
           "jsonValue": {
             "percent": 10,
-            "message": "Descuento sobre el precio original"
+            "message": "Descuento sobre el precio original",
+            "scope": "all",
+            "productIds": [],
+            "minSubtotal": null,
+            "minQuantity": null
           }
         }
       }

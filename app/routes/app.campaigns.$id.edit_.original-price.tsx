@@ -8,13 +8,16 @@ import {
 import { authenticate } from "../shopify.server";
 import { prisma } from "../lib/db";
 import { getOrCreateShop } from "../lib/shopify/shop.server";
+import { getProductsByIds, getCollectionsByIds } from "../lib/shopify/admin-api";
 import { rejectIfCampaignBusy } from "../lib/jobs/enqueue.server";
 import {
   createOriginalPriceDiscount,
   updateOriginalPriceDiscount,
+  deleteOriginalPriceDiscount,
 } from "../lib/discounts/original-price";
 import {
   ORIGINAL_PRICE_DEFAULT_MESSAGE,
+  originalPriceMetodo,
   type OriginalPriceCampaignConfig,
 } from "../lib/discounts/original-price-client";
 import { campanasQuePuedenChocar } from "../lib/discounts/cart-value.server";
@@ -28,7 +31,7 @@ import { es } from "../i18n";
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
 export const loader = async ({ request, params }: LoaderFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
   const shop = await getOrCreateShop({
     domain: session.shop,
     accessToken: session.accessToken,
@@ -40,6 +43,25 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   });
   if (!campaign) throw new Response("Not found", { status: 404 });
 
+  const config = campaign.config as OriginalPriceCampaignConfig;
+
+  /**
+   * Los chips se rehidratan con los TÍTULOS, no con los IDs.
+   *
+   * La config guarda IDs, que es lo correcto —un título cambia y un ID no—,
+   * pero un formulario que abre mostrando `gid://shopify/Product/123` no le
+   * dice nada al merchant. Se piden solo si hay algo que pedir: una campaña de
+   * toda la tienda no gasta ni una llamada.
+   */
+  const [productosElegidos, coleccionesElegidas] = await Promise.all([
+    config.selectionMode === "products" && (config.productIds ?? []).length > 0
+      ? getProductsByIds(admin, config.productIds ?? [])
+      : Promise.resolve([]),
+    config.selectionMode === "collections" && (config.collectionIds ?? []).length > 0
+      ? getCollectionsByIds(admin, config.collectionIds ?? [])
+      : Promise.resolve([]),
+  ]);
+
   return {
     campaign: {
       id: campaign.id,
@@ -47,8 +69,10 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       status: campaign.status,
       startsAt: campaign.startsAt ? campaign.startsAt.toISOString().slice(0, 16) : "",
       endsAt: campaign.endsAt ? campaign.endsAt.toISOString().slice(0, 16) : "",
-      config: campaign.config as OriginalPriceCampaignConfig,
+      config,
     },
+    productosElegidos,
+    coleccionesElegidas,
     campanas: await campanasQuePuedenChocar(shop.id),
   };
 };
@@ -101,8 +125,48 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
 
   // El descuento en Shopify solo se toca si la campaña no es un borrador.
   if (existing.status === "ACTIVE" || existing.status === "PAUSED") {
+    /**
+     * 🔴 CAMBIAR DE MÉTODO NO ES UNA EDICIÓN: ES OTRO OBJETO.
+     *
+     * Un descuento de código y uno automático son dos familias distintas en
+     * Shopify (`discountCodeApp*` vs `discountAutomaticApp*`). No hay mutación
+     * que convierta uno en otro, así que hay que borrar el viejo y crear el
+     * nuevo.
+     *
+     * El orden es BORRAR PRIMERO y a propósito: si se creara antes, un fallo al
+     * borrar dejaría los dos descuentos vivos en la tienda y el comprador
+     * podría recibir el cupón dos veces. Al revés, un fallo tras el borrado
+     * deja la campaña sin descuento — visible, sin cobro de más, y se arregla
+     * volviendo a guardar.
+     */
+    const metodoAnterior = originalPriceMetodo(previous);
+    const metodoNuevo = originalPriceMetodo(config);
+    const cambioDeMetodo =
+      metodoAnterior !== metodoNuevo && Boolean(previous.shopifyDiscountId);
+
+    if (cambioDeMetodo) {
+      try {
+        await deleteOriginalPriceDiscount(
+          admin,
+          previous.shopifyDiscountId!,
+          metodoAnterior
+        );
+      } catch (err) {
+        return Response.json(
+          {
+            errors: {
+              general:
+                "No se pudo quitar el descuento anterior al cambiar de método: " +
+                `${String(err)}. La campaña quedó como estaba; volvé a intentarlo.`,
+            },
+          },
+          { status: 500 }
+        );
+      }
+    }
+
     try {
-      if (previous.shopifyDiscountId) {
+      if (previous.shopifyDiscountId && !cambioDeMetodo) {
         await updateOriginalPriceDiscount(
           admin,
           campaignId,
@@ -113,7 +177,9 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
           campaignEndsAt
         );
       } else {
-        // Campaña activa sin descuento asociado (no debería pasar): se recrea.
+        // Dos caminos llegan acá: el cambio de método (el descuento viejo ya se
+        // borró arriba) y una campaña activa sin descuento asociado, que no
+        // debería pasar. En los dos, se crea de cero.
         await createOriginalPriceDiscount(
           admin,
           campaignId,
@@ -141,7 +207,8 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
 // ─── Componente ───────────────────────────────────────────────────────────────
 
 export default function EditOriginalPriceCampaign() {
-  const { campaign, campanas } = useLoaderData<typeof loader>();
+  const { campaign, campanas, productosElegidos, coleccionesElegidas } =
+    useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>() as
     | { errors?: OriginalPriceFormErrors; limitExceeded?: boolean }
     | undefined;
@@ -165,6 +232,34 @@ export default function EditOriginalPriceCampaign() {
           percent: campaign.config.percent ?? 10,
           message: campaign.config.message ?? ORIGINAL_PRICE_DEFAULT_MESSAGE,
           excludedPackCampaignIds: campaign.config.excludedPackCampaignIds ?? [],
+          excludedCartValueCampaignIds:
+            campaign.config.excludedCartValueCampaignIds ?? [],
+
+          // Ausente = código: es como nació el tipo y como están las campañas
+          // guardadas antes de que el método existiera.
+          metodo: originalPriceMetodo(campaign.config),
+
+          // Ausente = "all": es lo que aplicaban las campañas guardadas antes
+          // de que existiera el alcance, y cambiárselas en silencio sería
+          // cambiarle la campaña al merchant sin avisarle.
+          selectionMode: campaign.config.selectionMode ?? "all",
+          products: productosElegidos.map((p) => ({
+            id: p.id,
+            title: p.title,
+            variantCount: p.variants?.length ?? 0,
+          })),
+          collections: coleccionesElegidas.map((c) => ({ id: c.id, title: c.title })),
+
+          // La casilla se deduce de que HAYA límite guardado, no de un tercer
+          // campo: dos fuentes para el mismo hecho es una de más.
+          limitarUsos: (campaign.config.usageLimit ?? null) !== null,
+          usageLimit: campaign.config.usageLimit ?? null,
+          oncePerCustomer: campaign.config.oncePerCustomer === true,
+
+          minimumType: campaign.config.minimumType ?? "none",
+          minSubtotal: campaign.config.minSubtotal ?? null,
+          minQuantity: campaign.config.minQuantity ?? null,
+
           startsAt: campaign.startsAt,
           endsAt: campaign.endsAt,
         }}

@@ -528,6 +528,17 @@ export const es = {
     mensajeLabel: "Texto que ve el comprador",
     mensajeHelper: "Aparece junto al descuento en el carrito y el checkout.",
 
+    secMetodo: "Método",
+    metodoLabel: "Cómo se activa el descuento",
+    metodoCodigo: "Código de descuento",
+    metodoCodigoHelper:
+      "El comprador escribe un código en el carrito o el checkout. Es lo que se le da a un influencer.",
+    metodoAutomatico: "Descuento automático",
+    metodoAutomaticoHelper:
+      "Se aplica solo, sin que el comprador escriba nada, a todo el que cumpla las condiciones.",
+    metodoAutomaticoSinLimites:
+      "Con el descuento automático no hay límite de usos: Shopify no lo soporta en los descuentos automáticos, porque no hay código que redimir. Si necesitás limitar los usos, usá el método de código.",
+
     secCodigo: "El código",
     codigoLabel: "Código del cupón",
     codigoHelper:
@@ -545,14 +556,65 @@ export const es = {
     sinComparativo:
       "En los productos sin precio comparativo no hay precio original que recuperar: el cupón se calcula sobre el precio actual, como uno normal.",
 
+    secAplicabilidad: "A qué aplica",
+    modoLabel: "El cupón aplica a",
+    modoTodo: "Toda la tienda",
+    modoProductos: "Productos específicos",
+    modoColecciones: "Colecciones",
+    btnElegirProductos: "Seleccionar productos",
+    btnElegirColecciones: "Seleccionar colecciones",
+    msgTodaLaTienda: "El cupón descuenta cualquier producto del carrito.",
+    aplicabilidadHelper:
+      "Las colecciones se resuelven a productos al guardar. Si después agregás productos a la colección, hay que volver a guardar la campaña para que entren.",
+
+    secUsos: "Límite de usos",
+    limitarUsosLabel: "Limitar la cantidad de veces que se puede usar",
+    limitarUsosHelper:
+      "Cuando se agota, Shopify deja de aceptar el código en el carrito. Es el control que evita que el cupón de un influencer circule sin freno.",
+    usosLabel: "Veces en total",
+    usosPlaceholder: "100",
+    oncePerCustomerLabel: "Limitar a un uso por cliente",
+    oncePerCustomerHelper:
+      "Shopify identifica al cliente por su email o teléfono en el checkout.",
+    usosNativoNota:
+      "Estos dos límites los controla Shopify, no la app: un código agotado se rechaza en el carrito con su propio mensaje.",
+
+    secMinimos: "Requisitos mínimos de compra",
+    minNingunoLabel: "Sin mínimo",
+    minMontoLabel: "Monto mínimo de compra",
+    minCantidadLabel: "Cantidad mínima de artículos",
+    minMontoCampoLabel: "Monto mínimo",
+    minCantidadCampoLabel: "Cantidad mínima",
+    minAlcanceNota: (alcance: string) =>
+      `Se mide solo sobre ${alcance}, igual que en la pantalla de descuentos de Shopify.`,
+    minAlcanceTodo: "los productos del carrito",
+    minAlcanceSeleccion: "los productos a los que aplica el cupón",
+    minPrecioHoyNota:
+      "Se mide sobre el precio que paga el comprador hoy, no sobre el precio original tachado.",
+
+    avisoImposible: (campana: string, umbral: string, minimo: string) =>
+      `Con estos ajustes el cupón NO puede aplicar en ningún carrito: pedís un mínimo de ${minimo}, ` +
+      `y excluís «${campana}», que descuenta desde ${umbral}. Cualquier carrito que llegue al mínimo ` +
+      `ya tiene esa campaña aplicando. Bajá el mínimo por debajo de ${umbral}, o quitá la exclusión.`,
+
     secExclusiones: "Cuándo NO aplicar este descuento",
     exclusionesHelper:
       "Si el comprador tiene en el carrito un pack de los que marques, este cupón no se aplica. Los que dejes sin marcar se suman al descuento del pack.",
     exclusionNoAplicar: "No aplicar si está aplicando",
+    exclusionesMontoTitulo: "Descuentos por monto de compra",
+    exclusionesMontoHelper:
+      "Es el único tipo que se suma de verdad a este cupón. Si marcás uno, el cupón no se aplica cuando ese descuento esté aplicando.",
+    exclusionMontoUmbral: (monto: string) => `desde ${monto} de compra`,
+    exclusionesMontoFoto:
+      "El umbral se guarda al guardar esta campaña. Si después cambiás los niveles del descuento por monto, volvé a guardar el cupón para que se actualice.",
+    exclusionesPacksTitulo: "Packs armables",
     exclusionesSoloPacks:
       "Solo aparecen packs: son las únicas campañas que dejan una marca en las líneas del carrito, y sin esa marca no hay forma de saber desde el checkout si están aplicando.",
     avisoBloqueantes: (campanas: string) =>
-      `Estas campañas anulan este cupón y no se puede evitar desde acá: ${campanas}. Si alguna está aplicando en el carrito, el cupón no se suma.`,
+      `Estas campañas no pueden convivir con este cupón: ${campanas}. No es algo que se pueda ` +
+      `elegir: Shopify descarta uno de los dos por su cuenta cuando ambos podrían aplicar al ` +
+      `mismo carrito. Por eso no aparecen abajo para excluir — cuando una de ellas aplica, el ` +
+      `cupón ya no se suma.`,
 
     secProgramacion: "Programar campaña",
     fechaInicioLabel: "Fecha de inicio",
@@ -573,21 +635,45 @@ export const es = {
     resumenNombre: "Nombre",
     resumenTipo: "Tipo",
     resumenTipoCupon: "Cupón sobre precio original",
+    resumenMetodo: "Método",
+    resumenMetodoCodigo: "Código",
+    resumenMetodoAutomatico: "Automático",
     resumenCodigo: "Código",
     resumenDescuento: "Descuento",
     resumenBase: "Se calcula sobre",
     resumenBaseValor: "El precio comparativo",
+    resumenAplica: "Aplica a",
+    resumenAplicaTodo: "Toda la tienda",
+    resumenAplicaProductos: (n: number) => (n === 1 ? "1 producto" : `${n} productos`),
+    resumenAplicaColecciones: (n: number) =>
+      n === 1 ? "1 colección" : `${n} colecciones`,
+    resumenUsos: "Límite de usos",
+    resumenUsosSinLimite: "Sin límite",
+    resumenUsosTotal: (n: number) => (n === 1 ? "1 vez" : `${n} veces`),
+    resumenUsosPorCliente: "1 por cliente",
+    resumenMinimo: "Mínimo",
+    resumenSinMinimo: "Sin mínimo",
+    resumenMinimoCantidad: (n: number) => (n === 1 ? "1 artículo" : `${n} artículos`),
     resumenExcluye: "Excluye",
     resumenSinExclusiones: "Ninguna",
     resumenExcluyePacks: (n: number) => (n === 1 ? "1 pack" : `${n} packs`),
+    resumenExcluyeMontos: (n: number) =>
+      n === 1 ? "1 descuento por monto" : `${n} descuentos por monto`,
     resumenInicio: "Inicio",
     resumenFin: "Fin",
     resumenInmediato: "Inmediato",
     resumenSinFin: "Sin fecha de fin",
     sinDefinir: "Sin definir",
 
+    // 🔴 Un texto por método. Con uno solo, el panel decía "Método: Automático"
+    // y debajo "cuando el comprador escribe el código": las dos cosas no pueden
+    // ser ciertas, y el merchant no tiene forma de saber cuál le aplica.
     avisoCarrito:
       "El descuento se aplica cuando el comprador escribe el código en el carrito o el checkout. Los precios de las páginas de producto no cambian.",
+    avisoCarritoAutomatico:
+      "El descuento se aplica solo, en el carrito y el checkout, a todo el que cumpla las condiciones. No hay código que escribir, y los precios de las páginas de producto no cambian.",
+    codigoConservado: (codigo: string) =>
+      `Tu código ${codigo} se conserva: si volvés al método de código, sigue ahí.`,
     avisoSinBloque:
       "No hace falta tocar el tema: este tipo de campaña no usa ningún bloque en la tienda.",
 
@@ -602,6 +688,12 @@ export const es = {
     errCodigoFormato:
       "El código puede llevar letras, números, punto, guion y guion bajo, y necesita al menos 3 caracteres.",
     errFechas: "La fecha de fin debe ser posterior a la de inicio.",
+    errSinProductos: "Elegí al menos un producto, o cambiá el alcance a toda la tienda.",
+    errSinColecciones:
+      "Elegí al menos una colección, o cambiá el alcance a toda la tienda.",
+    errUsosVacio: "Escribí cuántas veces se puede usar, o destildá el límite.",
+    errMinMontoVacio: "Escribí el monto mínimo de compra.",
+    errMinCantidadVacia: "Escribí la cantidad mínima de artículos.",
   },
 
   nuevoValorCarrito: {

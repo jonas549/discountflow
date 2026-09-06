@@ -10,6 +10,8 @@ import {
   computeOriginalPriceDiscount,
   resolveBasePrice,
   validateOriginalPrice,
+  filtrarLineasEnAlcance,
+  comprobarMinimos,
   MAX_ORIGINAL_PRICE_PERCENT,
   type OriginalPriceLine,
 } from "./original-price-calc.ts";
@@ -193,4 +195,152 @@ test("la validación exige un porcentaje usable", () => {
 test("la validación avisa de porcentajes que pueden dejar la línea en cero", () => {
   assert.deepEqual(validateOriginalPrice(10).warnings, []);
   assert.ok(validateOriginalPrice(60).warnings.length > 0);
+});
+
+
+// ─── Alcance: a qué productos aplica ─────────────────────────────────────────
+
+const conProducto = (
+  productId: string | null,
+  unitPrice = 85,
+  compareAtUnitPrice: number | null = 100,
+  quantity = 1
+): OriginalPriceLine => ({
+  lineId: `gid://shopify/CartLine/${productId ?? "sin"}`,
+  unitPrice,
+  compareAtUnitPrice,
+  quantity,
+  productId,
+});
+
+test('scope "all" deja pasar todas las líneas', () => {
+  const lineas = [conProducto("p1"), conProducto("p2")];
+  const r = filtrarLineasEnAlcance(lineas, "all", []);
+  assert.equal(r.enAlcance.length, 2);
+  assert.equal(r.motivo, null);
+});
+
+test('scope "selected" deja solo los productos de la lista', () => {
+  const lineas = [conProducto("p1"), conProducto("p2"), conProducto("p3")];
+  const r = filtrarLineasEnAlcance(lineas, "selected", ["p1", "p3"]);
+  assert.deepEqual(
+    r.enAlcance.map((l) => l.productId),
+    ["p1", "p3"]
+  );
+  assert.equal(r.motivo, null);
+});
+
+test("🔴 lista vacía SIN scope 'all' no descuenta nada — falla cerrado", () => {
+  // El bug latente del 2026-07-28: una colección vacía descontaba TODO el
+  // catálogo. Acá se comprueba que la protección sigue puesta.
+  const lineas = [conProducto("p1"), conProducto("p2")];
+
+  const seleccionado = filtrarLineasEnAlcance(lineas, "selected", []);
+  assert.deepEqual(seleccionado.enAlcance, []);
+  assert.equal(seleccionado.motivo, "scope-vacio-sin-all");
+
+  // Y un metafield viejo, escrito antes de que existiera `scope`, tampoco
+  // puede colarse por la puerta de atrás.
+  const sinScope = filtrarLineasEnAlcance(lineas, undefined, undefined);
+  assert.deepEqual(sinScope.enAlcance, []);
+  assert.equal(sinScope.motivo, "scope-vacio-sin-all");
+});
+
+test("🔴 una línea sin producto queda FUERA del alcance, no dentro", () => {
+  // Si el producto no se puede identificar, no se puede afirmar que el merchant
+  // lo eligió. La duda descuenta de menos, nunca de más.
+  const r = filtrarLineasEnAlcance([conProducto(null), conProducto("p1")], "selected", ["p1"]);
+  assert.deepEqual(
+    r.enAlcance.map((l) => l.productId),
+    ["p1"]
+  );
+});
+
+// ─── Requisitos mínimos ──────────────────────────────────────────────────────
+
+test("sin mínimo configurado, cualquier carrito califica", () => {
+  assert.deepEqual(comprobarMinimos([conProducto("p1")], undefined), { ok: true });
+  assert.deepEqual(comprobarMinimos([], { minSubtotal: null, minQuantity: null }), {
+    ok: true,
+  });
+});
+
+test("el mínimo de monto se mide al precio de HOY, no al comparativo", () => {
+  // Una línea de $85 con comparativo $100. Con un mínimo de $100, el carrito
+  // NO califica: el comprador está pagando $85.
+  const lineas = [conProducto("p1", 85, 100, 1)];
+  assert.deepEqual(comprobarMinimos(lineas, { minSubtotal: 100 }), {
+    ok: false,
+    reason: "BELOW_MIN_SUBTOTAL",
+  });
+  assert.deepEqual(comprobarMinimos(lineas, { minSubtotal: 85 }), { ok: true });
+});
+
+test("el mínimo de monto suma cantidades", () => {
+  const lineas = [conProducto("p1", 40, null, 2), conProducto("p2", 30, null, 1)];
+  // 40×2 + 30 = 110
+  assert.deepEqual(comprobarMinimos(lineas, { minSubtotal: 110 }), { ok: true });
+  assert.deepEqual(comprobarMinimos(lineas, { minSubtotal: 110.01 }), {
+    ok: false,
+    reason: "BELOW_MIN_SUBTOTAL",
+  });
+});
+
+test("🔴 el mínimo se compara en centavos: $99,99 no llega a $100", () => {
+  // En decimales, 33.33 × 3 da 99.99000000000001 y un `>=` mal escrito lo
+  // dejaría pasar. Es el mismo medio centavo que se arregló el 2026-08-08.
+  const lineas = [conProducto("p1", 33.33, null, 3)];
+  assert.deepEqual(comprobarMinimos(lineas, { minSubtotal: 100 }), {
+    ok: false,
+    reason: "BELOW_MIN_SUBTOTAL",
+  });
+});
+
+test("el mínimo de cantidad cuenta unidades, no líneas", () => {
+  const lineas = [conProducto("p1", 40, null, 2)];
+  assert.deepEqual(comprobarMinimos(lineas, { minQuantity: 2 }), { ok: true });
+  assert.deepEqual(comprobarMinimos(lineas, { minQuantity: 3 }), {
+    ok: false,
+    reason: "BELOW_MIN_QUANTITY",
+  });
+});
+
+test("el cálculo devuelve el motivo del mínimo, no 'nada que descontar'", () => {
+  // El motivo termina en el log de la Function. "NOTHING_TO_DISCOUNT" mandaría
+  // a buscar el problema al precio comparativo, que no tiene nada que ver.
+  const r = computeOriginalPriceDiscount(10, [conProducto("p1", 85, 100, 1)], {
+    minSubtotal: 500,
+  });
+  assert.equal(r.applies, false);
+  if (r.applies) return;
+  assert.equal(r.reason, "BELOW_MIN_SUBTOTAL");
+
+  const q = computeOriginalPriceDiscount(10, [conProducto("p1", 85, 100, 1)], {
+    minQuantity: 4,
+  });
+  assert.equal(q.applies, false);
+  if (q.applies) return;
+  assert.equal(q.reason, "BELOW_MIN_QUANTITY");
+});
+
+test("🔴 el mínimo se mide sobre las líneas EN ALCANCE, como en Shopify", () => {
+  // De la ayuda de Shopify: "si el descuento aplica a un producto o colección
+  // concretos, solo esos artículos cuentan para el mínimo". Un carrito de $300
+  // del que solo $50 están en alcance NO llega a un mínimo de $100.
+  const carrito = [conProducto("p1", 50, null, 1), conProducto("otro", 250, null, 1)];
+  const { enAlcance } = filtrarLineasEnAlcance(carrito, "selected", ["p1"]);
+
+  assert.deepEqual(comprobarMinimos(enAlcance, { minSubtotal: 100 }), {
+    ok: false,
+    reason: "BELOW_MIN_SUBTOTAL",
+  });
+  // Y sobre el carrito entero sí llegaría — que es justo lo que NO queremos.
+  assert.deepEqual(comprobarMinimos(carrito, { minSubtotal: 100 }), { ok: true });
+});
+
+test("un mínimo cumplido no cambia el dinero que se descuenta", () => {
+  const lineas = [conProducto("p1", 85, 100, 1)];
+  const sin = computeOriginalPriceDiscount(10, lineas);
+  const con = computeOriginalPriceDiscount(10, lineas, { minSubtotal: 50 });
+  assert.deepEqual(con, sin);
 });

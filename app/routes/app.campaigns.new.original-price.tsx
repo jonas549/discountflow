@@ -145,6 +145,27 @@ export default function NewOriginalPriceCampaign() {
           percent: 10,
           message: ORIGINAL_PRICE_DEFAULT_MESSAGE,
           excludedPackCampaignIds: [],
+          excludedCartValueCampaignIds: [],
+
+          // Código por defecto: es el caso de uso que originó el tipo (un
+          // cupón por influencer) y el único que soporta límite de usos.
+          metodo: "CODE",
+
+          // Por defecto, toda la tienda y sin restricciones: es el cupón que
+          // el merchant espera si no toca nada, y es lo que hacía este tipo
+          // antes de que existieran estas tres secciones.
+          selectionMode: "all",
+          products: [],
+          collections: [],
+
+          limitarUsos: false,
+          usageLimit: null,
+          oncePerCustomer: false,
+
+          minimumType: "none",
+          minSubtotal: null,
+          minQuantity: null,
+
           startsAt: "",
           endsAt: "",
         }}

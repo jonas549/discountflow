@@ -6,7 +6,7 @@
       "cart": {
         "cost": {
           "subtotalAmount": {
-            "amount": "50.00"
+            "amount": "98.00"
           }
         },
         "lines": [
@@ -15,10 +15,10 @@
             "quantity": 1,
             "cost": {
               "amountPerQuantity": {
-                "amount": "50.00"
+                "amount": "98.00"
               },
               "compareAtAmountPerQuantity": {
-                "amount": "100.00"
+                "amount": "120.00"
               }
             },
             "packId": null,
@@ -43,37 +43,20 @@
             "scope": "all",
             "productIds": [],
             "minSubtotal": null,
-            "minQuantity": null
+            "minQuantity": null,
+            "excludeIfPackIds": [],
+            "excludeIfCartValue": [
+              {
+                "campaignId": "camp_monto_1",
+                "minSubtotal": 50
+              }
+            ]
           }
         }
       }
     },
     "output": {
-      "operations": [
-        {
-          "productDiscountsAdd": {
-            "candidates": [
-              {
-                "message": "Descuento sobre el precio original",
-                "targets": [
-                  {
-                    "cartLine": {
-                      "id": "gid://shopify/CartLine/0"
-                    }
-                  }
-                ],
-                "value": {
-                  "fixedAmount": {
-                    "amount": 10,
-                    "appliesToEachItem": true
-                  }
-                }
-              }
-            ],
-            "selectionStrategy": "ALL"
-          }
-        }
-      ]
+      "operations": []
     }
   }
 }

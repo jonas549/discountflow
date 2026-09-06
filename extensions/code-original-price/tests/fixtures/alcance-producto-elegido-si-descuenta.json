@@ -6,7 +6,7 @@
       "cart": {
         "cost": {
           "subtotalAmount": {
-            "amount": "165.00"
+            "amount": "85.00"
           }
         },
         "lines": [
@@ -25,24 +25,7 @@
             "merchandise": {
               "__typename": "ProductVariant",
               "product": {
-                "id": "gid://shopify/Product/1"
-              }
-            }
-          },
-          {
-            "id": "gid://shopify/CartLine/1",
-            "quantity": 2,
-            "cost": {
-              "amountPerQuantity": {
-                "amount": "40.00"
-              },
-              "compareAtAmountPerQuantity": null
-            },
-            "packId": null,
-            "merchandise": {
-              "__typename": "ProductVariant",
-              "product": {
-                "id": "gid://shopify/Product/2"
+                "id": "gid://shopify/Product/7"
               }
             }
           }
@@ -57,8 +40,10 @@
           "jsonValue": {
             "percent": 10,
             "message": "Descuento sobre el precio original",
-            "scope": "all",
-            "productIds": [],
+            "scope": "selected",
+            "productIds": [
+              "gid://shopify/Product/7"
+            ],
             "minSubtotal": null,
             "minQuantity": null
           }
@@ -82,22 +67,6 @@
                 "value": {
                   "fixedAmount": {
                     "amount": 10,
-                    "appliesToEachItem": true
-                  }
-                }
-              },
-              {
-                "message": "Descuento sobre el precio original",
-                "targets": [
-                  {
-                    "cartLine": {
-                      "id": "gid://shopify/CartLine/1"
-                    }
-                  }
-                ],
-                "value": {
-                  "fixedAmount": {
-                    "amount": 4,
                     "appliesToEachItem": true
                   }
                 }

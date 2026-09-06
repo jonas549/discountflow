@@ -6,7 +6,7 @@
       "cart": {
         "cost": {
           "subtotalAmount": {
-            "amount": "165.00"
+            "amount": "85.00"
           }
         },
         "lines": [
@@ -28,23 +28,6 @@
                 "id": "gid://shopify/Product/1"
               }
             }
-          },
-          {
-            "id": "gid://shopify/CartLine/1",
-            "quantity": 2,
-            "cost": {
-              "amountPerQuantity": {
-                "amount": "40.00"
-              },
-              "compareAtAmountPerQuantity": null
-            },
-            "packId": null,
-            "merchandise": {
-              "__typename": "ProductVariant",
-              "product": {
-                "id": "gid://shopify/Product/2"
-              }
-            }
           }
         ]
       },
@@ -59,7 +42,7 @@
             "message": "Descuento sobre el precio original",
             "scope": "all",
             "productIds": [],
-            "minSubtotal": null,
+            "minSubtotal": 85,
             "minQuantity": null
           }
         }
@@ -82,22 +65,6 @@
                 "value": {
                   "fixedAmount": {
                     "amount": 10,
-                    "appliesToEachItem": true
-                  }
-                }
-              },
-              {
-                "message": "Descuento sobre el precio original",
-                "targets": [
-                  {
-                    "cartLine": {
-                      "id": "gid://shopify/CartLine/1"
-                    }
-                  }
-                ],
-                "value": {
-                  "fixedAmount": {
-                    "amount": 4,
                     "appliesToEachItem": true
                   }
                 }

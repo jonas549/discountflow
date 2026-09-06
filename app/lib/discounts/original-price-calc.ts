@@ -68,6 +68,14 @@ export type OriginalPriceLine = {
    */
   compareAtUnitPrice: number | null;
   quantity: number;
+  /**
+   * Producto de la línea, para decidir si entra en el alcance de la campaña.
+   *
+   * Opcional porque el preview del admin no lo necesita: usa un ejemplo fijo y
+   * no filtra nada. En la Function SIEMPRE viene, y su ausencia con
+   * `scope: "selected"` deja la línea FUERA — ver `filtrarLineasEnAlcance`.
+   */
+  productId?: string | null;
 };
 
 /** Lo que hay que descontar en una línea. */
@@ -93,7 +101,15 @@ export type OriginalPriceNoDiscountReason =
   /** El porcentaje es 0: no hay nada que descontar. */
   | "ZERO_PERCENT"
   /** Ninguna línea quedó con descuento > 0. */
-  | "NOTHING_TO_DISCOUNT";
+  | "NOTHING_TO_DISCOUNT"
+  /** Ninguna línea del carrito entra en el alcance de la campaña. */
+  | "OUT_OF_SCOPE"
+  /** El carrito no llega al monto mínimo de compra que pidió el merchant. */
+  | "BELOW_MIN_SUBTOTAL"
+  /** El carrito no llega a la cantidad mínima de artículos. */
+  | "BELOW_MIN_QUANTITY"
+  /** El merchant excluyó este cupón cuando aplica un descuento por monto. */
+  | "EXCLUDED_BY_CART_VALUE";
 
 export type OriginalPriceOutcome =
   | { applies: false; reason: OriginalPriceNoDiscountReason }
@@ -108,6 +124,194 @@ export type OriginalPriceOutcome =
        */
       extraVsPercent: number;
     };
+
+/**
+ * A qué productos aplica el cupón.
+ *
+ * 🔴 Mismo vocabulario y misma regla que la Function de escalonados, y por el
+ * mismo motivo: `"all"` es lo ÚNICO que autoriza descontar el catálogo entero.
+ * Una lista de productos vacía significa "no descuentes nada", NUNCA
+ * "descontá todo" — es el bug latente que se blindó el 2026-07-28 con una
+ * colección vacía, y no se vuelve a abrir.
+ */
+export type OriginalPriceScope = "all" | "selected";
+
+/** Requisitos que el carrito tiene que cumplir para que el cupón aplique. */
+export type OriginalPriceMinimums = {
+  /**
+   * Monto mínimo, medido sobre las líneas EN ALCANCE y al precio de hoy.
+   * `null` = sin mínimo.
+   *
+   * Las dos decisiones están copiadas del comportamiento NATIVO de Shopify,
+   * que es con lo que el merchant compara:
+   *
+   *   · "Si el descuento aplica a un producto o colección concretos, solo esos
+   *     artículos cuentan para el mínimo" (ayuda de Shopify). Por eso se mide
+   *     sobre las líneas en alcance y no sobre el carrito entero.
+   *   · Se mide sobre el precio ACTUAL, no sobre el comparativo: es lo que el
+   *     comprador ve en su carrito. Medirlo sobre el original haría que un
+   *     carrito de $80 "llegara" a un mínimo de $100 sin explicación posible.
+   */
+  minSubtotal?: number | null;
+  /** Cantidad mínima de artículos en alcance. `null` = sin mínimo. */
+  minQuantity?: number | null;
+};
+
+/**
+ * Reparte las líneas del carrito entre las que entran en el alcance y las que
+ * no, y avisa cuando la config no es segura.
+ *
+ * 🔴 FALLA CERRADO. Si `scope` no es `"all"` y no hay lista de productos, no
+ * devuelve todas las líneas: devuelve ninguna y un motivo. Los tres casos que
+ * llegan acá con la lista vacía son (1) una campaña mal guardada, (2) una
+ * colección que se quedó sin productos y (3) un metafield viejo escrito antes
+ * de que existiera `scope` — y en los tres, descontar todo el catálogo es el
+ * peor resultado posible.
+ */
+export function filtrarLineasEnAlcance(
+  lines: OriginalPriceLine[],
+  scope: OriginalPriceScope | undefined,
+  productIds: string[] | undefined
+): { enAlcance: OriginalPriceLine[]; motivo: "scope-vacio-sin-all" | null } {
+  const todas = Array.isArray(lines) ? lines : [];
+  const incluidos = new Set(
+    (Array.isArray(productIds) ? productIds : []).filter(
+      (id): id is string => typeof id === "string" && id.length > 0
+    )
+  );
+
+  if (scope === "all") return { enAlcance: todas, motivo: null };
+
+  if (incluidos.size === 0) return { enAlcance: [], motivo: "scope-vacio-sin-all" };
+
+  const enAlcance = todas.filter(
+    (l) =>
+      typeof l?.productId === "string" &&
+      l.productId.length > 0 &&
+      incluidos.has(l.productId)
+  );
+  return { enAlcance, motivo: null };
+}
+
+/**
+ * Comprueba los requisitos mínimos sobre las líneas EN ALCANCE.
+ *
+ * Separado del cálculo para que el formulario del admin pueda decir si un
+ * carrito calificaría con exactamente la misma cuenta que hace el checkout.
+ */
+export function comprobarMinimos(
+  lines: OriginalPriceLine[],
+  min: OriginalPriceMinimums | undefined
+): { ok: true } | { ok: false; reason: "BELOW_MIN_SUBTOTAL" | "BELOW_MIN_QUANTITY" } {
+  const minSubtotal =
+    typeof min?.minSubtotal === "number" &&
+    Number.isFinite(min.minSubtotal) &&
+    min.minSubtotal > 0
+      ? min.minSubtotal
+      : null;
+  const minQuantity =
+    typeof min?.minQuantity === "number" &&
+    Number.isFinite(min.minQuantity) &&
+    min.minQuantity > 0
+      ? Math.floor(min.minQuantity)
+      : null;
+
+  if (minSubtotal === null && minQuantity === null) return { ok: true };
+
+  let subtotalCents = 0;
+  let unidades = 0;
+  for (const l of lines) {
+    if (!l || typeof l.unitPrice !== "number" || !Number.isFinite(l.unitPrice)) continue;
+    if (l.unitPrice <= 0) continue;
+    const qty =
+      typeof l.quantity === "number" && Number.isFinite(l.quantity) && l.quantity > 0
+        ? Math.floor(l.quantity)
+        : 1;
+    subtotalCents += toCents(l.unitPrice) * qty;
+    unidades += qty;
+  }
+
+  // En centavos, no en decimales: un carrito de $99,99 no puede "llegar" a un
+  // mínimo de $100 por la deriva de la coma flotante.
+  if (minSubtotal !== null && subtotalCents < toCents(minSubtotal))
+    return { ok: false, reason: "BELOW_MIN_SUBTOTAL" };
+  if (minQuantity !== null && unidades < minQuantity)
+    return { ok: false, reason: "BELOW_MIN_QUANTITY" };
+
+  return { ok: true };
+}
+
+/**
+ * Una campaña de monto de compra que el merchant excluyó, con lo justo para
+ * saber si está aplicando.
+ */
+export type ExclusionPorMonto = {
+  campaignId: string;
+  /** El umbral MÁS BAJO de esa campaña. Por encima, descuenta siempre. */
+  minSubtotal: number;
+};
+
+/**
+ * ¿Está aplicando alguna de las campañas de monto de compra que el merchant
+ * excluyó?
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * 🔴 POR QUÉ SE RECALCULA EN VEZ DE MIRAR QUÉ APLICÓ
+ *
+ * La Discount Function API ofrece `cart.discountApplications` y
+ * `cart.lines[].discountAllocations`, que traen los descuentos ya aplicados y
+ * permiten leerles el metafield. Sería el camino elegante: mirar la realidad en
+ * vez de deducirla.
+ *
+ * No se usa, y el motivo es que **no está confirmado que un descuento generado
+ * por otra Function en la misma pasada de evaluación aparezca ahí**. Si no
+ * apareciera, la casilla del merchant no haría nada y NADIE se enteraría — el
+ * descuento se aplicaría doble y el fallo sería mudo. Es exactamente la familia
+ * de fallo que este repo ya pagó cuatro veces.
+ *
+ * Recalcular no tiene esa duda. Y no es una aproximación: se compara contra
+ * `cart.cost.subtotalAmount`, que es **el mismísimo campo** que lee la Function
+ * de monto de compra para decidir, en el mismo instante y con el mismo valor.
+ * Si esa Function descuenta, este número dice que descuenta.
+ *
+ * ⚠️ Lo que sí implica: el umbral viaja como una FOTO en el metafield del cupón.
+ * Si el merchant cambia los niveles de la campaña de monto, hay que volver a
+ * guardar el cupón para que la foto se actualice. El formulario lo dice.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+export function evaluarExclusionPorMonto(
+  subtotal: number | null | undefined,
+  exclusiones: ExclusionPorMonto[] | undefined
+): { excluido: false } | { excluido: true; campaignId: string; minSubtotal: number } {
+  const lista = Array.isArray(exclusiones) ? exclusiones : [];
+  if (lista.length === 0) return { excluido: false };
+
+  // Sin subtotal legible no se puede afirmar que la otra campaña esté
+  // aplicando. La duda deja pasar el cupón: el merchant pidió quitarlo en un
+  // caso concreto, y ante la incertidumbre lo que se respeta es el
+  // comportamiento por defecto, que es que el cupón funcione.
+  if (typeof subtotal !== "number" || !Number.isFinite(subtotal)) {
+    return { excluido: false };
+  }
+
+  const subtotalCents = toCents(subtotal);
+
+  for (const ex of lista) {
+    if (!ex || typeof ex.minSubtotal !== "number" || !Number.isFinite(ex.minSubtotal)) continue;
+    if (ex.minSubtotal <= 0) continue;
+    // En centavos y con `>=`, igual que `cart-value-calc`: un carrito de $100
+    // exactos SÍ alcanza un umbral de $100, y $99,99 no.
+    if (subtotalCents >= toCents(ex.minSubtotal)) {
+      return {
+        excluido: true,
+        campaignId: typeof ex.campaignId === "string" ? ex.campaignId : "",
+        minSubtotal: ex.minSubtotal,
+      };
+    }
+  }
+
+  return { excluido: false };
+}
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
@@ -157,11 +361,18 @@ export function resolveBasePrice(line: OriginalPriceLine): {
  */
 export function computeOriginalPriceDiscount(
   percent: number,
-  lines: OriginalPriceLine[]
+  lines: OriginalPriceLine[],
+  minimos?: OriginalPriceMinimums
 ): OriginalPriceOutcome {
   if (typeof percent !== "number" || !Number.isFinite(percent))
     return { applies: false, reason: "NO_CONFIG" };
   if (percent <= 0) return { applies: false, reason: "ZERO_PERCENT" };
+
+  // Los mínimos se comprueban ANTES de calcular un solo peso, y sobre las
+  // líneas que ya vienen filtradas por alcance. Así el motivo que queda en el
+  // log es el de verdad y no "NOTHING_TO_DISCOUNT", que no explica nada.
+  const minimo = comprobarMinimos(lines, minimos);
+  if (!minimo.ok) return { applies: false, reason: minimo.reason };
 
   const pct = Math.min(percent, MAX_ORIGINAL_PRICE_PERCENT);
 
