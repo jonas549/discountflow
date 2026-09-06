@@ -2,7 +2,7 @@
 //
 // ─── Por qué existe este módulo, y por qué NO toca a los que ya funcionan ─────
 //
-// El 2026-09-07 el diagnóstico encontró tres huecos distintos:
+// El 2026-09-06 el diagnóstico encontró tres huecos distintos:
 //
 //   BXGY            bloque escrito, roto desde el día uno: comparaba el título
 //                   de la aplicación contra `campaign.name`, y el descuento se

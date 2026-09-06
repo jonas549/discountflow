@@ -159,7 +159,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   // ── 2. Campañas BXGY ─────────────────────────────────────────────────────
   //
-  // 🔴 ARREGLADO EL 2026-09-07. Este bloque **nunca atribuyó un solo pedido**
+  // 🔴 ARREGLADO EL 2026-09-06. Este bloque **nunca atribuyó un solo pedido**
   // en toda la vida de la app, y tenía dos fallos encadenados:
   //
   //   (a) EL CRUCE. Comparaba el título de la aplicación contra `campaign.name`.
@@ -325,7 +325,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       }
 
       // El log temporal [tiered-attribution] vivía aquí desde el 2026-07-25 y
-      // se quitó el 2026-09-07: cumplió su función —validar la atribución de
+      // se quitó el 2026-09-06: cumplió su función —validar la atribución de
       // escalonados con un pedido real— y llevaba mes y medio escribiendo en
       // producción en CADA pedido de las 6 tiendas. `ambiguas` se conserva
       // porque es lo que hace que una ambigüedad no se atribuya.

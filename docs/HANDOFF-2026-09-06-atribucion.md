@@ -1,11 +1,59 @@
-# Traspaso · 2026-09-07 · La atribución de los seis tipos
+# Traspaso · 2026-09-06 · La atribución de los seis tipos
 
 > Estado vivo: `docs/ESTADO.md`. Procedimiento de despliegue:
 > `docs/DESPLIEGUE-A-PRODUCCION.md`.
 >
-> **PROD = Vercel `5f78888` · app version `discountflow-11` sin tocar.**
-> Este despliegue **no toca la Function**: cero cambios en `extensions/`, en los
-> cuatro `*-calc.ts` y en el `.toml` de producción, medido con `git diff --numstat`.
+> **`main` = `5f78888`, pusheado.** App version `discountflow-11` **sin tocar**:
+> cero cambios en `extensions/`, en los cuatro `*-calc.ts` y en el `.toml` de
+> producción, medido con `git diff --numstat`. Fue merge y push.
+>
+> 🔴 **El despliegue NO está confirmado desde fuera, y no puede estarlo.** Ver §6.
+
+---
+
+## 0 · 🔴 Lo que este despliegue enseñó sobre cómo se verifica un despliegue
+
+**Las dos técnicas del runbook fallan las dos con un cambio que solo toca el
+servidor**, y esto es la tercera vez que el método de verificación cuesta
+tiempo, así que queda escrito.
+
+| Técnica | Por qué no sirve acá |
+|---|---|
+| **Sondeo por ruta** (410 vs 404) | Este deploy **no agrega rutas**. Nada nuevo que sondear |
+| **Testigo del `manifest-<hash>.js`** | 🔴 **El bundle de cliente no cambia**, así que el hash **no puede** moverse |
+
+**Cómo se midió, en vez de suponerlo:** se compiló el commit anterior y el nuevo
+en local y se comparó el manifest que produce cada uno.
+
+```
+manifest local de 582498d (anterior)  →  manifest-bfe0658d.js
+manifest local de 5f78888 (nuevo)     →  manifest-bfe0658d.js   ← IDÉNTICO
+```
+
+**Es idéntico porque el arreglo es de servidor entero.** El webhook no aporta
+nada al bundle de cliente (solo tiene `action`, no componente), `order-attribution.ts`
+solo lo importa él, y las dos cosas que se agregaron a `bxgy-client.ts`
+—`BXGY_TITLE_PREFIX` y `bxgyDiscountTitle`— las usa únicamente código de
+servidor, así que el *tree-shaking* las saca del bundle de cliente.
+
+🔴 **Y ese es el punto que casi se reporta mal:** el testigo se quedó quieto
+nueve minutos y estuvo a punto de reportarse como un build fallido. **No lo era.
+Un testigo que no se mueve, en un deploy server-only, es el resultado
+ESPERADO.** Se descartó el caché antes de acusar (`X-Vercel-Cache: MISS`,
+`Age: 0`) y después se midió. Misma familia que los dos `$?` en el mismo
+`printf` del 06/09: **el instrumento estaba roto, no el producto.**
+
+Lo que sí se puede afirmar:
+
+| | |
+|---|---|
+| 🟢 El código está en `main` en GitHub | `git ls-remote origin main` → `5f78888` |
+| 🟢 Vercel despliega `main` solo | El push ES el deploy |
+| 🔴 Que el build quedó verde | **No verificable sin el token de Vercel** |
+| 🟢 Sanidad de producción | `/` 200 · `/app/campaigns` 410 · `/apps/discountflow/pack` 400 · inventada 404 |
+
+**La única prueba real de este despliegue es funcional: que un pedido de prueba
+atribuya.** Que es, de todas formas, la verificación de la §2.
 
 ---
 
@@ -190,3 +238,33 @@ que Shopify entregue el webhook y que los campos del payload sean los supuestos.
 | 🟡 **`[attribution-miss]` no se puede leer** | Token de Vercel vencido |
 | 🟡 Analítica por cupón, más allá del pedido atribuido | Con método automático no hay código que cruzar |
 | 🟡 Atribución de packs en producción | Sigue dependiendo de un pedido real |
+
+---
+
+## 6 · Estado del despliegue, sin adornos
+
+| | |
+|---|---|
+| `main` = `dev` | **`5f78888`** (+ `4e1fd26`, solo docs, en `dev`) |
+| App version | `discountflow-11`, **intacta** |
+| Migraciones | **Ninguna**. Este cambio no toca el esquema |
+| Producción antes | Vercel `582498d` |
+| **Confirmado que Vercel sirve `5f78888`** | 🔴 **NO.** Ver la §0: no hay señal observable desde fuera |
+
+**Qué haría falta para confirmarlo, y es un dato concreto:** un token de Vercel
+válido (`vercel whoami` da token inválido hoy), o que Jonas mire
+**Vercel → Deployments** y diga si el build de `5f78888` quedó **Ready**.
+
+⚠️ **Si el build hubiera fallado**, producción seguiría sirviendo `582498d` y el
+síntoma sería exactamente el mismo que si el arreglo estuviera mal: los pedidos
+de prueba no atribuirían. Así que **si la §2 falla en el primer paso, lo primero
+que hay que descartar es el build, no el código.**
+
+## 7 · Rollback, si hiciera falta
+
+| | |
+|---|---|
+| Vercel | `git revert 5f78888` + push a `main` (~4 min). Instant Rollback necesita el token |
+| Function | **No aplica**: no se tocó |
+| Migraciones | **No aplica**: no hay |
+| Atribuciones guardadas | Las que este código haya escrito quedan. Son filas nuevas de pedidos nuevos: **ninguna atribución previa se modificó** (`update: {}`) |

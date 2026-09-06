@@ -133,7 +133,8 @@ El build tarda **~4 minutos**. Sondear antes da un falso negativo — pasó.
 
 ## 4 · Cómo verificar el deploy sin acceso a Vercel
 
-Dos técnicas. **Elegir según si el deploy agrega rutas nuevas.**
+Dos técnicas, y un tercer caso en el que **ninguna de las dos sirve**.
+**Elegir según si el deploy agrega rutas nuevas y si toca el bundle de cliente.**
 
 ### A · Por RUTA (solo si el deploy agrega rutas)
 
@@ -160,6 +161,42 @@ for i in $(seq 1 40); do
   sleep 15
 done
 ```
+
+### 🔴 B-BIS · Cuando el cambio es SOLO DE SERVIDOR, ninguna de las dos sirve
+
+**Y un testigo que no se mueve es entonces el resultado ESPERADO, no un fallo.**
+
+Pasó el 2026-09-06 con el arreglo de la atribución: el testigo se quedó quieto
+nueve minutos y estuvo a punto de reportarse como un build fallido. El bundle de
+cliente era **idéntico**, así que el hash **no podía** cambiar.
+
+**Antes de acusar al build, hacer estas dos cosas, en este orden:**
+
+1. **Descartar el caché** — si `X-Vercel-Cache` dice `HIT` o `Age` no es 0, no
+   se está mirando el origen:
+   ```bash
+   curl -sI https://discountflow-app.vercel.app/ | grep -iE "x-vercel-cache|age"
+   ```
+2. **Medir si el testigo PUEDE moverse**, compilando los dos commits en local y
+   comparando el manifest que produce cada uno:
+   ```bash
+   ls build/client/assets/ | grep '^manifest-'      # el del commit nuevo
+   git checkout <commit-anterior> && npm run build
+   ls build/client/assets/ | grep '^manifest-'      # el del anterior
+   git checkout dev
+   ```
+   **Si los dos dan el mismo hash, el testigo es ciego para ese deploy** y no
+   prueba ni a favor ni en contra.
+
+⚠️ Los hashes locales **no** coinciden con los de Vercel (Vite compila distinto),
+así que esta comparación es local-contra-local: solo dice *si el bundle cambió*,
+nunca *qué está sirviendo Vercel*.
+
+**Qué queda entonces:** para un cambio server-only sin rutas nuevas **no hay
+señal observable desde fuera sin el token de Vercel**. Lo honesto es decirlo, y
+verificar **por la función**: que la feature haga lo que tiene que hacer. Si eso
+falla, **descartar el build antes que el código** — si el build hubiera fallado,
+producción sigue sirviendo el commit anterior y el síntoma es idéntico.
 
 ### C · Salud, siempre
 

@@ -1,4 +1,4 @@
-# ESTADO · última actualización 2026-09-07
+# ESTADO · última actualización 2026-09-06
 
 > El archivo que hay que leer primero. Dice dónde está todo **hoy**, sin
 > reconstruirlo de los handoffs. Si algo de acá contradice a un handoff viejo,
@@ -15,7 +15,7 @@
 
 | | |
 |---|---|
-| **Producción (Vercel)** | 🟢 **`5f78888`** · despliega desde **`main`** · último deploy 2026-09-07 |
+| **Producción (Vercel)** | 🟡 **`main` = `5f78888`** pusheado · **que Vercel lo sirva NO está confirmado**: el deploy es server-only y no hay señal observable sin el token. Ver §0 del handoff de atribución |
 | App version en Shopify | 🟢 **`discountflow-11`** — 4 Functions + bloque de tema + `[app_proxy]` |
 | **Ramas** | `main` = `dev` = **`5f78888`**, las dos pusheadas |
 | Base de datos | Neon, ramas separadas. 🟢 **Las 3 migraciones aplicadas en el build** |
@@ -227,7 +227,7 @@ Instant Rollback.** El sondeo por ruta es el sustituto. Rollback disponible sin
 Vercel: `git revert` + push, y para la Function
 `shopify app release --version=discountflow-8 --force`.
 
-## 🟢 La ATRIBUCIÓN de los 6 tipos — desplegado 2026-09-07 (`5f78888`)
+## 🟢 La ATRIBUCIÓN de los 6 tipos — desplegado 2026-09-06 (`5f78888`)
 
 Jonas encontró que el cupón (#1013, −$26,00) y un BxGy (#1015, −$48,00) daban
 **«0 pedidos · USD 0.00 · ROI N/A»** con el pedido pagado y el descuento
@@ -497,7 +497,8 @@ las variables de Vercel, y **que Jonas pruebe los dos cambios de hoy**.
 
 | | |
 |---|---|
-| 🔴 **Que Jonas verifique la atribución con pedidos reales** | Los 6 tipos. Es lo único que no se puede probar en dev: el webhook `orders/create` no está suscrito en la app Dev. Pasos en el handoff del 2026-09-07 |
+| 🔴 **Confirmar que Vercel sirve `5f78888`** | Un dato concreto: token de Vercel válido, o que Jonas mire **Vercel → Deployments**. Si la verificación funcional falla en el primer paso, **descartar el build antes que el código** |
+| 🔴 **Que Jonas verifique la atribución con pedidos reales** | Los 6 tipos. Es lo único que no se puede probar en dev: el webhook `orders/create` no está suscrito en la app Dev. Pasos en el handoff del 2026-09-06 |
 | 🟡 **Decisión: qué recauda un BxGy** | Hoy `orderAmount` cuenta solo las líneas que el descuento tocó → un BxGy al 100% lee ROI 100%. Conservador a propósito. Contar las líneas «compra X» sería más útil y abre la puerta a atribuir de más |
 | 🔴 **`PLAN_SYNC_OBSERVACION=1` sigue puesta** | La degradación de plan está frenada. **No tocarla en la ventana del despliegue**: con F4, quitarla haría que las tiendas que Shopify tiene en `free` pierdan editar/reactivar sus BxGy |
 | 🔴 **El cron de campañas programadas no existe** | `vercel.json` lo declara y la ruta no está: las campañas con `endsAt` **nunca se detienen solas** |
@@ -526,7 +527,7 @@ las variables de Vercel, y **que Jonas pruebe los dos cambios de hoy**.
 | Fecha | Documento |
 |---|---|
 | **siempre** | 🔴 **`DESPLIEGUE-A-PRODUCCION.md`** — el procedimiento canónico, sin fecha |
-| 2026-09-06 | **`HANDOFF-2026-09-06-despliegue-a-produccion.md`** (el del día) · `PLAN-DESPLIEGUE-2026-09-06.md` · `HANDOFF-2026-09-06-cupon-completo.md` |
+| 2026-09-06 | **`HANDOFF-2026-09-06-atribucion.md`** (el último del día) · `HANDOFF-2026-09-06-despliegue-a-produccion.md` · `PLAN-DESPLIEGUE-2026-09-06.md` · `HANDOFF-2026-09-06-cupon-completo.md` |
 | 2026-09-05 | `HANDOFF-2026-09-05-tres-tipos-de-campana.md` · `HANDOFF-2026-09-05-packs-F1-F2-F3.md` |
 | 2026-09-01 | `HANDOFF-2026-09-01-caso-116943.md` |
 | 2026-08-09 | `HANDOFF-2026-08-09-despliegue-produccion.md` |
