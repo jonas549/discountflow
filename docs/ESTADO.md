@@ -1,4 +1,4 @@
-# ESTADO · última actualización 2026-09-06
+# ESTADO · última actualización 2026-09-07
 
 > El archivo que hay que leer primero. Dice dónde está todo **hoy**, sin
 > reconstruirlo de los handoffs. Si algo de acá contradice a un handoff viejo,
@@ -15,13 +15,13 @@
 
 | | |
 |---|---|
-| **Producción (Vercel)** | 🟢 **`582498d`** · despliega desde **`main`** · último deploy 2026-09-06 |
+| **Producción (Vercel)** | 🟢 **`5f78888`** · despliega desde **`main`** · último deploy 2026-09-07 |
 | App version en Shopify | 🟢 **`discountflow-11`** — 4 Functions + bloque de tema + `[app_proxy]` |
-| **Ramas** | `main` = `dev` = **`582498d`**, las dos pusheadas |
+| **Ramas** | `main` = `dev` = **`5f78888`**, las dos pusheadas |
 | Base de datos | Neon, ramas separadas. 🟢 **Las 3 migraciones aplicadas en el build** |
-| Tests de la app | **363** verdes (`npm test` — es `node --test`, **no** vitest) |
+| Tests de la app | **395** verdes (`npm test` — es `node --test`, **no** vitest) |
 | Fixtures contra el Wasm real | **91/91** · tiered 16 · pack 13 · order 16 · **cupón 46** |
-| Typecheck | **173** (línea base 170) · solo `TS2345`, `TS2322`, `TS2367` |
+| Typecheck | **173** = línea base medida contra `HEAD`, **cero nuevos** · solo `TS2345`, `TS2322`, `TS2367` |
 | Build | Verde |
 
 ---
@@ -227,6 +227,114 @@ Instant Rollback.** El sondeo por ruta es el sustituto. Rollback disponible sin
 Vercel: `git revert` + push, y para la Function
 `shopify app release --version=discountflow-8 --force`.
 
+## 🟢 La ATRIBUCIÓN de los 6 tipos — desplegado 2026-09-07 (`5f78888`)
+
+Jonas encontró que el cupón (#1013, −$26,00) y un BxGy (#1015, −$48,00) daban
+**«0 pedidos · USD 0.00 · ROI N/A»** con el pedido pagado y el descuento
+identificado en el desglose. El diagnóstico encontró **tres cosas distintas**:
+
+| Tipo | Estado antes | Qué era |
+|---|---|---|
+| **BxGy** | 🔴 **ROTO desde el día uno** | Bloque escrito, cruce imposible |
+| **Cupón** | 🔴 **Nunca construido** | No había bloque |
+| **Monto de compra** | 🔴 **Nunca construido** | No había bloque |
+| **Pack** | 🟡 Construido, sin verificar | Con 15 tests, jamás un pedido real |
+| **Rango** | 🟡 Construido, sin verificar | Comparte camino con Porcentaje |
+| **Escalonado** | 🟢 Funcionando | 10 pedidos en SkinUp |
+
+### 🔴 Por qué BxGy no atribuyó nunca, y es una sola línea
+
+El descuento se crea con **`[DiscountFlow] ${nombre}`** (`bxgy.ts`, desde el
+commit `cfbe02e` que trajo BxGy). El webhook lo buscaba con
+`name: { in: automaticTitles }` — **`campaign.name`, sin el prefijo** (`9ad7798`,
+ocho commits después, con el comentario *«y title igual al nombre de la campaña
+en DiscountFlow»* al lado). Comparación exacta que **no coincide nunca**: cero
+filas, cero errores, cero atribuciones, HTTP 200.
+
+**La distinción que faltaba, y que explica todo el mapa:**
+
+| | Qué publica Shopify como `title` de la aplicación |
+|---|---|
+| Descuento **nativo** (BxGy) | El **título del objeto descuento** → `[DiscountFlow] X` |
+| Descuento de **Function** (escalonado, pack, monto, cupón) | El **`message` que emite la Function** |
+
+El bloque comparaba contra el campo de la familia equivocada. Ahora las dos
+puntas usan **`bxgyDiscountTitle()`** y hay test de las dos.
+
+### 🔴 El segundo fallo de BxGy, que estaba escondido detrás del primero
+
+El importe salía de `total_price` y `total_discounts`: **el pedido entero**. Al
+arreglar el cruce, una campaña BxGy habría empezado a llevarse el ahorro de los
+**otros** descuentos del pedido y a contar como recaudación productos en los que
+no participó. **Los dos se arreglan juntos o el arreglo miente.** Ahora el
+importe sale de las `discount_allocations`, igual que escalonados.
+
+⚠️ **Consecuencia de producto, para decidir**: `orderAmount` cuenta solo las
+líneas que el descuento **tocó**. En un «compra 2 llevá 1 gratis» esas son las
+del regalo, así que un BxGy al 100% leerá **ROI 100%**. Es deliberado —nunca
+puede atribuir de más—, pero no es lo que el merchant espera leer. Alternativa:
+contar también las líneas «compra X», a costa de abrir la puerta a atribuir de
+más. **Decisión de Jonas.**
+
+### Cómo se reconoce cada tipo ahora
+
+| Tipo | Señal |
+|---|---|
+| Porcentaje · Rango | Cruce por **variante** (`CampaignProduct`) — sin tocar |
+| Escalonado | Mensaje para descartar + **productos** para elegir — sin tocar |
+| Pack | **Marca en la línea** (`_df_pack`) + mensaje para el importe — sin tocar |
+| **BxGy** | **Título del objeto**, `[DiscountFlow] <nombre>` |
+| **Cupón con código** | **El código**, normalizado. Exacto y único en la tienda: **el camino más fiable de los seis** |
+| **Cupón automático** | El **mensaje** de la Function |
+| **Monto de compra** | El **mensaje** de la Function |
+
+### 🔴 La regla que gobierna los bloques nuevos: ante la duda, no se atribuye
+
+Dos campañas que reclaman la misma señal → **ninguna atribuye**. Es la decisión
+que pidió Jonas para monto de compra (*«mejor un cero honesto que un número
+inventado»*) y la misma que ya aplicaba escalonados.
+
+Y hay una **salvaguarda contra contar dos veces el mismo ahorro**: el `message`
+lo escribe el merchant, y nada le impide repetirlo entre una campaña de monto y
+un cupón automático — una sola aplicación encajaría en los dos bloques.
+`senalesReclamadasMasDeUnaVez` marca esas señales y **los dos bloques nuevos se
+apartan**. El efecto es de una sola dirección: si un cupón comparte mensaje con
+una escalonada, **el que se aparta es el cupón**. Los bloques que ya atribuyen
+hoy **no leen esa función siquiera**.
+
+### Que lo que funcionaba no se movió, verificado y no afirmado
+
+| | |
+|---|---|
+| Bloque 1 (Porcentaje + Rango) | **IDÉNTICO**, byte a byte contra `HEAD` |
+| Bloque 3 (Escalonado) | **IDÉNTICO** salvo el `console.log` temporal |
+| Bloque 4 (Packs) | **IDÉNTICO**, 77 líneas = 77 líneas |
+| Atribuciones ya guardadas | **Intactas**: el `upsert` lleva `update: {}` |
+
+Y hay tests que fijan las cuatro señas que hacen que existan los 902 pedidos de
+Greta y los 10 de SkinUp, más el cruce roto de BxGy como regresión.
+
+### Rango y Pack: no había que construir, había que verificar
+
+- **Rango** atribuye si escribe `shopifyVariantId` y `originalPrice` igual que
+  Porcentaje. Lo hace, en los **dos** caminos que crean filas (el síncrono y el
+  motor de jobs). **Quedó como test**, no como afirmación.
+- **Pack** identifica la campaña por la marca de la línea, que es exacta; del
+  título solo depende el **importe**. Y la suposición del título no es una
+  corazonada: es el mismo mecanismo de escalonados, **confirmado en producción
+  con un pedido real desde el 2026-07-25**. Hay test de que las 4 Functions
+  emiten el `message` igual.
+
+### El log temporal de julio, fuera
+
+`[tiered-attribution]` estaba marcado como TEMPORAL desde el **2026-07-25** y
+llevaba mes y medio escribiendo en **cada pedido de las 6 tiendas**. En su lugar
+hay **`[attribution-miss]`**, que guarda silencio en el caso normal y solo habla
+cuando un tipo tenía campañas activas y **no pudo atribuir** — justo cuando
+alguien va a preguntar por qué el dashboard dice 0.
+
+---
+
 ## 🔴 Los DOS MODOS del cupón — desplegado 2026-09-06 (`582498d` + `discountflow-11`)
 
 Se encontró en producción un error de concepto: el cupón `PRODUCCION` al 50%
@@ -389,7 +497,8 @@ las variables de Vercel, y **que Jonas pruebe los dos cambios de hoy**.
 
 | | |
 |---|---|
-| 🔴 Que Jonas pruebe **exclusión por monto** y **método automático** | Es lo único que frena el despliegue |
+| 🔴 **Que Jonas verifique la atribución con pedidos reales** | Los 6 tipos. Es lo único que no se puede probar en dev: el webhook `orders/create` no está suscrito en la app Dev. Pasos en el handoff del 2026-09-07 |
+| 🟡 **Decisión: qué recauda un BxGy** | Hoy `orderAmount` cuenta solo las líneas que el descuento tocó → un BxGy al 100% lee ROI 100%. Conservador a propósito. Contar las líneas «compra X» sería más útil y abre la puerta a atribuir de más |
 | 🔴 **`PLAN_SYNC_OBSERVACION=1` sigue puesta** | La degradación de plan está frenada. **No tocarla en la ventana del despliegue**: con F4, quitarla haría que las tiendas que Shopify tiene en `free` pierdan editar/reactivar sus BxGy |
 | 🔴 **El cron de campañas programadas no existe** | `vercel.json` lo declara y la ruta no está: las campañas con `endsAt` **nunca se detienen solas** |
 | 🔴 `/app/plans/confirm` escribe el plan desde la URL sin verificarlo | Cualquier merchant podría subirse de plan gratis |
