@@ -10,12 +10,12 @@
 
 | | |
 |---|---|
-| **Producción (Vercel)** | 🟢 **`92b7d4e`** · despliega desde **`main`** · último deploy 2026-09-06 |
-| App version en Shopify | 🟢 **`discountflow-10`** — 4 Functions + bloque de tema + `[app_proxy]` |
-| **Ramas** | `main` = `dev` = **`92b7d4e`**, las dos pusheadas |
+| **Producción (Vercel)** | 🟢 **`582498d`** · despliega desde **`main`** · último deploy 2026-09-06 |
+| App version en Shopify | 🟢 **`discountflow-11`** — 4 Functions + bloque de tema + `[app_proxy]` |
+| **Ramas** | `main` = `dev` = **`582498d`**, las dos pusheadas |
 | Base de datos | Neon, ramas separadas. 🟢 **Las 3 migraciones aplicadas en el build** |
-| Tests de la app | **351** verdes (`npm test` — es `node --test`, **no** vitest) |
-| Fixtures contra el Wasm real | **81/81** · tiered 16 · pack 13 · order 16 · **cupón 36** |
+| Tests de la app | **363** verdes (`npm test` — es `node --test`, **no** vitest) |
+| Fixtures contra el Wasm real | **91/91** · tiered 16 · pack 13 · order 16 · **cupón 46** |
 | Typecheck | **173** (línea base 170) · solo `TS2345`, `TS2322`, `TS2367` |
 | Build | Verde |
 
@@ -221,6 +221,59 @@ que un 404 de asset no prueba nada). Las rutas nuevas no existen en `e7be44d`:
 Instant Rollback.** El sondeo por ruta es el sustituto. Rollback disponible sin
 Vercel: `git revert` + push, y para la Function
 `shopify app release --version=discountflow-8 --force`.
+
+## 🔴 Los DOS MODOS del cupón — desplegado 2026-09-06 (`582498d` + `discountflow-11`)
+
+Se encontró en producción un error de concepto: el cupón `PRODUCCION` al 50%
+sobre Gertrude Cardigan ($80 hoy, $108 comparativo) dejó el checkout en **$26**
+cuando se esperaba **$54**.
+
+**No era un bug del código.** El cálculo implementaba fielmente el ejemplo del
+brief original (*"$100, hoy a $85, cupón del 10% → queda en $75"*), que solo sale
+con esa fórmula. El requisito cambió; el código no se había desviado.
+
+### La regla de cada modo
+
+| | Qué hace | $100 con 20% de oferta, hoy $80, cupón 50% |
+|---|---|---|
+| **REEMPLAZA** | El % se aplica al original y **ése es el precio final** | queda en **$50** |
+| **SUMA** | El % del original, **restado del precio de hoy** | queda en **$30** |
+
+En REEMPLAZA, si la oferta que el producto ya tiene es mejor, **gana la oferta y
+el cupón no descuenta**. Un cupón del 20% sobre un producto rebajado 26% no hace
+nada — el formulario lo advierte en amarillo al elegir ese modo.
+
+### 🔴 Ausente = SUMA, y no es una preferencia
+
+Es como se comportaban **todas** las campañas guardadas antes del cambio.
+Cambiarles el dinero en silencio sería inaceptable. Las campañas **nuevas** nacen
+en REEMPLAZA —lo decide el formulario, no el cálculo—.
+
+**La prueba de esa compatibilidad**: los 29 tests del cálculo que ya existían
+pasan sin tocar ninguno, y **las 36 fixtures previas siguen verdes sin recalcular
+una sola**. Si el default hubiera cambiado, se habrían caído todas.
+
+⚠️ Consecuencia visible: una campaña de cupón anterior se abre con **«Se suma a
+la oferta»** seleccionado, no con Reemplaza.
+
+### Por qué no se vio en meses de pruebas
+
+**En productos SIN precio comparativo los dos modos dan el mismo número**: la
+base es el precio actual y las dos fórmulas coinciden. El producto que se usaba
+en las pruebas (Cydney Plaid) tiene `compareAtPrice: null` — verificado contra la
+tienda. Solo divergen en productos realmente rebajados, que es justo para lo que
+existe este tipo de campaña.
+
+### Lección de proceso
+
+Durante la verificación previa, `tiered-discount` dio **rojo** y estuvo a punto
+de reportarse como un problema en la Function de SkinUp. **Era un bug de
+medición**: dos `$?` en el mismo `printf`, el segundo dentro de una sustitución
+de comando. Corrida aislada: 16/16. Con la captura correcta, las cuatro verdes.
+**Capturar el código de salida en una variable inmediatamente después del
+comando**, nunca dos `$?` en la misma línea.
+
+---
 
 ## 🟢 Los "descuentos fantasma" del 2026-09-06 — fue el ambiente, no el producto
 
