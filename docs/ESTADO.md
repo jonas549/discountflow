@@ -4,6 +4,11 @@
 > reconstruirlo de los handoffs. Si algo de acá contradice a un handoff viejo,
 > manda esto.
 
+> 🔴 **Para desplegar a producción: `docs/DESPLIEGUE-A-PRODUCCION.md`.**
+> Es el procedimiento canónico —árbol de decisión, los dos caminos, cómo
+> verificar sin acceso a Vercel, rollback y trampas—. **Se lee antes de tocar
+> nada.** Si un handoff viejo dice otra cosa, gana ese archivo.
+
 ---
 
 ## Dónde está el código
@@ -411,7 +416,8 @@ las variables de Vercel, y **que Jonas pruebe los dos cambios de hoy**.
 
 | Fecha | Documento |
 |---|---|
-| 2026-09-06 | `PLAN-DESPLIEGUE-2026-09-06.md` · `HANDOFF-2026-09-06-cupon-completo.md` |
+| **siempre** | 🔴 **`DESPLIEGUE-A-PRODUCCION.md`** — el procedimiento canónico, sin fecha |
+| 2026-09-06 | **`HANDOFF-2026-09-06-despliegue-a-produccion.md`** (el del día) · `PLAN-DESPLIEGUE-2026-09-06.md` · `HANDOFF-2026-09-06-cupon-completo.md` |
 | 2026-09-05 | `HANDOFF-2026-09-05-tres-tipos-de-campana.md` · `HANDOFF-2026-09-05-packs-F1-F2-F3.md` |
 | 2026-09-01 | `HANDOFF-2026-09-01-caso-116943.md` |
 | 2026-08-09 | `HANDOFF-2026-08-09-despliegue-produccion.md` |
