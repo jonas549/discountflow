@@ -16,6 +16,23 @@ import {
   leerPropiedadDeLinea,
   type LineaDePedido,
 } from "../lib/discounts/pack-attribution";
+import {
+  atribuirPorSenal,
+  senalPorTituloAutomatico,
+  senalPorCodigo,
+  senalesReclamadasMasDeUnaVez,
+} from "../lib/discounts/order-attribution";
+import { bxgyDiscountTitle } from "../lib/discounts/bxgy-client";
+import {
+  cartValueDiscountMessage,
+  type CartValueCampaignConfig,
+} from "../lib/discounts/cart-value-client";
+import {
+  originalPriceDiscountMessage,
+  originalPriceUsaCodigo,
+  normalizeDiscountCode,
+  type OriginalPriceCampaignConfig,
+} from "../lib/discounts/original-price-client";
 
 // Campos del payload orders/create que necesitamos (sin PII de cliente).
 // Level 1 Protected Customer Data — aprobado 2026-05.
@@ -25,8 +42,18 @@ interface OrderPayload {
   total_discounts: string;
   currency: string;
   discount_applications?: Array<{
-    type: string;    // "automatic" | "code" | "manual" | "script"
-    title?: string;  // título del descuento automático (BXGY)
+    type: string;    // "automatic" | "discount_code" | "manual" | "script"
+    /**
+     * Automáticos: el título. Para BXGY es el del OBJETO descuento
+     * (`[DiscountFlow] X`); para las Functions, el `message` que emiten.
+     */
+    title?: string;
+    /**
+     * 🔴 El código del cupón. NO estaba declarado, y es el único campo que
+     * identifica un cupón sobre precio original con método de código — el tipo
+     * cuyo caso de uso ES medir a cada influencer por separado.
+     */
+    code?: string;
     value_type: string;
     value: string;
   }>;
@@ -131,41 +158,82 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   }
 
   // ── 2. Campañas BXGY ─────────────────────────────────────────────────────
-  // Shopify registra descuentos automáticos en discount_applications con
-  // type="automatic". El título coincide con el nombre de la campaña BXGY
-  // (que es el título con el que lo creamos en Shopify vía discountAutomaticBxgyCreate).
+  //
+  // 🔴 ARREGLADO EL 2026-09-07. Este bloque **nunca atribuyó un solo pedido**
+  // en toda la vida de la app, y tenía dos fallos encadenados:
+  //
+  //   (a) EL CRUCE. Comparaba el título de la aplicación contra `campaign.name`.
+  //       El descuento se crea como `[DiscountFlow] <nombre>` desde el commit
+  //       que trajo BxGy, ocho commits ANTES de que se escribiera este bloque.
+  //       Comparación exacta que no coincide nunca: cero filas, cero errores,
+  //       cero atribuciones. Ahora las dos puntas usan `bxgyDiscountTitle`.
+  //
+  //   (b) EL IMPORTE. Usaba `total_price` y `total_discounts` — el pedido
+  //       ENTERO. Estaba escondido detrás de (a): al arreglar el cruce, una
+  //       campaña BXGY habría empezado a llevarse el ahorro de los OTROS
+  //       descuentos del pedido y a contar como recaudación suya productos en
+  //       los que no participó. Los dos se arreglan juntos o el arreglo miente.
+  //
+  // BXGY es un descuento NATIVO (`discountAutomaticBxgyCreate`), no una
+  // Function: por eso su señal es el TÍTULO DEL OBJETO y no un `message`. Esa
+  // distinción es la que faltaba.
+  //
+  // ⚠️ `orderAmount` sale de las líneas que el descuento TOCÓ, igual que en
+  // escalonados. En un "compra 2 llevá 1 gratis" esas son las líneas del
+  // regalo, así que la recaudación atribuida es conservadora. Es deliberado:
+  // nunca puede atribuir de más. Ver la nota del handoff.
 
-  const automaticTitles = (order.discount_applications ?? [])
-    .filter((da) => da.type === "automatic" && da.title)
-    .map((da) => da.title as string);
+  const aplicaciones = order.discount_applications ?? [];
+  const lineas = order.line_items as LineaDePedido[];
 
-  if (automaticTitles.length > 0) {
-    const bxgyCampaigns = await prisma.campaign.findMany({
-      where: {
-        shopId: shopRecord.id,
-        status: "ACTIVE",
-        type: "BXGY",
-        name: { in: automaticTitles },
+  /** Nunca reescribe una atribución existente: `update: {}` es intencional. */
+  const guardarAtribucion = async (
+    campaignId: string,
+    orderAmount: number,
+    discountAmount: number
+  ) => {
+    await prisma.orderAttribution.upsert({
+      where: { campaignId_shopifyOrderId: { campaignId, shopifyOrderId: orderId } },
+      create: {
+        campaignId,
+        shopifyOrderId: orderId,
+        orderAmount,
+        discountAmount,
+        currency: order.currency ?? "USD",
       },
+      update: {},
+    });
+  };
+
+  /** Se llena solo cuando un tipo tenía campañas y no pudo atribuir. */
+  const fallos: Array<Record<string, unknown>> = [];
+
+  if (aplicaciones.length > 0) {
+    const bxgyCampaigns = await prisma.campaign.findMany({
+      where: { shopId: shopRecord.id, status: "ACTIVE", type: "BXGY" },
+      select: { id: true, name: true },
     });
 
-    for (const campaign of bxgyCampaigns) {
-      await prisma.orderAttribution.upsert({
-        where: {
-          campaignId_shopifyOrderId: {
-            campaignId: campaign.id,
-            shopifyOrderId: orderId,
-          },
-        },
-        create: {
-          campaignId: campaign.id,
-          shopifyOrderId: orderId,
-          orderAmount: Number(order.total_price),
-          discountAmount: Number(order.total_discounts),
-          currency: order.currency ?? "USD",
-        },
-        update: {},
-      });
+    if (bxgyCampaigns.length > 0) {
+      const resultado = atribuirPorSenal(
+        lineas,
+        aplicaciones,
+        bxgyCampaigns.map((c) => ({ id: c.id, senal: bxgyDiscountTitle(c.name) })),
+        senalPorTituloAutomatico
+      );
+
+      for (const a of resultado.atribuciones) {
+        await guardarAtribucion(a.campaignId, a.orderAmount, a.discountAmount);
+      }
+
+      if (resultado.atribuciones.length === 0) {
+        fallos.push({
+          tipo: "BXGY",
+          campanas: bxgyCampaigns.length,
+          ambiguas: resultado.ambiguas,
+          sinReconocer: resultado.sinReconocer,
+        });
+      }
     }
   }
 
@@ -256,23 +324,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         }
       }
 
-      // TEMPORAL [tiered-attribution] — quitar tras validar con un pedido real.
-      console.log(
-        "[tiered-attribution]",
-        JSON.stringify({
-          titulosAutomaticos: applications
-            .filter((a) => a.type === "automatic")
-            .map((a) => a.title),
-          campanasActivas: tieredCampaigns.map((c) => c.name),
-          atribuido: [...totals.entries()].map(([id, acc]) => ({
-            campana: tieredCampaigns.find((c) => c.id === id)?.name,
-            lineas: acc.lines.size,
-            orderAmount: acc.orderAmount,
-            discountAmount: acc.discountAmount,
-          })),
-          ambiguasSinAtribuir: ambiguas,
-        })
-      );
+      // El log temporal [tiered-attribution] vivía aquí desde el 2026-07-25 y
+      // se quitó el 2026-09-07: cumplió su función —validar la atribución de
+      // escalonados con un pedido real— y llevaba mes y medio escribiendo en
+      // producción en CADA pedido de las 6 tiendas. `ambiguas` se conserva
+      // porque es lo que hace que una ambigüedad no se atribuya.
 
       for (const [campaignId, acc] of totals) {
         if (acc.orderAmount <= 0) continue;
@@ -374,6 +430,168 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         update: {},
       });
     }
+  }
+
+  // ── 5 y 6. Campañas CUPÓN SOBRE PRECIO ORIGINAL y MONTO DE COMPRA ────────
+  //
+  // 🔴 Ninguno de los dos tenía bloque. No estaban rotos: no existían. Los tres
+  // tipos nuevos se desplegaron el 2026-09-06 y, hasta este commit, un merchant
+  // podía crear campañas de cupón o de monto y ver "0 pedidos · ROI N/A" para
+  // siempre. En el cupón era lo más grave, porque su caso de uso ES medir.
+  //
+  // Las dos van por Function, así que se reconocen por el `message` que emiten
+  // —igual que escalonados y packs, y NO como BXGY—, salvo el cupón con código,
+  // que se reconoce por el código: exacto, único en la tienda, sin ambigüedad
+  // posible. Es el camino más fiable de los seis tipos.
+
+  if (aplicaciones.length > 0) {
+    const conMensaje = await prisma.campaign.findMany({
+      where: {
+        shopId: shopRecord.id,
+        status: "ACTIVE",
+        type: { in: ["TIERED", "PACK", "CART_VALUE", "CODE_ORIGINAL_PRICE"] },
+      },
+      select: { id: true, type: true, config: true },
+    });
+
+    const cuponConfig = (c: { config: unknown }) =>
+      c.config as OriginalPriceCampaignConfig;
+
+    const cupones = conMensaje.filter((c) => c.type === "CODE_ORIGINAL_PRICE");
+    const cuponesConCodigo = cupones.filter((c) =>
+      originalPriceUsaCodigo(cuponConfig(c))
+    );
+    const cuponesAutomaticos = cupones.filter(
+      (c) => !originalPriceUsaCodigo(cuponConfig(c))
+    );
+    const montos = conMensaje.filter((c) => c.type === "CART_VALUE");
+
+    // 🔴 La salvaguarda contra atribuir de más. El `message` lo escribe el
+    // merchant, y nada le impide poner el mismo texto en una campaña de monto y
+    // en un cupón automático: una sola aplicación encajaría en los dos bloques
+    // y el mismo ahorro se contaría dos veces. Con esto, esa señal no se
+    // atribuye a ninguno. Los mensajes de escalonado y pack entran en el
+    // recuento, pero el efecto es de una sola dirección: quien se aparta es
+    // siempre el bloque nuevo. Los que ya atribuyen hoy no leen esto.
+    const senalesAjenas = senalesReclamadasMasDeUnaVez([
+      conMensaje
+        .filter((c) => c.type === "TIERED")
+        .map((c) => tieredDiscountMessage(c.config as TieredCampaignConfig)),
+      conMensaje
+        .filter((c) => c.type === "PACK")
+        .map((c) => packDiscountMessage(c.config as PackCampaignConfig)),
+      montos.map((c) =>
+        cartValueDiscountMessage(c.config as CartValueCampaignConfig)
+      ),
+      cuponesAutomaticos.map((c) =>
+        originalPriceDiscountMessage(cuponConfig(c))
+      ),
+    ]);
+
+    // 5.a · Cupón con CÓDIGO. Sin `senalesAjenas`: el código es único en la
+    // tienda por obligación de Shopify, así que no puede chocar con nada.
+    if (cuponesConCodigo.length > 0) {
+      const resultado = atribuirPorSenal(
+        lineas,
+        aplicaciones,
+        cuponesConCodigo.map((c) => ({
+          id: c.id,
+          senal: normalizeDiscountCode(cuponConfig(c).code ?? ""),
+        })),
+        senalPorCodigo
+      );
+
+      for (const a of resultado.atribuciones) {
+        await guardarAtribucion(a.campaignId, a.orderAmount, a.discountAmount);
+      }
+
+      if (resultado.atribuciones.length === 0) {
+        fallos.push({
+          tipo: "CODE_ORIGINAL_PRICE/codigo",
+          campanas: cuponesConCodigo.length,
+          ambiguas: resultado.ambiguas,
+        });
+      }
+    }
+
+    // 5.b · Cupón AUTOMÁTICO. Sin código que cruzar: se reconoce por el mensaje.
+    if (cuponesAutomaticos.length > 0) {
+      const resultado = atribuirPorSenal(
+        lineas,
+        aplicaciones,
+        cuponesAutomaticos.map((c) => ({
+          id: c.id,
+          senal: originalPriceDiscountMessage(cuponConfig(c)),
+        })),
+        senalPorTituloAutomatico,
+        senalesAjenas
+      );
+
+      for (const a of resultado.atribuciones) {
+        await guardarAtribucion(a.campaignId, a.orderAmount, a.discountAmount);
+      }
+
+      if (resultado.atribuciones.length === 0) {
+        fallos.push({
+          tipo: "CODE_ORIGINAL_PRICE/automatico",
+          campanas: cuponesAutomaticos.length,
+          ambiguas: resultado.ambiguas,
+        });
+      }
+    }
+
+    // 6 · Monto de compra. Es un descuento de ORDEN: Shopify reparte su importe
+    // en las `discount_allocations` de las líneas, así que la suma sale de ahí
+    // igual que en los demás.
+    //
+    // 🔴 Decisión de Jonas: dos campañas de monto activas con el mismo mensaje
+    // son indistinguibles → NO SE ATRIBUYE A NINGUNA. Es la misma regla que ya
+    // aplicaba escalonados con sus casos ambiguos. Mejor un cero honesto que un
+    // número inventado.
+    if (montos.length > 0) {
+      const resultado = atribuirPorSenal(
+        lineas,
+        aplicaciones,
+        montos.map((c) => ({
+          id: c.id,
+          senal: cartValueDiscountMessage(c.config as CartValueCampaignConfig),
+        })),
+        senalPorTituloAutomatico,
+        senalesAjenas
+      );
+
+      for (const a of resultado.atribuciones) {
+        await guardarAtribucion(a.campaignId, a.orderAmount, a.discountAmount);
+      }
+
+      if (resultado.atribuciones.length === 0) {
+        fallos.push({
+          tipo: "CART_VALUE",
+          campanas: montos.length,
+          ambiguas: resultado.ambiguas,
+        });
+      }
+    }
+  }
+
+  // Diagnóstico que habla SOLO cuando algo no cruzó. No es el log temporal que
+  // se acaba de quitar: aquel escribía en cada pedido de cada tienda. Este
+  // guarda silencio en el caso normal —incluido el pedido sin descuentos— y
+  // solo aparece cuando un tipo tenía campañas activas y no pudo atribuir, que
+  // es exactamente cuando alguien va a preguntar por qué el dashboard dice 0.
+  if (fallos.length > 0) {
+    console.warn(
+      "[attribution-miss]",
+      JSON.stringify({
+        pedido: orderId,
+        titulos: aplicaciones.map((a) => ({
+          type: a.type,
+          title: a.title ?? null,
+          code: a.code ?? null,
+        })),
+        fallos,
+      })
+    );
   }
 
   return new Response(null, { status: 200 });

@@ -7,7 +7,7 @@ import {
 } from "../shopify/admin-api";
 import { es } from "../../i18n";
 import type { SelectionMode } from "./percentage";
-import type { BxgyCampaignConfig } from "./bxgy-client";
+import { bxgyDiscountTitle, type BxgyCampaignConfig } from "./bxgy-client";
 
 export type { BxgyCampaignConfig };
 export type BxgyYMode = SelectionMode | "same-as-x";
@@ -152,7 +152,7 @@ export async function createBxgyDiscount(
     {
       variables: {
         discount: {
-          title: `[DiscountFlow] ${campaignName}`,
+          title: bxgyDiscountTitle(campaignName),
           startsAt: (startsAt ?? new Date()).toISOString(),
           endsAt: endsAt?.toISOString() ?? null,
           customerBuys: {
@@ -229,7 +229,7 @@ export async function updateBxgyDiscount(
       variables: {
         id: shopifyDiscountId,
         discount: {
-          title: `[DiscountFlow] ${campaignName}`,
+          title: bxgyDiscountTitle(campaignName),
           startsAt: (startsAt ?? new Date()).toISOString(),
           endsAt: endsAt?.toISOString() ?? null,
           customerBuys: {
