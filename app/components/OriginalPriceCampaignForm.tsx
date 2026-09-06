@@ -42,6 +42,7 @@ import {
   type OriginalPriceSelectionMode,
   type OriginalPriceMinimumType,
   type OriginalPriceMetodo,
+  type OriginalPriceModo,
   exclusionQueAnulaElCupon,
 } from "../lib/discounts/original-price-client";
 import type { CampanasQuePuedenChocar } from "./CartValueCampaignForm";
@@ -72,6 +73,8 @@ export type OriginalPriceFormInitial = {
 
   /** Código o automático. Ausente en las campañas viejas = código. */
   metodo: OriginalPriceMetodo;
+  /** Reemplaza la oferta o se suma a ella. Ausente en las viejas = SUMA. */
+  modo: OriginalPriceModo;
 
   selectionMode: OriginalPriceSelectionMode;
   products: OriginalPriceProduct[];
@@ -97,8 +100,13 @@ const MODOS: Array<{ value: OriginalPriceSelectionMode; labelKey: "modoTodo" | "
 ];
 
 /** El producto de la vista previa: el ejemplo del brief, $100 hoy a $85. */
+/**
+ * El ejemplo de la vista previa: los MISMOS números que los de las dos tarjetas
+ * del selector de modo, para que el merchant pueda seguir la cuenta de una a
+ * otra sin traducir nada. $100 de lista con 20% de oferta.
+ */
 const EJEMPLO_LISTA = 100;
-const EJEMPLO_HOY = 85;
+const EJEMPLO_HOY = 80;
 
 const money = (n: number) =>
   `$${n.toLocaleString("es-CL", { maximumFractionDigits: 2 })}`;
@@ -133,6 +141,7 @@ export function OriginalPriceCampaignForm({
   );
   const [metodo, setMetodo] = useState<OriginalPriceMetodo>(initial.metodo);
   const usaCodigo = metodo === "CODE";
+  const [modo, setModo] = useState<OriginalPriceModo>(initial.modo);
   const [startsAt, setStartsAt] = useState(initial.startsAt);
   const [endsAt, setEndsAt] = useState(initial.endsAt);
 
@@ -271,10 +280,20 @@ export function OriginalPriceCampaignForm({
       compareAtUnitPrice: EJEMPLO_LISTA,
       quantity: 1,
     },
-  ]);
+  ], { modo });
+
   const descuento = preview.applies ? preview.lines[0].discountPerUnit : 0;
+  /** Lo que descontaría un cupón normal de Shopify: el % sobre el precio de hoy. */
   const normal = Math.round(EJEMPLO_HOY * percent) / 100;
   const extra = Math.round((descuento - normal) * 100) / 100;
+
+  /**
+   * 🔴 En modo REEMPLAZA, "no descuenta" es un resultado NORMAL y esperable: la
+   * oferta que el producto ya tiene es mejor que el precio al que llegaría el
+   * cupón. Hay que decirlo con esas palabras en vez de mostrar un $0,00 que
+   * parece un error.
+   */
+  const ofertaGana = !preview.applies && modo === "REEMPLAZA";
 
   let nSeccion = 0;
   const num = (titulo: string) => `${++nSeccion} · ${titulo}`;
@@ -326,6 +345,7 @@ export function OriginalPriceCampaignForm({
       />
 
       <input type="hidden" name="metodo" value={metodo} />
+      <input type="hidden" name="modo" value={modo} />
       <input type="hidden" name="excludedPacksJson" value={JSON.stringify(excluidos)} />
       <input
         type="hidden"
@@ -533,7 +553,79 @@ export function OriginalPriceCampaignForm({
             </p>
           </Section>
 
-          {/* ── 4 · A qué aplica ── */}
+          {/* ── Cómo se aplica: los dos modos ──
+                 🔴 Es la decisión que más cambia el dinero. Va en su propia
+                 sección, con el ejemplo concreto debajo de cada opción, para
+                 que el merchant vea la diferencia sin tener que pensarla. ── */}
+          <Section title={num(t.secModoCalculo)}>
+            <FieldGroup label={t.modoCalcLabel}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                {(
+                  [
+                    ["REEMPLAZA", t.modoReemplazaTitulo, t.modoReemplazaEjemplo],
+                    ["SUMA", t.modoSumaTitulo, t.modoSumaEjemplo],
+                  ] as const
+                ).map(([valor, titulo, ejemplo]) => (
+                  <label
+                    key={valor}
+                    style={{
+                      display: "flex",
+                      gap: "10px",
+                      alignItems: "flex-start",
+                      border: `1px solid ${modo === valor ? "#008060" : "#c9cccf"}`,
+                      background: modo === valor ? "#f1f8f5" : "#fff",
+                      borderRadius: "8px",
+                      padding: "12px 14px",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <input
+                      type="radio"
+                      name="modoRadio"
+                      checked={modo === valor}
+                      onChange={() => setModo(valor)}
+                      style={{ marginTop: "2px" }}
+                    />
+                    <span>
+                      <strong style={{ fontSize: "13px" }}>{titulo}</strong>
+                      <span
+                        style={{
+                          display: "block",
+                          fontSize: "12px",
+                          color: "#6d7175",
+                          marginTop: "3px",
+                          lineHeight: 1.5,
+                        }}
+                      >
+                        {ejemplo}
+                      </span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </FieldGroup>
+
+            {/* 🔴 La advertencia del modo 1. El merchant tiene que saberlo al
+                crear la campaña, no cuando le reclame el influencer. */}
+            {modo === "REEMPLAZA" && (
+              <div
+                style={{
+                  background: "#fff8e1",
+                  border: "1px solid #f9a825",
+                  borderRadius: "8px",
+                  padding: "12px 14px",
+                  color: "#a05c00",
+                  fontSize: "12.5px",
+                  lineHeight: 1.5,
+                  marginTop: "12px",
+                }}
+              >
+                {t.modoReemplazaAviso}
+              </div>
+            )}
+          </Section>
+
+          {/* ── A qué aplica ── */}
           <Section title={num(t.secAplicabilidad)}>
 
             <div
@@ -944,11 +1036,23 @@ export function OriginalPriceCampaignForm({
                   <td style={{ textAlign: "right" }}>{money(EJEMPLO_HOY)}</td>
                 </tr>
                 <tr>
-                  <td style={{ color: "#008060", padding: "3px 0", fontWeight: 600 }}>
+                  <td
+                    style={{
+                      color: ofertaGana ? "#8c9196" : "#008060",
+                      padding: "3px 0",
+                      fontWeight: 600,
+                    }}
+                  >
                     {t.previewCupon}
                   </td>
-                  <td style={{ textAlign: "right", color: "#008060", fontWeight: 600 }}>
-                    −{money(descuento)}
+                  <td
+                    style={{
+                      textAlign: "right",
+                      color: ofertaGana ? "#8c9196" : "#008060",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {ofertaGana ? t.previewNoAplica : `−${money(descuento)}`}
                   </td>
                 </tr>
                 <tr>
@@ -968,7 +1072,22 @@ export function OriginalPriceCampaignForm({
               </tbody>
             </table>
 
-            {extra > 0 && (
+            {/* La comparación contra un cupón normal cambia de signo según el
+                modo: en REEMPLAZA este cupón puede dar MENOS. Decirlo es parte
+                de que el merchant entienda qué eligió. */}
+            {ofertaGana && (
+              <p
+                style={{
+                  fontSize: "12px",
+                  color: "#a05c00",
+                  margin: "10px 0 0",
+                  lineHeight: 1.5,
+                }}
+              >
+                {t.previewOfertaGana}
+              </p>
+            )}
+            {!ofertaGana && extra > 0 && (
               <p
                 style={{
                   fontSize: "12px",
@@ -978,6 +1097,18 @@ export function OriginalPriceCampaignForm({
                 }}
               >
                 {t.previewExtra(money(extra))}
+              </p>
+            )}
+            {!ofertaGana && extra < 0 && (
+              <p
+                style={{
+                  fontSize: "12px",
+                  color: "#6d7175",
+                  margin: "10px 0 0",
+                  lineHeight: 1.5,
+                }}
+              >
+                {t.previewMenos(money(Math.abs(extra)))}
               </p>
             )}
           </div>
@@ -1009,6 +1140,10 @@ export function OriginalPriceCampaignForm({
                     : []),
                   [t.resumenDescuento, percent > 0 ? `${percent}%` : "—"],
                   [t.resumenBase, t.resumenBaseValor],
+                  [
+                    t.resumenModo,
+                    modo === "REEMPLAZA" ? t.resumenModoReemplaza : t.resumenModoSuma,
+                  ],
                   [
                     t.resumenAplica,
                     selectionMode === "all"

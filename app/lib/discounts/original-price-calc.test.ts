@@ -344,3 +344,124 @@ test("un mínimo cumplido no cambia el dinero que se descuenta", () => {
   const con = computeOriginalPriceDiscount(10, lineas, { minSubtotal: 50 });
   assert.deepEqual(con, sin);
 });
+
+
+// ─── Los dos modos ───────────────────────────────────────────────────────────
+//
+// El ejemplo que fijó Jonas, con los dos resultados que tiene que dar:
+//
+//   Producto de $100 con 20% de oferta, hoy a $80. Cupón del 50%.
+//     REEMPLAZA → el 50% se aplica a los $100 → queda en $50
+//     SUMA      → el 50% de $100 son $50, restados de $80 → queda en $30
+
+const HOY = 80;
+const LISTA = 100;
+
+test("🔴 REEMPLAZA: el % se aplica al original y ESE es el precio final", () => {
+  const r = computeOriginalPriceDiscount(50, [linea(HOY, LISTA)], { modo: "REEMPLAZA" });
+  assert.ok(r.applies);
+  if (!r.applies) return;
+
+  // Para llegar a $50 desde $80 hay que descontar $30.
+  assert.equal(r.lines[0].discountPerUnit, 30);
+  assert.equal(HOY - r.lines[0].discountPerUnit, 50, "el comprador paga $50");
+});
+
+test("🔴 SUMA: el % del original se resta del precio de hoy", () => {
+  const r = computeOriginalPriceDiscount(50, [linea(HOY, LISTA)], { modo: "SUMA" });
+  assert.ok(r.applies);
+  if (!r.applies) return;
+
+  assert.equal(r.lines[0].discountPerUnit, 50);
+  assert.equal(HOY - r.lines[0].discountPerUnit, 30, "el comprador paga $30");
+});
+
+test("🔴 el caso REAL que lo destapó: Gertrude Cardigan", () => {
+  // $108 de lista, hoy a $80, cupón del 50%. En producción se vio $26 —el modo
+  // SUMA— y lo que se esperaba era $54.
+  const r = computeOriginalPriceDiscount(50, [linea(80, 108)], { modo: "REEMPLAZA" });
+  assert.ok(r.applies);
+  if (!r.applies) return;
+  assert.equal(r.lines[0].discountPerUnit, 26);
+  assert.equal(80 - r.lines[0].discountPerUnit, 54, "la mitad de $108");
+
+  const suma = computeOriginalPriceDiscount(50, [linea(80, 108)], { modo: "SUMA" });
+  assert.ok(suma.applies);
+  if (!suma.applies) return;
+  assert.equal(suma.lines[0].discountPerUnit, 54);
+  assert.equal(80 - suma.lines[0].discountPerUnit, 26, "lo que se vio en producción");
+});
+
+test("🔴 REEMPLAZA: si la oferta ya es mejor, el cupón NO descuenta", () => {
+  // Gertrude está 26% rebajado ($108 → $80). Un cupón del 20% apuntaría a
+  // $86,40, que es PEOR que los $80 que ya tiene. Gana la oferta.
+  const r = computeOriginalPriceDiscount(20, [linea(80, 108)], { modo: "REEMPLAZA" });
+  assert.equal(r.applies, false);
+  if (r.applies) return;
+
+  // Con motivo propio: es la pregunta "¿por qué mi cupón no hace nada?", y hay
+  // que poder contestarla del log sin reproducir el carrito.
+  assert.equal(r.reason, "OFFER_ALREADY_BETTER");
+});
+
+test("REEMPLAZA: justo en el límite, la oferta empata y no descuenta", () => {
+  // $100 → $80 es exactamente 20%. Un cupón del 20% apunta a $80: lo mismo.
+  const r = computeOriginalPriceDiscount(20, [linea(80, 100)], { modo: "REEMPLAZA" });
+  assert.equal(r.applies, false);
+  if (r.applies) return;
+  assert.equal(r.reason, "OFFER_ALREADY_BETTER");
+
+  // Un punto más y sí descuenta: 21% apunta a $79.
+  const r21 = computeOriginalPriceDiscount(21, [linea(80, 100)], { modo: "REEMPLAZA" });
+  assert.ok(r21.applies);
+  if (!r21.applies) return;
+  assert.equal(r21.lines[0].discountPerUnit, 1);
+});
+
+test("🔴 sin precio comparativo los DOS modos dan lo mismo", () => {
+  // Es la razón por la que la diferencia no apareció en meses de pruebas: el
+  // producto que se usaba no tenía comparativo, y ahí la base es el precio
+  // actual y las dos fórmulas coinciden.
+  const reemplaza = computeOriginalPriceDiscount(50, [linea(80, null)], {
+    modo: "REEMPLAZA",
+  });
+  const suma = computeOriginalPriceDiscount(50, [linea(80, null)], { modo: "SUMA" });
+  assert.ok(reemplaza.applies && suma.applies);
+  if (!reemplaza.applies || !suma.applies) return;
+  assert.equal(reemplaza.lines[0].discountPerUnit, 40);
+  assert.equal(suma.lines[0].discountPerUnit, 40);
+});
+
+test("🔴 sin modo declarado se calcula como SUMA, que es lo que hacían las viejas", () => {
+  // Compatibilidad: las campañas guardadas antes de que el modo existiera
+  // —incluida la que está viva en producción— no pueden cambiar de dinero en
+  // silencio.
+  const sinModo = computeOriginalPriceDiscount(50, [linea(HOY, LISTA)]);
+  const suma = computeOriginalPriceDiscount(50, [linea(HOY, LISTA)], { modo: "SUMA" });
+  assert.deepEqual(sinModo, suma);
+});
+
+test("en REEMPLAZA el 'extra' contra un cupón normal puede ser NEGATIVO", () => {
+  // Sobre un producto ya rebajado, este cupón puede dar MENOS que uno normal de
+  // Shopify. Es correcto y es la esencia del modo; quien lo muestre en pantalla
+  // tiene que contemplar el signo.
+  const r = computeOriginalPriceDiscount(30, [linea(80, 108)], { modo: "REEMPLAZA" });
+  assert.ok(r.applies);
+  if (!r.applies) return;
+  // Cupón normal: 30% de $80 = $24. Este: $80 − (108 − 32,40) = $4,40.
+  assert.ok(r.extraVsPercent < 0, `se esperaba negativo, dio ${r.extraVsPercent}`);
+});
+
+test("los mínimos siguen funcionando igual en los dos modos", () => {
+  // El modo cambia el MONTO, no las condiciones. El mínimo se mide sobre el
+  // precio de hoy en los dos casos.
+  for (const modo of ["REEMPLAZA", "SUMA"] as const) {
+    const r = computeOriginalPriceDiscount(50, [linea(HOY, LISTA)], {
+      modo,
+      minSubtotal: 500,
+    });
+    assert.equal(r.applies, false, modo);
+    if (r.applies) return;
+    assert.equal(r.reason, "BELOW_MIN_SUBTOTAL", modo);
+  }
+});

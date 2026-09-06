@@ -18,6 +18,7 @@ import {
 import {
   ORIGINAL_PRICE_DEFAULT_MESSAGE,
   originalPriceMetodo,
+  originalPriceModo,
   type OriginalPriceCampaignConfig,
 } from "../lib/discounts/original-price-client";
 import { campanasQuePuedenChocar } from "../lib/discounts/cart-value.server";
@@ -284,6 +285,10 @@ export default function EditOriginalPriceCampaign() {
           // Ausente = código: es como nació el tipo y como están las campañas
           // guardadas antes de que el método existiera.
           metodo: originalPriceMetodo(campaign.config),
+
+          // Ausente = SUMA: es como se venía calculando esta campaña, y abrir
+          // el formulario no puede cambiarle el dinero.
+          modo: originalPriceModo(campaign.config),
 
           // Ausente = "all": es lo que aplicaban las campañas guardadas antes
           // de que existiera el alcance, y cambiárselas en silencio sería

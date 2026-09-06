@@ -552,7 +552,7 @@ export const es = {
     porcentajeHelper:
       "Se calcula sobre el precio comparativo (el tachado), no sobre el precio rebajado.",
     comoFunciona:
-      "Si un producto de $100 está hoy a $85, un cupón normal de Shopify descontaría $8,50. Éste descuenta $10, que es el 10% del precio original.",
+      "El porcentaje se calcula siempre sobre el precio comparativo (el tachado), no sobre el rebajado. Lo que cambia entre los dos modos de abajo es qué se hace con ese número.",
     sinComparativo:
       "En los productos sin precio comparativo no hay precio original que recuperar: el cupón se calcula sobre el precio actual, como uno normal.",
 
@@ -597,6 +597,19 @@ export const es = {
       `y excluís «${campana}», que descuenta desde ${umbral}. Cualquier carrito que llegue al mínimo ` +
       `ya tiene esa campaña aplicando. Bajá el mínimo por debajo de ${umbral}, o quitá la exclusión.`,
 
+    secModoCalculo: "Cómo se aplica",
+    modoCalcLabel: "Qué hace el cupón con la oferta que el producto ya tiene",
+
+    modoReemplazaTitulo: "El cupón reemplaza la oferta",
+    modoReemplazaEjemplo:
+      "Producto de $100 con 20% de oferta, hoy a $80. Cupón del 50% → el 50% se aplica a los $100 → queda en $50.",
+    modoReemplazaAviso:
+      "En los productos cuya oferta ya sea más profunda que el porcentaje del cupón, el cupón NO va a descontar nada: gana la oferta. Un cupón del 20% sobre un producto rebajado 26% no hace nada.",
+
+    modoSumaTitulo: "El cupón se suma a la oferta",
+    modoSumaEjemplo:
+      "Mismo producto, hoy a $80. Cupón del 50% → el 50% de $100 son $50 de descuento, restados de $80 → queda en $30.",
+
     secExclusiones: "Cuándo NO aplicar este descuento",
     exclusionesHelper:
       "Si el comprador tiene en el carrito un pack de los que marques, este cupón no se aplica. Los que dejes sin marcar se suman al descuento del pack.",
@@ -623,13 +636,22 @@ export const es = {
     fechaFinHelper: "Vacío = sin fecha de fin.",
 
     previewTitulo: "Vista previa",
-    previewHelper: "Un producto de $100 rebajado hoy a $85.",
+    previewHelper: "Un producto de $100 con 20% de oferta, hoy a $80.",
     previewPrecioLista: "Precio de lista",
     previewPrecioHoy: "Precio hoy",
     previewCupon: "Este cupón",
     previewCuponNormal: "Un cupón normal",
     previewPaga: "El comprador paga",
     previewExtra: (monto: string) => `${monto} más de descuento que un cupón normal.`,
+    previewMenos: (monto: string) =>
+      `${monto} menos que un cupón normal: en este modo el cupón compite con la oferta en vez de sumarse.`,
+    previewOfertaGana:
+      "Con este porcentaje el cupón no descuenta: la oferta que el producto ya tiene es mejor.",
+    previewNoAplica: "El cupón no descuenta",
+
+    resumenModo: "Cómo se aplica",
+    resumenModoReemplaza: "Reemplaza la oferta",
+    resumenModoSuma: "Se suma a la oferta",
 
     resumenTitulo: "Resumen",
     resumenNombre: "Nombre",

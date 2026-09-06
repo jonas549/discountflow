@@ -82,6 +82,7 @@ test("🔴 el CÓDIGO no viaja al metafield", () => {
     "message",
     "minQuantity",
     "minSubtotal",
+    "modo",
     "percent",
     "productIds",
     "scope",
@@ -194,8 +195,62 @@ test("el mensaje por defecto es el mismo que el de la Function", () => {
   );
 });
 
-test("el resumen del listado dice sobre qué se calcula", () => {
-  assert.equal(originalPriceLabel(BASE), "10% sobre el precio original");
+test("🔴 la etiqueta del listado distingue los dos modos", () => {
+  // Dos campañas del mismo porcentaje con modos distintos dejan al comprador
+  // pagando precios muy distintos ($50 contra $30 en el ejemplo de Jonas). En
+  // la lista no hay otro sitio donde se vea, así que tiene que decirlo.
+  assert.equal(
+    originalPriceLabel({ ...BASE, modo: "REEMPLAZA" }),
+    "10% sobre el precio original"
+  );
+  assert.equal(
+    originalPriceLabel({ ...BASE, modo: "SUMA" }),
+    "10% sobre el precio original, sumado a la oferta"
+  );
+
+  // Sin modo declarado se lee como SUMA, igual que lo calcula la Function.
+  assert.equal(
+    originalPriceLabel(BASE),
+    "10% sobre el precio original, sumado a la oferta"
+  );
+});
+
+test("🔴 el modo viaja SIEMPRE explícito al metafield", () => {
+  // Es lo que decide el dinero. Un metafield que lo lleva escrito no depende de
+  // que el lector acierte con el valor por defecto — la misma regla que `scope`,
+  // y la misma lección del `scope` inferido de una lista vacía.
+  assert.equal(toOriginalPriceFunctionConfig({ ...BASE, modo: "REEMPLAZA" }).modo, "REEMPLAZA");
+  assert.equal(toOriginalPriceFunctionConfig({ ...BASE, modo: "SUMA" }).modo, "SUMA");
+  assert.equal(
+    toOriginalPriceFunctionConfig(BASE).modo,
+    "SUMA",
+    "una campaña vieja se calcula como SUMA"
+  );
+});
+
+test("🔴 el modo y el método son ejes INDEPENDIENTES", () => {
+  // `metodo` es cómo se ACTIVA el cupón (código o automático); `modo` es qué
+  // hace con el PRECIO. Se parecen en el nombre y no tienen nada que ver.
+  const cfg = buildOriginalPriceConfig(
+    formulario({
+      name: "Cupón",
+      code: "MARIA10",
+      percent: "10",
+      metodo: "AUTOMATIC",
+      modo: "REEMPLAZA",
+    })
+  );
+  assert.equal(cfg.metodo, "AUTOMATIC");
+  assert.equal(cfg.modo, "REEMPLAZA");
+});
+
+test("un modo desconocido o ausente en el formulario cae en SUMA", () => {
+  const base = { name: "Cupón", code: "MARIA10", percent: "10" };
+  assert.equal(buildOriginalPriceConfig(formulario(base)).modo, "SUMA");
+  assert.equal(
+    buildOriginalPriceConfig(formulario({ ...base, modo: "CUALQUIERA" })).modo,
+    "SUMA"
+  );
 });
 
 // ─── El formulario ───────────────────────────────────────────────────────────
@@ -755,7 +810,9 @@ test("🔴 ningún campo del formulario vive dentro de una sección plegable", (
     // `minimumTypeRadio` y `metodoRadio` agrupan radios y NO se envían: el
     // valor viaja en su `input hidden` de arriba, que sí está comprobado abajo.
     // `intent` está en los botones de la ActionBar, que nunca se pliegan.
-    .filter((n) => !["minimumTypeRadio", "metodoRadio", "intent"].includes(n));
+    .filter(
+      (n) => !["minimumTypeRadio", "metodoRadio", "modoRadio", "intent"].includes(n)
+    );
 
   assert.deepEqual(dentro, [], `campos dentro de una sección plegable: ${dentro.join(", ")}`);
 
@@ -764,6 +821,7 @@ test("🔴 ningún campo del formulario vive dentro de una sección plegable", (
   for (const campo of [
     "name",
     "metodo",
+    "modo",
     "code",
     "percent",
     "selectionMode",

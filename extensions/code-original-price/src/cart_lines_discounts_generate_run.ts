@@ -25,6 +25,7 @@ import {
   type OriginalPriceLine,
   type OriginalPriceScope,
   type ExclusionPorMonto,
+  type OriginalPriceModo,
 } from '../../../app/lib/discounts/original-price-calc';
 
 /** Config que la app escribe en el metafield del descuento al activar la campaña. */
@@ -75,6 +76,14 @@ type OriginalPriceFunctionConfig = {
    * un pedido real el 2026-09-06), y ahi el merchant decide.
    */
   excludeIfCartValue?: ExclusionPorMonto[];
+
+  /**
+   * Reemplazar la oferta del producto o sumarse a ella.
+   *
+   * 🔴 Ausente = "SUMA". Es lo que hacian las campanas guardadas antes de que
+   * el modo existiera, y cambiarles el dinero en silencio seria inaceptable.
+   */
+  modo?: OriginalPriceModo;
 };
 
 const NO_DISCOUNT: CartLinesDiscountsGenerateRunResult = {operations: []};
@@ -191,6 +200,7 @@ export function cartLinesDiscountsGenerateRun(
   }
 
   const outcome = computeOriginalPriceDiscount(config.percent ?? 0, enAlcance, {
+    modo: config.modo,
     minSubtotal: config.minSubtotal,
     minQuantity: config.minQuantity,
   });
@@ -210,7 +220,8 @@ export function cartLinesDiscountsGenerateRun(
     }
   }
   console.log(
-    `[original-price] lineas=${lineas.length} enAlcance=${enAlcance.length} ` +
+    `[original-price] modo=${config.modo ?? 'SUMA(default)'} ` +
+      `lineas=${lineas.length} enAlcance=${enAlcance.length} ` +
       `scope=${config.scope ?? 'null'} exclMonto=${(config.excludeIfCartValue ?? []).length} ` +
       `minSubtotal=${config.minSubtotal ?? '-'} ` +
       `minQuantity=${config.minQuantity ?? '-'} conComparativo=${conComparativo} ` +

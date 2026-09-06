@@ -109,7 +109,16 @@ export type OriginalPriceNoDiscountReason =
   /** El carrito no llega a la cantidad mínima de artículos. */
   | "BELOW_MIN_QUANTITY"
   /** El merchant excluyó este cupón cuando aplica un descuento por monto. */
-  | "EXCLUDED_BY_CART_VALUE";
+  | "EXCLUDED_BY_CART_VALUE"
+  /**
+   * Modo REEMPLAZA: la oferta que el producto ya tiene es igual o mejor que el
+   * precio al que llegaría el cupón, así que el cupón no descuenta.
+   *
+   * Tiene motivo propio a propósito. Es el caso que va a generar la pregunta
+   * "¿por qué mi cupón no hace nada?", y "NOTHING_TO_DISCOUNT" mandaría a
+   * buscar el problema al precio comparativo, que no tiene nada que ver.
+   */
+  | "OFFER_ALREADY_BETTER";
 
 export type OriginalPriceOutcome =
   | { applies: false; reason: OriginalPriceNoDiscountReason }
@@ -119,8 +128,13 @@ export type OriginalPriceOutcome =
       /** Lo que ahorra el comprador en total, en unidades de moneda. */
       totalSavings: number;
       /**
-       * Cuánto MÁS ahorra que con un cupón normal de Shopify. Es el número que
-       * justifica el tipo de campaña, y el que el preview del admin muestra.
+       * Cuánto MÁS ahorra que con un cupón normal de Shopify (el % sobre el
+       * precio de hoy).
+       *
+       * ⚠️ En modo REEMPLAZA **puede ser NEGATIVO**: sobre un producto ya
+       * rebajado, este cupón puede dar MENOS que uno normal. Es correcto y es
+       * la esencia del modo —el cupón compite con la oferta en vez de sumarse—
+       * así que quien lo muestre tiene que contemplar el signo.
        */
       extraVsPercent: number;
     };
@@ -135,6 +149,42 @@ export type OriginalPriceOutcome =
  * colección vacía, y no se vuelve a abrir.
  */
 export type OriginalPriceScope = "all" | "selected";
+
+/**
+ * Qué hace el cupón con la oferta que el producto YA tiene.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * 🔴 LOS DOS SON LEGÍTIMOS Y DAN NÚMEROS MUY DISTINTOS. El merchant elige.
+ *
+ * Producto de $100 con 20% de oferta, hoy a $80. Cupón del 50%:
+ *
+ *   REEMPLAZA  el % se aplica al precio original y ESE es el precio final.
+ *              50% de $100 → queda en $50. Descuenta $30 sobre los $80.
+ *              Si la oferta que ya tiene es mejor, gana la oferta y el cupón
+ *              no descuenta nada.
+ *
+ *   SUMA       el descuento se calcula sobre el original y se resta del precio
+ *              de hoy. 50% de $100 = $50 de descuento sobre $80 → queda en $30.
+ *              Siempre descuenta encima de la oferta.
+ *
+ * 🔴 AUSENTE = "SUMA", y no es una preferencia: es lo que hacían TODAS las
+ * campañas guardadas antes de que el modo existiera, incluida la que está viva
+ * en producción. Cambiarles el dinero en silencio sería inaceptable. Las
+ * campañas nuevas nacen en REEMPLAZA porque es lo que se pidió desde el primer
+ * día y el resultado más predecible, pero eso lo decide el FORMULARIO, no este
+ * módulo.
+ *
+ * ⚠️ En productos SIN precio comparativo los dos modos dan el mismo número: la
+ * base es el precio actual y las dos fórmulas coinciden. Por eso la diferencia
+ * no apareció en meses de pruebas — el producto que se usaba no tenía
+ * comparativo. Solo divergen en productos realmente rebajados, que es justo
+ * para lo que existe este tipo de campaña.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+export type OriginalPriceModo = "REEMPLAZA" | "SUMA";
+
+/** El modo de una campaña que no lo declara. Ver arriba: NO es una preferencia. */
+export const ORIGINAL_PRICE_MODO_POR_DEFECTO: OriginalPriceModo = "SUMA";
 
 /** Requisitos que el carrito tiene que cumplir para que el cupón aplique. */
 export type OriginalPriceMinimums = {
@@ -155,6 +205,12 @@ export type OriginalPriceMinimums = {
   minSubtotal?: number | null;
   /** Cantidad mínima de artículos en alcance. `null` = sin mínimo. */
   minQuantity?: number | null;
+};
+
+/** Lo que el cálculo necesita saber además de los mínimos. */
+export type OriginalPriceOpciones = OriginalPriceMinimums & {
+  /** Ausente = `SUMA`. Ver `OriginalPriceModo`. */
+  modo?: OriginalPriceModo;
 };
 
 /**
@@ -362,8 +418,9 @@ export function resolveBasePrice(line: OriginalPriceLine): {
 export function computeOriginalPriceDiscount(
   percent: number,
   lines: OriginalPriceLine[],
-  minimos?: OriginalPriceMinimums
+  opciones?: OriginalPriceOpciones
 ): OriginalPriceOutcome {
+  const modo = opciones?.modo ?? ORIGINAL_PRICE_MODO_POR_DEFECTO;
   if (typeof percent !== "number" || !Number.isFinite(percent))
     return { applies: false, reason: "NO_CONFIG" };
   if (percent <= 0) return { applies: false, reason: "ZERO_PERCENT" };
@@ -371,7 +428,7 @@ export function computeOriginalPriceDiscount(
   // Los mínimos se comprueban ANTES de calcular un solo peso, y sobre las
   // líneas que ya vienen filtradas por alcance. Así el motivo que queda en el
   // log es el de verdad y no "NOTHING_TO_DISCOUNT", que no explica nada.
-  const minimo = comprobarMinimos(lines, minimos);
+  const minimo = comprobarMinimos(lines, opciones);
   if (!minimo.ok) return { applies: false, reason: minimo.reason };
 
   const pct = Math.min(percent, MAX_ORIGINAL_PRICE_PERCENT);
@@ -379,6 +436,8 @@ export function computeOriginalPriceDiscount(
   const out: OriginalPriceLineResult[] = [];
   let savingsCents = 0;
   let normalCents = 0;
+  /** Alguna línea se quedó sin descuento porque su oferta ya era mejor. */
+  let ofertaGanoEnAlgunaLinea = false;
 
   for (const line of lines) {
     if (!line || typeof line.lineId !== "string" || !line.lineId) continue;
@@ -393,15 +452,44 @@ export function computeOriginalPriceDiscount(
     const { basePrice, usedCompareAt } = resolveBasePrice(line);
 
     const unitCents = toCents(line.unitPrice);
-    let descuentoCents = applyPercentCents(toCents(basePrice), pct);
+    const baseCents = toCents(basePrice);
+
+    /**
+     * 🔴 LOS DOS MODOS, EN CUATRO LÍNEAS.
+     *
+     *   REEMPLAZA  el precio final ES el original menos el %. Lo que se
+     *              descuenta es la diferencia hasta ahí, que puede ser CERO o
+     *              negativa si la oferta actual ya es mejor.
+     *   SUMA       el % del original, restado del precio de hoy. Siempre
+     *              positivo.
+     *
+     * El objetivo se calcula como `base − (base × %)` y no como
+     * `base × (1 − %)` para que use el mismo redondeo que el resto del módulo:
+     * el merchant que lee "50% de $108 son $54" tiene que ver $54, no $53,99.
+     */
+    let descuentoCents: number;
+    if (modo === "REEMPLAZA") {
+      const objetivoCents = baseCents - applyPercentCents(baseCents, pct);
+      descuentoCents = unitCents - objetivoCents;
+    } else {
+      descuentoCents = applyPercentCents(baseCents, pct);
+    }
 
     // 🔴 El recorte. Un descuento mayor que el precio de la línea dejaría el
     // total en negativo. Shopify lo rechazaría o lo recortaría por su cuenta;
     // recortarlo acá lo hace explícito y visible en el preview del admin.
+    //
+    // En REEMPLAZA no puede saltar nunca —el descuento es `actual − objetivo` y
+    // el objetivo nunca es negativo— pero se deja como red de seguridad.
     const clamped = descuentoCents > unitCents;
     if (clamped) descuentoCents = unitCents;
 
-    if (descuentoCents <= 0) continue;
+    if (descuentoCents <= 0) {
+      // En REEMPLAZA esto NO es un caso raro: es "la oferta ya era mejor", y
+      // hay que poder distinguirlo del resto para el log de la Function.
+      if (modo === "REEMPLAZA") ofertaGanoEnAlgunaLinea = true;
+      continue;
+    }
 
     out.push({
       lineId: line.lineId,
@@ -417,7 +505,11 @@ export function computeOriginalPriceDiscount(
     normalCents += applyPercentCents(unitCents, pct) * qty;
   }
 
-  if (out.length === 0) return { applies: false, reason: "NOTHING_TO_DISCOUNT" };
+  if (out.length === 0)
+    return {
+      applies: false,
+      reason: ofertaGanoEnAlgunaLinea ? "OFFER_ALREADY_BETTER" : "NOTHING_TO_DISCOUNT",
+    };
 
   return {
     applies: true,

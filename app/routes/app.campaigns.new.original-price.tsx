@@ -151,6 +151,18 @@ export default function NewOriginalPriceCampaign() {
           // cupón por influencer) y el único que soporta límite de usos.
           metodo: "CODE",
 
+          /**
+           * 🔴 Las campañas NUEVAS nacen en REEMPLAZA: es lo que se pidió desde
+           * el primer día ("el descuento se aplica al precio original") y el
+           * resultado más predecible.
+           *
+           * Ojo con la asimetría, que es deliberada: las campañas VIEJAS, sin
+           * `modo` guardado, se calculan como SUMA. Cambiarles el dinero en
+           * silencio sería inaceptable. El default de las nuevas se decide acá;
+           * el de las viejas, en `originalPriceModo`.
+           */
+          modo: "REEMPLAZA",
+
           // Por defecto, toda la tienda y sin restricciones: es el cupón que
           // el merchant espera si no toca nada, y es lo que hacía este tipo
           // antes de que existieran estas tres secciones.

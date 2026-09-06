@@ -6,10 +6,26 @@ import {
   MIN_ORIGINAL_PRICE_PERCENT,
   type OriginalPriceScope,
   type ExclusionPorMonto,
+  type OriginalPriceModo,
+  ORIGINAL_PRICE_MODO_POR_DEFECTO,
 } from "./original-price-calc.ts";
 
 export { MAX_ORIGINAL_PRICE_PERCENT, MIN_ORIGINAL_PRICE_PERCENT };
-export type { OriginalPriceScope };
+export type { OriginalPriceScope, OriginalPriceModo };
+export { ORIGINAL_PRICE_MODO_POR_DEFECTO };
+
+/**
+ * Qué hace el cupón con la oferta que el producto ya tiene.
+ *
+ * 🔴 Ausente = `SUMA`, que es como se comportaban TODAS las campañas guardadas
+ * antes de que el modo existiera. Las nuevas nacen en `REEMPLAZA` —lo decide el
+ * formulario, no esto— porque es lo que se pidió desde el primer día.
+ */
+export function originalPriceModo(
+  config: OriginalPriceCampaignConfig
+): OriginalPriceModo {
+  return config.modo === "REEMPLAZA" ? "REEMPLAZA" : ORIGINAL_PRICE_MODO_POR_DEFECTO;
+}
 
 /**
  * A qué productos aplica el cupón, tal como lo elige el merchant.
@@ -114,6 +130,15 @@ export type OriginalPriceCampaignConfig = {
 
   /** Código o automático. Ausente = CODE. Ver `OriginalPriceMetodo`. */
   metodo?: OriginalPriceMetodo;
+
+  /**
+   * Reemplazar la oferta o sumarse a ella. Ausente = `SUMA`.
+   *
+   * 🔴 No confundir con `metodo`: `metodo` es CÓMO se activa el cupón (código o
+   * automático) y `modo` es QUÉ HACE con el precio. Son ejes independientes: un
+   * cupón automático puede ser de cualquiera de los dos modos.
+   */
+  modo?: OriginalPriceModo;
 
   // ─── A qué aplica ─────────────────────────────────────────────────────────
   //
@@ -332,7 +357,10 @@ export function originalPriceProductsLabel(
 /** Resumen de una línea para el listado de campañas. */
 export function originalPriceLabel(config: OriginalPriceCampaignConfig): string {
   const pct = typeof config.percent === "number" ? config.percent : 0;
-  const base = `${pct}% sobre el precio original`;
+  const base =
+    originalPriceModo(config) === "REEMPLAZA"
+      ? `${pct}% sobre el precio original`
+      : `${pct}% sobre el precio original, sumado a la oferta`;
   // El método se dice en la etiqueta: dos campañas del mismo % que se activan de
   // formas distintas son dos cosas distintas, y en el listado no hay otro sitio
   // donde se vea.
@@ -360,6 +388,7 @@ export function toOriginalPriceFunctionConfig(
 ): {
   percent: number;
   message: string;
+  modo: OriginalPriceModo;
   excludeIfPackIds: string[];
   excludeIfCartValue: ExclusionPorMonto[];
   scope: OriginalPriceScope;
@@ -373,6 +402,12 @@ export function toOriginalPriceFunctionConfig(
   return {
     percent: config.percent,
     message: originalPriceDiscountMessage(config),
+
+    // Viaja SIEMPRE explícito, aunque sea el valor por defecto: es lo que
+    // decide el dinero, y un metafield que lo lleva escrito no depende de que
+    // el lector acierte con el default. Misma regla que `scope`.
+    modo: originalPriceModo(config),
+
     excludeIfPackIds: config.excludedPackCampaignIds ?? [],
 
     // Solo los que el merchant marcó Y que el servidor pudo resolver. Un ID sin

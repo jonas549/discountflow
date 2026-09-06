@@ -8,6 +8,7 @@ import {
   type OriginalPriceSelectionMode,
   type OriginalPriceMinimumType,
   type OriginalPriceMetodo,
+  type OriginalPriceModo,
   normalizeDiscountCode,
   ORIGINAL_PRICE_DEFAULT_MESSAGE,
 } from "./original-price-client.ts";
@@ -35,6 +36,8 @@ export function parseOriginalPriceForm(fd: FormData) {
     message: (fd.get("message") as string | null)?.trim() ?? "",
     /** Código o automático. Cambia la familia de mutaciones de Shopify. */
     metodo: leerMetodo(fd.get("metodo")),
+    /** Reemplazar la oferta o sumarse a ella. Cambia el dinero. */
+    modo: leerModoDeCalculo(fd.get("modo")),
 
     excludedPackCampaignIds: parse<string[]>("excludedPacksJson", []).filter(
       (id): id is string => typeof id === "string" && id.length > 0
@@ -102,6 +105,17 @@ function leerDecimal(raw: FormDataEntryValue | null): number | null {
 /** Método desconocido = CODE: es como nació el tipo y como están las guardadas. */
 function leerMetodo(raw: FormDataEntryValue | null): OriginalPriceMetodo {
   return String(raw ?? "") === "AUTOMATIC" ? "AUTOMATIC" : "CODE";
+}
+
+/**
+ * Modo de cálculo desconocido = `SUMA`.
+ *
+ * 🔴 El formulario SIEMPRE manda uno, así que un valor ausente acá solo puede
+ * venir de una campaña vieja. Ésas se comportaban como SUMA y tienen que seguir
+ * haciéndolo. El default de las campañas NUEVAS lo pone el formulario.
+ */
+function leerModoDeCalculo(raw: FormDataEntryValue | null): OriginalPriceModo {
+  return String(raw ?? "") === "REEMPLAZA" ? "REEMPLAZA" : "SUMA";
 }
 
 /** Modo desconocido = "all": es lo que hacían las campañas sin este campo. */
@@ -180,6 +194,7 @@ export function buildOriginalPriceConfig(
   return {
     percent: f.percent,
     metodo: f.metodo,
+    modo: f.modo,
     /**
      * 🔴 EL CÓDIGO SE CONSERVA SIEMPRE, TAMBIÉN EN AUTOMÁTICO.
      *
