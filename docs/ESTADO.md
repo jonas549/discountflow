@@ -10,10 +10,10 @@
 
 | | |
 |---|---|
-| **Producción (Vercel)** | **`e7be44d`** · despliega desde **`main`** |
-| App version en Shopify | **`discountflow-8`** (1 Function: `tiered-discount`) |
-| **Rama de trabajo** | **`dev`** — 32 commits por delante de `main`. **Todo commiteado** |
-| Base de datos | Neon, ramas separadas. **3 migraciones sin aplicar a producción** |
+| **Producción (Vercel)** | 🟢 **`3d84c3f`** · despliega desde **`main`** · desplegado 2026-09-06 |
+| App version en Shopify | 🟢 **`discountflow-10`** — 4 Functions + bloque de tema + `[app_proxy]` |
+| **Ramas** | `main` = `dev` = **`3d84c3f`**, las dos pusheadas |
+| Base de datos | Neon, ramas separadas. 🟢 **Las 3 migraciones aplicadas en el build** |
 | Tests de la app | **344** verdes (`npm test` — es `node --test`, **no** vitest) |
 | Fixtures contra el Wasm real | **81/81** · tiered 16 · pack 13 · order 16 · **cupón 36** |
 | Typecheck | **173** (línea base 170) · solo `TS2345`, `TS2322`, `TS2367` |
@@ -29,9 +29,9 @@
 | Rango | ✅ vivo | = | ✅ |
 | BxGy | ✅ vivo | = | ✅ |
 | Escalonado | ✅ vivo | = **cero diff** | ✅ |
-| **Pack armable** | ❌ | ✅ nuevo | ✅ escritorio, móvil, carrito, checkout |
-| **Monto de compra** | ❌ | ✅ nuevo | ✅ |
-| **Cupón sobre precio original** | ❌ | ✅ nuevo | ✅ **cerrado el 2026-09-06** — ronda completa |
+| **Pack armable** | 🟢 **vivo** | = | ✅ escritorio, móvil, carrito, checkout |
+| **Monto de compra** | 🟢 **vivo** | = | ✅ |
+| **Cupón sobre precio original** | 🟢 **vivo** | = | ✅ **cerrado el 2026-09-06** — ronda completa |
 
 ### Cupón — lo verificado en el navegador (2026-09-06)
 
@@ -195,7 +195,34 @@ Las 4 y 5 tienen mecanismo: `app/components/campaign-forms.test.ts`.
 
 ---
 
-## Estado del despliegue
+## 🟢 Desplegado el 2026-09-06
+
+| Paso | Resultado |
+|---|---|
+| App version | `discountflow-10` activa (19:05). `discountflow-9` descartada: traía un error de theme-check en el `<img>` del widget |
+| `main` | `e7be44d` → **`3d84c3f`** por fast-forward, pusheado |
+| Vercel | Build verde y promovido. Tardó ~4 min desde el push |
+| **Migraciones** | 🟢 **Aplicadas.** Prueba indirecta pero sólida: el `buildCommand` es `npm run setup && npm run build` y `setup` es `prisma generate && prisma migrate deploy`. Si `migrate` hubiera fallado, la cadena `&&` cortaba, el build fallaba y el deployment no se promovía |
+
+**Cómo se verificó que el código nuevo sirve, sin acceso a Vercel:** por RUTA, no
+por assets (los hashes de Vite difieren entre el build local y el de Vercel, así
+que un 404 de asset no prueba nada). Las rutas nuevas no existen en `e7be44d`:
+
+```
+/app/campaigns                     410  ← existe, pide sesión
+/app/campaigns/new/pack            410  ← 🟢 antes 404
+/app/campaigns/new/cart-value      410  ← 🟢
+/app/campaigns/new/original-price  410  ← 🟢
+/apps/discountflow/pack            400  ← 🟢 existe y rechaza la firma: el app_proxy está
+/app/ruta-que-no-existe-jamas      404  ← control
+```
+
+⚠️ **Sin token de Vercel no se puede ver el estado del build ni promover ni hacer
+Instant Rollback.** El sondeo por ruta es el sustituto. Rollback disponible sin
+Vercel: `git revert` + push, y para la Function
+`shopify app release --version=discountflow-8 --force`.
+
+## Estado del despliegue (plan)
 
 **Plan completo: `docs/PLAN-DESPLIEGUE-2026-09-06.md`.** Vigente.
 
