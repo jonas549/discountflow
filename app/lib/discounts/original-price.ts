@@ -20,6 +20,7 @@ import {
   originalPriceMetodo,
   originalPriceUsaCodigo,
   normalizeDiscountCode,
+  esDescuentoInexistente,
   ORIGINAL_PRICE_METAFIELD_KEY,
 } from "./original-price-client";
 import { type ExclusionPorMonto } from "./original-price-calc";
@@ -491,6 +492,41 @@ const CICLO_DE_VIDA = {
   },
 } as const;
 
+/**
+ * Operaciones cuyo OBJETIVO ya está cumplido si el descuento no existe.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * 🔴 EL BUG DEL 2026-09-06, Y POR QUÉ LA TOLERANCIA VIVE ACÁ
+ *
+ * Una campaña de cupón quedó con un `shopifyDiscountId` que ya no existía en
+ * Shopify (ver `edit_.original-price.tsx`: cambiar de método borra el descuento
+ * viejo y crea uno nuevo, y un `create` que falla dejaba el id muerto).
+ *
+ * Al pausarla, Shopify respondía `userErrors: "Automatic discount does not
+ * exist."`, `runDiscountMutation` lanzaba un Error común, y el motor de jobs lo
+ * clasificaba como TRANSITORIO: cinco reintentos, cinco fracasos, y la campaña
+ * ATASCADA EN ACTIVA para siempre. No se podía pausar ni desde la app.
+ *
+ * "No existe" no es transitorio: reintentar nunca va a funcionar. Y para
+ * PAUSAR y ELIMINAR el objetivo es que el descuento no aplique — si no existe,
+ * ya está cumplido. Se cuenta como hecho.
+ *
+ * 🔴 `activar` NO está en la lista, a propósito. Dar por buena una activación
+ * sobre un descuento inexistente dejaría la campaña ACTIVA sin nada que
+ * descuente: exactamente el estado que este arreglo elimina. Ahí el error tiene
+ * que seguir saliendo.
+ *
+ * 🔴 Y por qué acá y no en el motor de jobs: `campaign-ops.ts` y
+ * `runner.server.ts` sirven a los SEIS tipos en las seis tiendas de producción.
+ * Este archivo es solo del cupón. Decisión de Jonas del 2026-09-06: el arreglo
+ * no toca nada compartido.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+const OPERACIONES_QUE_TOLERAN_AUSENCIA = new Set<keyof typeof CICLO_DE_VIDA>([
+  "pausar",
+  "eliminar",
+]);
+
 async function operarCicloDeVida(
   admin: AdminClient,
   shopifyDiscountId: string,
@@ -498,15 +534,29 @@ async function operarCicloDeVida(
   metodo: OriginalPriceMetodo
 ): Promise<void> {
   const [nombre, mutacion] = CICLO_DE_VIDA[operacion][metodo];
-  await runDiscountMutation(
-    admin,
-    `#graphql
-    mutation ${nombre}($id: ID!) {
-      ${mutacion}(id: $id) { userErrors { field message } }
-    }`,
-    { id: shopifyDiscountId },
-    mutacion
-  );
+  try {
+    await runDiscountMutation(
+      admin,
+      `#graphql
+      mutation ${nombre}($id: ID!) {
+        ${mutacion}(id: $id) { userErrors { field message } }
+      }`,
+      { id: shopifyDiscountId },
+      mutacion
+    );
+  } catch (err) {
+    if (OPERACIONES_QUE_TOLERAN_AUSENCIA.has(operacion) && esDescuentoInexistente(err)) {
+      // Se registra SIEMPRE: que la operación siga adelante no significa que
+      // esto sea normal. Es la señal de que un descuento se perdió por el
+      // camino, y sin log el próximo caso volvería a ser invisible.
+      console.warn(
+        `[original-price] ${operacion}: el descuento ${shopifyDiscountId} ya no existe ` +
+          "en Shopify. El objetivo ya está cumplido, se da por hecho."
+      );
+      return;
+    }
+    throw err;
+  }
 }
 
 export async function activateOriginalPriceDiscount(

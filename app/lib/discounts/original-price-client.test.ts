@@ -10,6 +10,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import {
+  esDescuentoInexistente,
   originalPriceProductsLabel,
   exclusionQueAnulaElCupon,
   toOriginalPriceFunctionConfig,
@@ -27,7 +28,25 @@ import {
 } from "./original-price-form.ts";
 
 const RAIZ = path.resolve(import.meta.dirname, "../../..");
-const leer = (p: string) => fs.readFileSync(path.join(RAIZ, p), "utf8");
+
+/** Saltos de linea, armados con `String.fromCharCode` para que no haya
+ *  ninguna duda sobre que caracter es cual al leer este archivo. */
+const CRLF = String.fromCharCode(13) + String.fromCharCode(10);
+const LF = String.fromCharCode(10);
+/**
+ * Se normalizan los saltos de linea al leer.
+ *
+ * `core.autocrlf` esta en `true` y el repo no tiene `.gitattributes`, asi que
+ * un `git checkout` entre ramas reescribe TODO el arbol a CRLF. Los tests que
+ * leen codigo fuente y comparan contra literales empiezan a fallar sin que
+ * nadie haya tocado el codigo: paso el 2026-09-06 al mergear a `main`.
+ *
+ * Git normaliza a LF al commitear, asi que el repo nunca se ve afectado: es un
+ * artefacto del arbol de trabajo. Normalizar aca hace que estos tests digan la
+ * verdad con cualquier configuracion de checkout.
+ */
+const leer = (p: string) =>
+  fs.readFileSync(path.join(RAIZ, p), "utf8").split(CRLF).join(LF);
 
 const BASE: OriginalPriceCampaignConfig = { percent: 10, code: "MARIA10" };
 
@@ -886,4 +905,62 @@ test("🔴 el formulario avisa de la combinación imposible, arriba y en rojo", 
   const arriba = src.slice(0, src.indexOf('gridTemplateColumns: "minmax(0,1fr) 320px"'));
   assert.match(arriba, /avisoImposible/, "el aviso va arriba de la rejilla");
   assert.match(es.nuevoCupon.avisoImposible("X", "$50", "$120"), /X[\s\S]*\$50/);
+});
+
+
+// ─── El descuento que ya no existe (bug del 2026-09-06) ──────────────────────
+
+test("🔴 se reconocen los dos mensajes EXACTOS de Shopify", () => {
+  // Verificados contra la tienda llamando a cada mutación con un id
+  // inexistente. Si estos literales dejaran de casar, una campaña con el
+  // descuento borrado volvería a quedar atascada en ACTIVA para siempre.
+  assert.equal(
+    esDescuentoInexistente(new Error("Automatic discount does not exist.")),
+    true
+  );
+  assert.equal(esDescuentoInexistente(new Error("Code discount does not exist.")), true);
+
+  // Cualquier OTRO error tiene que seguir siendo un error: si tragáramos todo,
+  // un fallo de red o de permisos se daría por "hecho" y la campaña quedaría
+  // marcada como pausada con el descuento vivo en la tienda.
+  assert.equal(esDescuentoInexistente(new Error("Invalid id: gid://x")), false);
+  assert.equal(esDescuentoInexistente(new Error("Throttled")), false);
+  assert.equal(esDescuentoInexistente(new Error("Access denied")), false);
+  assert.equal(esDescuentoInexistente(null), false);
+  assert.equal(esDescuentoInexistente(undefined), false);
+});
+
+test("🔴 PAUSAR y ELIMINAR toleran la ausencia; ACTIVAR no", () => {
+  // La asimetría es el corazón del arreglo. Pausar y eliminar buscan que el
+  // descuento no aplique: si no existe, el objetivo ya está cumplido. Activar
+  // busca lo contrario, y darlo por bueno dejaría una campaña ACTIVA sin nada
+  // que descuente — justo el estado que este arreglo elimina.
+  const src = leer("app/lib/discounts/original-price.ts");
+  const lista = src.slice(
+    src.indexOf("OPERACIONES_QUE_TOLERAN_AUSENCIA"),
+    src.indexOf("async function operarCicloDeVida")
+  );
+  assert.match(lista, /"pausar"/);
+  assert.match(lista, /"eliminar"/);
+  assert.doesNotMatch(lista, /"activar"/, "activar NO puede tolerar la ausencia");
+
+  // Y la tolerancia tiene que estar dentro de `operarCicloDeVida`, que es por
+  // donde pasan las tres operaciones.
+  const ciclo = src.slice(src.indexOf("async function operarCicloDeVida"));
+  assert.match(ciclo, /esDescuentoInexistente\(err\)/);
+  assert.match(ciclo, /throw err/, "cualquier otro error se sigue propagando");
+});
+
+test("🔴 el cambio de método no puede dejar un id muerto", () => {
+  // La causa raíz: borrar el descuento viejo y fallar al crear el nuevo dejaba
+  // la campaña ACTIVA apuntando a un descuento inexistente, y desde ahí no se
+  // la podía pausar. Ahora se limpia el id y queda PAUSADA, que es un estado
+  // recuperable: activarla la recrea, y borrarla no necesita tocar Shopify.
+  const src = leer("app/routes/app.campaigns.$id.edit_.original-price.tsx");
+  const catchDelCreate = src.slice(src.indexOf("if (cambioDeMetodo) {", src.indexOf("} catch (err) {")));
+
+  assert.match(catchDelCreate, /delete sinDescuento\.shopifyDiscountId/);
+  assert.match(catchDelCreate, /status: "PAUSED"/);
+  // Y el merchant tiene que enterarse de cómo recuperarla.
+  assert.match(catchDelCreate, /activala de nuevo/i);
 });

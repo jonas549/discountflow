@@ -190,6 +190,52 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
         );
       }
     } catch (err) {
+      /**
+       * 🔴 LA CAUSA RAÍZ DEL BUG DEL 2026-09-06.
+       *
+       * Si veníamos de un CAMBIO DE MÉTODO, el descuento viejo ya se borró
+       * arriba. Si además falla el `create`, la campaña queda ACTIVA apuntando
+       * a un descuento que ya no existe — y desde ahí no se la puede pausar:
+       * Shopify responde "discount does not exist", el motor de jobs lo toma
+       * por transitorio, reintenta cinco veces y se rinde. Atascada para
+       * siempre.
+       *
+       * Así que no se deja el muerto: se limpia el id y la campaña queda
+       * PAUSADA. Ese estado sí es recuperable, y sin tocar nada compartido:
+       *
+       *   · Activar   → como no hay id, el listado la RECREA (rama `else`).
+       *   · Eliminar  → `deleteHandler` hace `if (id)`, se saltea Shopify y
+       *                 borra la fila.
+       *   · Pausar    → no hace falta, ya está pausada.
+       *
+       * Se elige PAUSED y no DRAFT porque es la verdad: el merchant la había
+       * activado y ahora no está descontando.
+       */
+      if (cambioDeMetodo) {
+        const sinDescuento = { ...config };
+        delete sinDescuento.shopifyDiscountId;
+
+        await prisma.campaign.update({
+          where: { id: campaignId },
+          data: {
+            status: "PAUSED",
+            config: sinDescuento as unknown as Record<string, unknown>,
+          },
+        });
+
+        return Response.json(
+          {
+            errors: {
+              general:
+                "Se cambió el método, pero no se pudo crear el descuento nuevo en " +
+                `Shopify: ${String(err)}. La campaña quedó PAUSADA y sin descuento — ` +
+                "activala de nuevo para recrearlo.",
+            },
+          },
+          { status: 500 }
+        );
+      }
+
       return Response.json(
         {
           errors: {

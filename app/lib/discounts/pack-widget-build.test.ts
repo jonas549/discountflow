@@ -132,7 +132,13 @@ test("el build coincide en el script, los dos Liquid y el JS generado", () => {
     );
   }
 
-  const js = fs.readFileSync(path.join(ASSETS, `pack-${build}.js`), "utf8");
+  // Normalizado: esbuild compila en memoria con LF, y el archivo del disco
+  // puede estar en CRLF si un `git checkout` reescribio el arbol de trabajo
+  // (core.autocrlf=true y sin .gitattributes). Paso el 2026-09-06.
+  const js = fs
+    .readFileSync(path.join(ASSETS, `pack-${build}.js`), "utf8")
+    .split(String.fromCharCode(13) + String.fromCharCode(10))
+    .join(String.fromCharCode(10));
   assert.match(js, new RegExp(`window\\.DF_PACK_BUILD = ${build};`));
 });
 
@@ -182,7 +188,13 @@ test("el JS generado lleva el cálculo compilado desde pack-calc.ts", async () =
     minify: false,
   });
 
-  const js = fs.readFileSync(path.join(ASSETS, `pack-${build}.js`), "utf8");
+  // Normalizado: esbuild compila en memoria con LF, y el archivo del disco
+  // puede estar en CRLF si un `git checkout` reescribio el arbol de trabajo
+  // (core.autocrlf=true y sin .gitattributes). Paso el 2026-09-06.
+  const js = fs
+    .readFileSync(path.join(ASSETS, `pack-${build}.js`), "utf8")
+    .split(String.fromCharCode(13) + String.fromCharCode(10))
+    .join(String.fromCharCode(10));
   assert.ok(
     js.includes(compilado.outputFiles[0].text.trim()),
     "pack-" + build + ".js no contiene el cálculo actual — corré `npm run build:pack-widget`"

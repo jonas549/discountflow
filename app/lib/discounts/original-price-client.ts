@@ -243,6 +243,32 @@ export function originalPriceMinimos(config: OriginalPriceCampaignConfig): {
   };
 }
 
+/**
+ * ¿Shopify dijo que el descuento ya no existe?
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * Los mensajes son literales de Shopify, verificados contra la tienda el
+ * 2026-09-06 llamando a cada mutación con un id inexistente (una llamada que no
+ * modifica nada):
+ *
+ *   discountAutomaticDeactivate → "Automatic discount does not exist."
+ *   discountAutomaticDelete     → "Automatic discount does not exist."
+ *   discountCodeDeactivate      → "Code discount does not exist."
+ *   discountCodeDelete          → "Code discount does not exist."
+ *
+ * Los dos terminan igual, así que se compara por esa parte y no por la frase
+ * entera: si Shopify cambiara "Automatic" por otra palabra, esto sigue
+ * funcionando.
+ *
+ * Vive en el módulo cliente —y no junto a las mutaciones— para que se pueda
+ * probar sin arrastrar Prisma. Ver `operarCicloDeVida` en `original-price.ts`.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+export function esDescuentoInexistente(err: unknown): boolean {
+  const texto = err instanceof Error ? err.message : String(err ?? "");
+  return /discount does not exist/i.test(texto);
+}
+
 export const ORIGINAL_PRICE_TITLE_PREFIX = "[DiscountFlow] ";
 
 export function originalPriceDiscountTitle(campaignName: string): string {
