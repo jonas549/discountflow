@@ -222,6 +222,70 @@ Instant Rollback.** El sondeo por ruta es el sustituto. Rollback disponible sin
 Vercel: `git revert` + push, y para la Function
 `shopify app release --version=discountflow-8 --force`.
 
+## 🟢 Los "descuentos fantasma" del 2026-09-06 — fue el ambiente, no el producto
+
+Dos campañas quedaron ACTIVAS y sin poder pausarse: un **cupón** y un **BxGy
+«Test Shopify»**, las dos en la tienda de desarrollo. El síntoma era idéntico:
+barra en 0%, «N unidades con incidencias», y la campaña sin pausarse.
+
+**La causa es de ambiente, no de producto.** Durante una sesión de QA se tocó el
+**panel nativo de descuentos de Shopify** y se crearon cupones enlazados de
+alguna forma con las campañas de la app. Al borrar después esos descuentos desde
+el panel nativo, las campañas quedaron apuntando a descuentos que ya no existen.
+
+**La prueba de que el producto está sano**: se pausó la campaña BxGy
+**«Sensilis» de SkinUp** y funcionó perfecto. Las tiendas de clientes no tienen
+el problema porque nadie tocó sus descuentos desde el panel nativo.
+
+### Qué se hizo y qué no
+
+| | |
+|---|---|
+| 🟢 **Cupón** | El arreglo **está en producción** (`92b7d4e`) y sigue siendo válido: tolera que el descuento no exista al pausar/eliminar, y ya no deja un id colgando si el cambio de método falla |
+| 🔴 **BxGy** | **NO se arregló.** Se empezó y se descartó al conocerse la causa. `bxgy.ts` quedó intacto |
+| 🟡 **Los otros tres tipos** | Sin tocar |
+
+### ⚠️ Corrección a un diagnóstico anterior
+
+Al diagnosticar el cupón se dijo que lo más probable era que el id colgante
+viniera del cambio de método (borrar el viejo y fallar al crear el nuevo), y se
+dejó dicho que no se podía reconstruir con los datos disponibles. **Con lo que se
+sabe ahora, la explicación buena es la misma que la del BxGy: el borrado desde
+el panel nativo.** El arreglo del cupón sigue valiendo —cubre los dos casos— pero
+la atribución de la causa estaba equivocada.
+
+### 🟡 Pendiente de baja prioridad: la tolerancia para los demás tipos
+
+Que esta vez haya sido QA no significa que no pueda pasar solo: **un merchant
+puede borrar un descuento a mano sin querer desde Shopify → Descuentos**, y ahí
+la campaña queda igual de atascada. El propio `deleteHandler` ya lo contempla
+(*«El descuento puede haber sido borrado ya desde el admin de Shopify»*); el
+camino de **pausar** es el que no lo contempla.
+
+**No es urgente y hoy no afecta a nadie.** Cuando se haga, el diagnóstico ya
+está: solo hay que tocar el camino de pausar —el de eliminar ya tolera— y hay
+dos formas:
+
+- **Un solo sitio en `revertHandler` (`campaign-ops.ts`)**, que cubre los cinco
+  tipos. Porcentaje y Rango quedan fuera *por construcción*: la primera línea de
+  `runUnits` es `if (isPriceType(...)) return runPriceUnits(...)`.
+- **Cuatro archivos** (`bxgy.ts`, `tiered.ts`, `pack.ts`, `cart-value.ts`),
+  replicando la tolerancia del cupón sin tocar nada compartido — a costa de la
+  misma lógica en cinco sitios.
+
+🔴 **En cualquiera de las dos, el matcher tiene que ser el texto exacto**
+(`discount does not exist`, verificado contra Shopify) y **todo lo demás
+relanzarse**. Si se tragara un error que no es ése —red, permisos— la campaña
+quedaría marcada como pausada con el descuento **vivo descontando**, que es el
+fallo caro y en la dirección contraria.
+
+### Cómo se recupera una campaña ya dañada
+
+**Eliminarla desde la app funciona hoy, sin ningún cambio**: `deleteHandler`
+envuelve el borrado en `try/catch` y su `finalize` hace `prisma.campaign.delete`.
+
+---
+
 ## Segundo despliegue del 2026-09-06 — `92b7d4e`
 
 **Sin app version**: `discountflow-10` se queda. Se comprobó que `extensions/`
@@ -272,6 +336,7 @@ las variables de Vercel, y **que Jonas pruebe los dos cambios de hoy**.
 | 🔴 **El cron de campañas programadas no existe** | `vercel.json` lo declara y la ruta no está: las campañas con `endsAt` **nunca se detienen solas** |
 | 🔴 `/app/plans/confirm` escribe el plan desde la URL sin verificarlo | Cualquier merchant podría subirse de plan gratis |
 | 🔴 **`Section` desmonta a sus hijos al plegarse** | Arreglado **solo en el cupón**. En los otros **seis** formularios, plegar una sección borra sus campos en silencio. `tiersJson` de monto de compra es el más caro. §5-BIS del plan |
+| 🟡 **Tolerancia al descuento borrado a mano, en los tipos que no son el cupón** | Baja prioridad. Hoy no afecta a nadie: el caso del 06/09 fue una sesión de QA sobre el panel nativo, no uso normal. Pero un merchant puede borrar un descuento sin querer y la campaña queda sin poder pausarse. Solo hay que tocar el camino de **pausar**; el de eliminar ya tolera |
 | 🟡 **BxGy tiene `usesPerOrderLimit` sin usar** | Un «compra 2 llevá 1» puede aplicar **10 veces en un pedido** |
 | 🟡 Segmentos de clientes | Se puede con `context`, pero `segments` da `ACCESS_DENIED`: hace falta `read_customers` → **re-autorización de todos los merchants** + PCD |
 | 🟡 **Exclusión espejo: desde MONTO DE COMPRA excluir un cupón** | **Evaluada, no construida.** 🟢 Se puede para cupones de **CÓDIGO** vía `input.enteredDiscountCodes` (la raíz del input, sin `@restrictTarget`; Shopify ya los valida activos y elegibles para el carrito) — mejor mecanismo que la dirección que existe, porque no depende del orden de evaluación. 🔴 **Para cupones AUTOMÁTICOS no se puede**: no hay código que observar, y recalcular abre una circularidad. ⚠️ Si el merchant marca las **dos** direcciones, **no aplica ninguno** (cada uno se aparta por su propia regla) → hace falta un guard que avise del espejo. Decisión de Jonas pendiente: opción A (código escrito = excluido, simple, sobre-suprime si el cupón dio $0) vs B (además recalcular alcance y mínimos, más preciso, reabre la circularidad). Recomendada: **A** |
