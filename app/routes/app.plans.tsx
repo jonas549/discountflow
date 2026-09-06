@@ -59,32 +59,66 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
 // ─── Plan card ────────────────────────────────────────────────────────────────
 
+/**
+ * Lo que la tarjeta de cada plan le promete al merchant.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * 🔴 ESTO TIENE QUE DESCRIBIR `PLAN_LIMITS`, NO AL REVÉS.
+ *
+ * Hasta el 2026-09-06 los cuatro planes decían "Porcentaje, Rango de precio,
+ * BxGy", y en GRATIS eso era FALSO desde que F4 cerró el agujero: el plan
+ * gratuito no incluye BxGy. El texto se quedó atrás de la tabla y estuvo
+ * mintiéndole a los merchants gratuitos.
+ *
+ * Por eso `plan-features.test.ts` compara estas cadenas contra `PLAN_LIMITS` y
+ * falla si vuelven a divergir. Si cambiás un límite, este texto tiene que
+ * cambiar con él.
+ *
+ * Los topes por tipo salen de `PLAN_LIMITS[plan].types`:
+ *
+ *              BxGy    Escalonados  Packs   Monto     Cupón
+ *   GRATIS      ✗          ✗          ✗       ✗         ✗
+ *   LITE        4          2          ✗       2         ✗
+ *   ESSENTIAL   10         10        sin      sin       sin
+ *   PROFES.    sin        sin        sin      sin       sin
+ *
+ * ⚠️ Las líneas de ANALÍTICAS y SOPORTE no tienen nada detrás en el código: no
+ * hay gating por plan en `app.analytics.tsx` ni en `app.support.tsx`, y los
+ * cuatro planes ven lo mismo. Se conservan como estaban, pero prometen una
+ * diferencia que el producto no implementa. Pendiente de decisión de Jonas.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
 const FEATURES: Record<Plan, string[]> = {
   FREE: [
     "2 campañas activas",
     "50 variantes en descuento",
-    "Porcentaje, Rango de precio, BxGy",
+    // Solo estos dos: los otros cinco tipos tienen `incluido: false` en FREE.
+    "Porcentaje y Rango de precio",
     "Analíticas básicas",
     "Soporte por email",
   ],
   LITE: [
     "5 campañas activas",
     "750 variantes en descuento",
-    "Porcentaje, Rango de precio, BxGy",
+    "Porcentaje, Rango de precio, BxGy (hasta 4) y Escalonados (hasta 2)",
+    // 🔴 El código dice `max: 2`, no 1. Esa fila sigue marcada como SUPUESTO en
+    // `plan-limits.ts`: si se decide otro número, se cambia allá y acá.
+    "Descuento por monto de compra (hasta 2 activas)",
     "Analíticas completas",
     "Soporte prioritario",
   ],
   ESSENTIAL: [
     "50 campañas activas",
-    "6,000 variantes en descuento",
-    "Porcentaje, Rango de precio, BxGy",
+    "6.000 variantes en descuento",
+    "Todos los tipos: Porcentaje, Rango, BxGy, Escalonados, Packs armables, Monto de compra y Cupón sobre precio original",
+    "BxGy y Escalonados: hasta 10 activas de cada uno",
     "Analíticas completas + ROI",
     "Soporte prioritario",
   ],
   PROFESSIONAL: [
     "100 campañas activas",
-    "10,000 variantes en descuento",
-    "Porcentaje, Rango de precio, BxGy",
+    "10.000 variantes en descuento",
+    "Todos los tipos, sin límite por tipo",
     "Analíticas avanzadas",
     "Soporte dedicado",
   ],
