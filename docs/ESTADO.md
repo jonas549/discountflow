@@ -588,6 +588,7 @@ nunca `head` en la cadena.
 | Fecha | Documento |
 |---|---|
 | **siempre** | 🔴 **`DESPLIEGUE-A-PRODUCCION.md`** — el procedimiento canónico, sin fecha |
+| **2026-09-07** | **`HANDOFF-2026-09-07-productos-borrados.md`** (el último) |
 | 2026-09-06 | **`HANDOFF-2026-09-06-atribucion.md`** (el último del día) · `HANDOFF-2026-09-06-despliegue-a-produccion.md` · `PLAN-DESPLIEGUE-2026-09-06.md` · `HANDOFF-2026-09-06-cupon-completo.md` |
 | 2026-09-05 | `HANDOFF-2026-09-05-tres-tipos-de-campana.md` · `HANDOFF-2026-09-05-packs-F1-F2-F3.md` |
 | 2026-09-01 | `HANDOFF-2026-09-01-caso-116943.md` |
