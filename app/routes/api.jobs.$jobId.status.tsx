@@ -37,6 +37,31 @@ function pollIntervalFor(startedAt: Date | null, now: Date): number {
   return POLL_SLOW_MS;
 }
 
+/**
+ * Lo salteado, en la forma que la pantalla puede mostrar.
+ *
+ * El GID completo no le dice nada a nadie; el número final es justo lo que el
+ * merchant ve en la URL de un producto en el admin de Shopify, así que es lo que
+ * le permite comprobar por su cuenta que ya no existe.
+ *
+ * No se intenta resolver el TÍTULO a propósito: el producto ya no está en la
+ * tienda, así que no hay de dónde sacarlo, y `CampaignProduct` nunca lo guardó.
+ * Inventar un nombre sería peor que dar el identificador exacto.
+ */
+function resumirSalteados(
+  skipped: unknown
+): Array<{ id: string; reason: string; variants: number }> {
+  if (!Array.isArray(skipped)) return [];
+  return skipped.slice(0, 50).map((s) => {
+    const unit = String((s as { unit?: string })?.unit ?? "");
+    return {
+      id: unit.split("/").pop() ?? unit,
+      reason: String((s as { reason?: string })?.reason ?? "product-missing"),
+      variants: Number((s as { variants?: number })?.variants ?? 0),
+    };
+  });
+}
+
 function humanMessage(
   status: JobStatus,
   phase: string,
@@ -129,6 +154,12 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     stalled: isStalled(status, job.heartbeatAt, now, LEASE_STALE_MS),
 
     errorCount: job.errorCount,
+    // Salteadas: el producto o sus variantes ya no existen en la tienda. Van
+    // separadas de `errorCount` a propósito — no hay precio que revertir en un
+    // producto borrado, así que no es una incidencia que el merchant deba
+    // resolver, pero SÍ tiene que saber qué quedó fuera y por qué.
+    skippedCount: job.skippedCount,
+    skippedProducts: resumirSalteados(job.skipped),
     lastError: status === "FAILED" ? job.lastError : null,
     attempts: job.attempts,
     canCancel: !isTerminal(status) && status !== "CANCELLING",

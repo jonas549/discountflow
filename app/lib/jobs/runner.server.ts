@@ -32,6 +32,7 @@ import {
   type AdminClient,
   type JobUnit,
   type OpContext,
+  type SkippedUnit,
 } from "./operations/index.ts";
 
 /** Cuántas unidades pendientes se traen de la BD de una vez. */
@@ -160,6 +161,13 @@ export async function runJobBatch(
     ? [...(job.errors as Array<{ unit: string; message: string }>)]
     : [];
 
+  // Lo salteado se siembra igual que las incidencias, y por el mismo motivo:
+  // `flushProgress` sobrescribe el campo entero.
+  let skippedCount = job.skippedCount;
+  const skipped: SkippedUnit[] = Array.isArray(job.skipped)
+    ? [...(job.skipped as SkippedUnit[])]
+    : [];
+
   try {
     // ── Fase 0 — resolución ───────────────────────────────────────────────────
     // También se trocea: paginar el catálogo de una tienda de 20.000 variantes
@@ -217,6 +225,26 @@ export async function runJobBatch(
             if (failures.length < 50) failures.push(f);
           }
 
+          for (const s of res.skipped ?? []) {
+            skippedCount += 1;
+            if (skipped.length < 50) skipped.push(s);
+          }
+
+          // 🔴 Refrescar las incidencias del contexto ANTES de la siguiente ola.
+          //
+          // `runPriceUnits` decide si sellar una unidad fallida mirando
+          // `ctx.job.errors`, que era la foto de la BD al empezar el lote y no se
+          // tocaba en toda la fase de trabajo. Resultado: dentro de un mismo lote
+          // la unidad fallida nunca constaba "como fallida de antes", nunca se
+          // sellaba, `pendingUnits` la devolvía otra vez, y el lote daba vueltas
+          // sobre ella hasta agotar el plazo de 45 s.
+          //
+          // Eso es lo que producía 310 incidencias sobre 2 unidades reales
+          // (Greta, 2026-09-07): el contador no medía productos rotos, medía
+          // cuántas vueltas cupieron en el plazo. Con esta línea el segundo
+          // intento la sella y el lote sigue avanzando.
+          ctx.job = { ...ctx.job, errors: failures };
+
           if (sinceFlush >= PROGRESS_FLUSH_UNITS) {
             sinceFlush = 0;
             const done = await handler.totalDone(ctx);
@@ -225,6 +253,8 @@ export async function runJobBatch(
               processedVariants: done.variants,
               errorCount,
               errors: failures.length ? failures : undefined,
+              skippedCount,
+              skipped: skipped.length ? skipped : undefined,
             });
             if (!alive) return leaseLost(base, startedAt, now);
 
@@ -244,6 +274,8 @@ export async function runJobBatch(
       processedVariants: done.variants,
       errorCount,
       errors: failures.length ? failures : undefined,
+      skippedCount,
+      skipped: skipped.length ? skipped : undefined,
     });
     if (!alive) return leaseLost(base, startedAt, now);
 
@@ -258,6 +290,11 @@ export async function runJobBatch(
       // finalize ANTES de marcar terminado: es donde DELETE borra la campaña, y
       // la cascada se lleva por delante la propia fila del job.
       if (handler.finalize) await handler.finalize(ctx);
+      // 🔴 Solo `errorCount` degrada el estado. Lo salteado NO: un producto que
+      // ya no existe en la tienda no tiene precio que revertir, así que saltearlo
+      // es el resultado CORRECTO de la operación, no una incidencia. Una campaña
+      // cuyos 50 productos borrados se saltearon queda COMPLETED y PAUSED, con el
+      // aviso de qué no se encontró.
       const status: JobStatus = errorCount > 0 ? "COMPLETED_WITH_ERRORS" : "COMPLETED";
       await finishJob(jobId, nonce, status);
       return finish(base, status, done.products, job, unitsThisBatch, startedAt, now, false);

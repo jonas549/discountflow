@@ -167,6 +167,63 @@ export async function getAllProductVariants(
   return results;
 }
 
+// ─── Productos y variantes que ya no existen ──────────────────────────────────
+
+/**
+ * ¿Este fallo es "el producto o la variante ya no está en Shopify"?
+ *
+ * 🔴 El matcher es el TEXTO EXACTO que devuelve Shopify en `userErrors`, y todo
+ * lo demás se relanza. Es la misma regla que la tolerancia del cupón: si esto se
+ * tragara un error que no es éste —red, permisos, throttling— la campaña se
+ * pausaría dando por revertidos precios que siguen rebajados, que es el fallo
+ * caro y en la dirección contraria.
+ *
+ * Los dos mensajes están verificados contra pedidos reales de producción
+ * (2026-09-07, tienda de Greta):
+ *   "Product does not exist"
+ *   "Product variant does not exist"
+ */
+export function isMissingInShopify(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /\bproduct (variant )?does not exist\b/i.test(msg);
+}
+
+/**
+ * IDs de las variantes que HOY existen en un producto.
+ *
+ * Devuelve `null` cuando el producto entero ya no existe — que es distinto de
+ * "no tiene variantes" y distinto de "la consulta falló".
+ *
+ * 🔴 A diferencia de `getProductVariants`, esta función NO se traga los fallos.
+ * Ese `?? []` convierte un token caducado o un throttling en "el producto no
+ * existe", y aquí esa confusión haría que se saltearan productos vivos y sus
+ * precios se quedaran rebajados para siempre. Es el cuarto fallo tragado que
+ * este repo persigue; no se reintroduce en el camino que decide saltear.
+ */
+export async function getExistingVariantIds(
+  admin: { graphql: (q: string, o?: { variables: unknown }) => Promise<Response> },
+  productId: string
+): Promise<Set<string> | null> {
+  const res = await admin.graphql(
+    `#graphql
+    query GetExistingVariantIds($productId: ID!) {
+      product(id: $productId) {
+        id
+        variants(first: 250) { nodes { id } }
+      }
+    }`,
+    { variables: { productId } }
+  );
+  const json = await res.json();
+  const product = readQueryData<{ id: string; variants: { nodes: Array<{ id: string }> } }>(
+    json,
+    "product",
+    `variantes vivas del producto ${productId}`
+  );
+  if (!product) return null;
+  return new Set((product.variants?.nodes ?? []).map((v) => v.id));
+}
+
 // ─── Bulk variant price update ────────────────────────────────────────────────
 
 /** Reintentos ante THROTTLED. El bucket de Shopify recupera 50 pts/s y una

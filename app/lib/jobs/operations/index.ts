@@ -57,10 +57,30 @@ export type ResolveStep = {
   resolveCursor: string | null;
 };
 
+/** Por qué una unidad se salteó. Ninguno de los dos es un error del merchant. */
+export type SkipReason = "product-missing" | "variants-missing";
+
+export type SkippedUnit = {
+  unit: string;
+  reason: SkipReason;
+  /** Cuántas variantes de esa unidad no se encontraron. Alimenta el aviso. */
+  variants: number;
+};
+
 export type RunUnitsResult = {
   succeeded: JobUnit[];
   /** Fallos por unidad. NO abortan el lote: el job acaba COMPLETED_WITH_ERRORS. */
   failures: Array<{ unit: string; message: string }>;
+  /**
+   * Unidades salteadas porque ya no existen en Shopify.
+   *
+   * 🔴 NO son fallos y no cambian el estado final del job: un producto borrado no
+   * tiene precio que revertir, así que saltearlo ES el resultado correcto. Se
+   * cuentan aparte para poder decírselo al merchant, y se SELLAN igual que las
+   * que salieron bien — si no se sellaran, `remaining` nunca llegaría a cero y la
+   * campaña no se podría pausar, que es exactamente el bloqueo que esto arregla.
+   */
+  skipped?: SkippedUnit[];
 };
 
 export type JobHandler = {

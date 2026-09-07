@@ -42,6 +42,10 @@ export type JobRecord = {
   /** Incidencias por unidad acumuladas entre lotes. Ver la siembra en el runner. */
   errors: unknown;
   lastError: string | null;
+  /** Unidades salteadas por no existir ya en Shopify. NO son incidencias. */
+  skippedCount: number;
+  /** Detalle de lo salteado, acumulado entre lotes igual que `errors`. */
+  skipped: unknown;
   payload: unknown;
   startedAt: Date | null;
   finishedAt: Date | null;
@@ -264,6 +268,8 @@ export async function flushProgress(
     resolveCursor?: string | null;
     errorCount?: number;
     errors?: unknown;
+    skippedCount?: number;
+    skipped?: unknown;
   }
 ): Promise<boolean> {
   const res = await prisma.campaignJob.updateMany({
@@ -282,6 +288,8 @@ export async function flushProgress(
       ...(data.resolveCursor !== undefined && { resolveCursor: data.resolveCursor }),
       ...(data.errorCount !== undefined && { errorCount: data.errorCount }),
       ...(data.errors !== undefined && { errors: data.errors as never }),
+      ...(data.skippedCount !== undefined && { skippedCount: data.skippedCount }),
+      ...(data.skipped !== undefined && { skipped: data.skipped as never }),
       heartbeatAt: new Date(),
     },
   });

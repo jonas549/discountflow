@@ -32,6 +32,9 @@ export type JobStatusPayload = {
   etaSeconds: number | null;
   stalled: boolean;
   errorCount: number;
+  /** Unidades salteadas por no existir ya en la tienda. NO son incidencias. */
+  skippedCount: number;
+  skippedProducts: Array<{ id: string; reason: string; variants: number }>;
   lastError: string | null;
   attempts: number;
   canCancel: boolean;
@@ -44,6 +47,70 @@ const TERMINAL = new Set([
   "FAILED",
   "CANCELLED",
 ]);
+
+/**
+ * Aviso de lo que se salteó por no existir ya en la tienda.
+ *
+ * 🔴 Se distingue el producto BORRADO de la variante borrada de un producto que
+ * sigue vivo, porque no son lo mismo para el merchant: en el segundo caso su
+ * producto está ahí y sus demás tallas SÍ recuperaron el precio. Decirle
+ * "producto no encontrado" cuando lo tiene delante en su catálogo lo mandaría a
+ * buscar un problema que no existe.
+ *
+ * En gris y no en ámbar a propósito: no es una incidencia que deba resolver.
+ */
+function SalteadosAviso({ data }: { data: JobStatusPayload }) {
+  const lista = data.skippedProducts ?? [];
+  const productos = lista.filter((p) => p.reason === "product-missing");
+  const conVariantes = lista.filter((p) => p.reason === "variants-missing");
+  const noListados = data.skippedCount - lista.length;
+
+  return (
+    <div
+      style={{
+        marginTop: 8,
+        fontSize: 12,
+        color: "#6d7175",
+        background: "#f6f6f7",
+        border: "1px solid #e1e3e5",
+        borderRadius: 6,
+        padding: "8px 10px",
+      }}
+    >
+      <div style={{ fontWeight: 600, color: "#42474c" }}>
+        Se saltearon {data.skippedCount}{" "}
+        {data.skippedCount === 1 ? "producto" : "productos"} que ya no están en la
+        tienda.
+      </div>
+      <div style={{ marginTop: 4 }}>
+        No tenían ningún precio que restaurar, así que la campaña terminó igual.
+        El resto se procesó con normalidad.
+      </div>
+
+      {productos.length > 0 && (
+        <div style={{ marginTop: 6, wordBreak: "break-all" }}>
+          <strong>Eliminados de la tienda</strong> ({productos.length}):{" "}
+          {productos.map((p) => p.id).join(" · ")}
+        </div>
+      )}
+
+      {conVariantes.length > 0 && (
+        <div style={{ marginTop: 6, wordBreak: "break-all" }}>
+          <strong>Con variantes eliminadas</strong> ({conVariantes.length}): el
+          producto sigue existiendo y sus demás variantes sí recuperaron el
+          precio —{" "}
+          {conVariantes
+            .map((p) => `${p.id} (${p.variants})`)
+            .join(" · ")}
+        </div>
+      )}
+
+      {noListados > 0 && (
+        <div style={{ marginTop: 6 }}>…y {noListados} más.</div>
+      )}
+    </div>
+  );
+}
 
 /**
  * Cuántos fallos de red seguidos se toleran antes de rendirse (~25 s a 5 s cada uno).
@@ -332,6 +399,14 @@ export function JobProgress({
           incidencias.
         </div>
       )}
+
+      {/*
+        Lo salteado se cuenta y se explica APARTE de las incidencias, en gris y
+        no en ámbar: no es un problema que el merchant tenga que resolver. Un
+        producto que borró de su tienda no tiene precio que devolver, y decirle
+        "incidencia" lo dejaría dudando de si sus precios volvieron o no.
+      */}
+      {(data.skippedCount ?? 0) > 0 && <SalteadosAviso data={data} />}
 
       {data.lastError && (
         <div style={{ marginTop: 8, fontSize: 12, color: "#c0392b" }}>

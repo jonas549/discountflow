@@ -27,7 +27,11 @@
 
 import { Prisma } from "@prisma/client";
 import prisma from "../../../db.server.ts";
-import { bulkUpdateVariantPrices } from "../../shopify/admin-api.ts";
+import {
+  bulkUpdateVariantPrices,
+  getExistingVariantIds,
+  isMissingInShopify,
+} from "../../shopify/admin-api.ts";
 import {
   parseCursor,
   resolveNextPage,
@@ -83,6 +87,7 @@ import type {
   OpContext,
   ResolveStep,
   RunUnitsResult,
+  SkippedUnit,
 } from "./index.ts";
 
 /** Igual que en range.ts: por debajo de esto no se baja un precio. */
@@ -247,6 +252,10 @@ async function runPriceUnits(
   }
 
   const failures: RunUnitsResult["failures"] = [];
+  // Salteadas: ya no existen en Shopify. Van aparte de `failures` a propósito —
+  // no cambian el estado final del job y SÍ se sellan, para que la campaña pueda
+  // terminar de pausarse.
+  const skipped: SkippedUnit[] = [];
 
   // En paralelo: el runner ya limita la ola a CONCURRENCY unidades, que es lo
   // calibrado contra el presupuesto de puntos de Shopify.
@@ -279,14 +288,71 @@ async function runPriceUnits(
               };
         });
 
-      if (updates.length > 0) {
+      if (updates.length === 0) return;
+
+      const comoTexto = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+      try {
+        await bulkUpdateVariantPrices(ctx.admin, unit.productId, updates);
+        return;
+      } catch (err) {
+        // Cualquier fallo que NO sea "ya no existe" es un fallo de verdad y se
+        // trata como siempre: se anota y el job acaba COMPLETED_WITH_ERRORS.
+        if (!isMissingInShopify(err)) {
+          failures.push({ unit: unit.productId, message: comoTexto(err) });
+          return;
+        }
+
+        // Algo de este producto desapareció de la tienda. Hay que averiguar QUÉ
+        // antes de decidir, porque las consecuencias son opuestas: si el producto
+        // entero se borró no hay nada que hacer, pero si solo murió una variante,
+        // sus HERMANAS SIGUEN VIVAS y hay que revertirlas — mandarlas todas juntas
+        // es lo que las dejaba rebajadas con la campaña pausada.
+        let vivas: Set<string> | null;
         try {
-          await bulkUpdateVariantPrices(ctx.admin, unit.productId, updates);
-        } catch (err) {
-          failures.push({
+          vivas = await getExistingVariantIds(ctx.admin, unit.productId);
+        } catch (err2) {
+          // La consulta de comprobación falló. NO se puede afirmar que el producto
+          // no exista, así que no se saltea: saltear por una lectura fallida es
+          // exactamente cómo se dejarían precios rebajados creyendo lo contrario.
+          failures.push({ unit: unit.productId, message: comoTexto(err2) });
+          return;
+        }
+
+        if (vivas === null) {
+          // El producto entero ya no está. No hay precio que devolver.
+          skipped.push({
             unit: unit.productId,
-            message: err instanceof Error ? err.message : String(err),
+            reason: "product-missing",
+            variants: updates.length,
           });
+          return;
+        }
+
+        const updatesVivas = updates.filter((u) => vivas.has(u.id));
+        const ausentes = updates.length - updatesVivas.length;
+
+        if (updatesVivas.length === 0) {
+          skipped.push({
+            unit: unit.productId,
+            reason: "variants-missing",
+            variants: ausentes,
+          });
+          return;
+        }
+
+        // Segundo y último intento, solo con las variantes que existen hoy. Si
+        // este también falla es un problema real, no una variante fantasma.
+        try {
+          await bulkUpdateVariantPrices(ctx.admin, unit.productId, updatesVivas);
+          if (ausentes > 0)
+            skipped.push({
+              unit: unit.productId,
+              reason: "variants-missing",
+              variants: ausentes,
+            });
+        } catch (err3) {
+          failures.push({ unit: unit.productId, message: comoTexto(err3) });
         }
       }
     })
@@ -305,6 +371,11 @@ async function runPriceUnits(
   // antes, en cuyo caso se sellan igual: sin ese tope, una unidad que falla
   // siempre haría que el job encadenase lotes indefinidamente, y agotar la cuota
   // de invocaciones en Hobby apaga el servicio hasta 30 días.
+  //
+  // 🔴 Las SALTEADAS no aparecen en `failures`, así que caen del lado de las
+  // selladas, y eso es deliberado: un producto que ya no existe no se reintenta
+  // nunca más. Si no se sellara, `remaining` no llegaría a cero, `finalize` no
+  // correría y la campaña no se pausaría — el bloqueo que originó este arreglo.
   const failedNow = new Set(failures.map((f) => f.unit));
   const failedBefore = new Set(
     (Array.isArray(ctx.job.errors) ? ctx.job.errors : [])
@@ -319,7 +390,11 @@ async function runPriceUnits(
       data: { processedByJobId: ctx.job.id },
     });
 
-  return { succeeded: units.filter((u) => !failedNow.has(u.productId)), failures };
+  return {
+    succeeded: units.filter((u) => !failedNow.has(u.productId)),
+    failures,
+    skipped,
+  };
 }
 
 // ─── Unidad única (BXGY / TIERED / PACK) ──────────────────────────────────────

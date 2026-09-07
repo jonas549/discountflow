@@ -767,6 +767,186 @@ test("DELETE revierte los precios y luego borra la campaña", async () => {
   console.log(`[delete] ${CAT_PRODUCTOS} productos revertidos y campaña borrada`);
 });
 
+// ─── 7-BIS. Productos y variantes borrados de la tienda ───────────────────────
+//
+//  🔴 Catálogo CHICO a propósito, y no es un atajo.
+//
+//  Lo que estos cuatro tests demuestran —que un producto inexistente se saltea,
+//  que una variante muerta no arrastra a sus hermanas, que el bucle está cortado
+//  y que una comprobación fallida NO saltea— no depende del tamaño del catálogo:
+//  cada aserción mira UN producto concreto. Con los 1.000 del bloque anterior
+//  cada test cuesta ~6 min contra Neon (medido: un APPLY de 5.000 variantes son
+//  383 s) y no prueban ni una cosa más.
+//
+//  El volumen y el encadenado de lotes ya los cubren los tests de arriba, que
+//  siguen corriendo con el catálogo grande y que este cambio NO toca.
+
+const CHICO_PRODUCTOS = 20;
+
+const catalogoChico = (b: Parameters<typeof createFakeAdmin>[1] = {}) =>
+  createFakeAdmin(
+    { products: CHICO_PRODUCTOS, variantsPerProduct: CAT_VARIANTES, basePrice: 100 },
+    b
+  );
+//
+//  El caso real que bloqueó a un merchant (Greta, 2026-09-07): borró productos de
+//  su catálogo y a partir de ahí NO PUDO PAUSAR sus campañas. Cada intento
+//  terminaba con cientos de "incidencias" —310 sobre 2 unidades reales— porque el
+//  lote daba vueltas sobre lo que fallaba hasta agotar el plazo, y una sola
+//  variante borrada tumbaba la mutación del producto ENTERO, dejando a sus
+//  hermanas vivas rebajadas con la campaña pausada.
+
+test("🔴 REVERT con la MITAD del catálogo borrado: revierte el resto y PAUSA igual", async () => {
+  const campaign = await campañaPorcentaje("revert-mitad-borrada");
+
+  // Se aplica con el catálogo intacto…
+  const admin = catalogoChico();
+  const { job: apply } = await createJob({
+    campaignId: campaign.id, shopId: SHOP_ID, operation: "APPLY", payload: applyPayload(),
+  });
+  await drive(apply.id, { deadlineMs: 45_000, admin });
+  assert.equal((await getJob(apply.id, SHOP_ID))?.status, "COMPLETED");
+
+  // …y entre medias el merchant borra la mitad de los productos de su tienda.
+  const borrados = Array.from({ length: CHICO_PRODUCTOS / 2 }, (_, i) => i * 2);
+  const adminTrasBorrado = catalogoChico({ missingProductIndexes: borrados });
+
+  const { job: revert } = await createJob({
+    campaignId: campaign.id, shopId: SHOP_ID, operation: "REVERT",
+  });
+  await drive(revert.id, { deadlineMs: 45_000, admin: adminTrasBorrado });
+
+  const final = await getJob(revert.id, SHOP_ID);
+
+  // 1. Lo que más importa: la campaña SE PAUSA.
+  const c = await prisma.campaign.findUnique({ where: { id: campaign.id } });
+  assert.equal(c?.status, "PAUSED", "la campaña tiene que quedar pausada");
+  assert.equal(c?.activeJobId, null, "cerrojo liberado");
+
+  // 2. No es un fallo: un producto que ya no existe no tiene precio que revertir.
+  assert.equal(final?.status, "COMPLETED", `estado: ${final?.status}`);
+  assert.equal(final?.errorCount, 0, "los borrados NO son incidencias");
+  assert.equal(final?.skippedCount, borrados.length, "se cuentan como salteados");
+
+  // 3. Nada queda a medias: sin filas sin sellar, `remaining` llegó a cero.
+  assert.equal(await sinSellar(campaign.id, revert.id), 0, "sin huecos");
+
+  // 4. Los productos VIVOS sí volvieron a su precio original.
+  const vivo = [...adminTrasBorrado.mutationCalls]
+    .reverse()
+    .find((m) => m.productId === "gid://shopify/Product/1");
+  assert.equal(vivo?.prices[0].price, "101", "el producto vivo se revirtió");
+  assert.equal(vivo?.prices[0].compareAtPrice, null, "sin precio tachado");
+
+  console.log(
+    `[borrados] ${borrados.length} productos salteados · ${CHICO_PRODUCTOS - borrados.length} revertidos · campaña PAUSED`
+  );
+});
+
+test("🔴 una variante borrada NO tumba a sus hermanas vivas", async () => {
+  const campaign = await campañaPorcentaje("variante-borrada");
+  const admin = catalogoChico();
+  const { job: apply } = await createJob({
+    campaignId: campaign.id, shopId: SHOP_ID, operation: "APPLY", payload: applyPayload(),
+  });
+  await drive(apply.id, { deadlineMs: 45_000, admin });
+
+  // Del producto 3 desaparece UNA de sus cinco variantes. El producto sigue vivo.
+  const muerta = "gid://shopify/ProductVariant/3-0";
+  const adminTrasBorrado = catalogoChico({ missingVariantIds: [muerta] });
+
+  const { job: revert } = await createJob({
+    campaignId: campaign.id, shopId: SHOP_ID, operation: "REVERT",
+  });
+  await drive(revert.id, { deadlineMs: 45_000, admin: adminTrasBorrado });
+
+  const final = await getJob(revert.id, SHOP_ID);
+  assert.equal(final?.status, "COMPLETED", `estado: ${final?.status}`);
+  assert.equal(final?.errorCount, 0, "una variante borrada no es una incidencia");
+  assert.equal(final?.skippedCount, 1, "se salteó exactamente una unidad");
+
+  // 🔴 La aserción que sostiene todo: el reintento mandó las CUATRO hermanas.
+  const delProducto3 = adminTrasBorrado.mutationCalls.filter(
+    (m) => m.productId === "gid://shopify/Product/3"
+  );
+  const ultima = delProducto3.at(-1);
+  assert.ok(ultima, "se reintentó el producto 3");
+  assert.equal(ultima!.variantIds.length, CAT_VARIANTES - 1, "solo las variantes vivas");
+  assert.ok(!ultima!.variantIds.includes(muerta), "la borrada no viaja en el reintento");
+  assert.equal(ultima!.prices[0].price, "103", "las hermanas SÍ vuelven a su precio");
+
+  const c = await prisma.campaign.findUnique({ where: { id: campaign.id } });
+  assert.equal(c?.status, "PAUSED", "la campaña queda pausada");
+  console.log(
+    `[variante borrada] producto 3: 1 variante fantasma salteada, ${CAT_VARIANTES - 1} hermanas revertidas`
+  );
+});
+
+test("🔴 el bucle está muerto: un producto borrado recibe UNA mutación, no decenas", async () => {
+  // Antes, la unidad fallida no se sellaba dentro del lote, `pendingUnits` la
+  // devolvía otra vez y el lote giraba sobre ella hasta agotar los 45 s: así se
+  // llegó a errorCount=310 sobre 2 unidades reales.
+  const campaign = await campañaPorcentaje("sin-bucle");
+  const admin = catalogoChico();
+  const { job: apply } = await createJob({
+    campaignId: campaign.id, shopId: SHOP_ID, operation: "APPLY", payload: applyPayload(),
+  });
+  await drive(apply.id, { deadlineMs: 45_000, admin });
+
+  const adminTrasBorrado = catalogoChico({ missingProductIndexes: [7] });
+  const { job: revert } = await createJob({
+    campaignId: campaign.id, shopId: SHOP_ID, operation: "REVERT",
+  });
+  await drive(revert.id, { deadlineMs: 45_000, admin: adminTrasBorrado });
+
+  const intentos = adminTrasBorrado.mutationCalls.filter(
+    (m) => m.productId === "gid://shopify/Product/7"
+  ).length;
+  assert.equal(intentos, 1, `el producto borrado recibió ${intentos} mutaciones`);
+
+  const final = await getJob(revert.id, SHOP_ID);
+  assert.equal(final?.skippedCount, 1, "una unidad salteada, no una por vuelta");
+  console.log(`[sin bucle] producto borrado: 1 intento y se saltea`);
+});
+
+test("🔴 si la comprobación de existencia falla, NO se saltea: es una incidencia", async () => {
+  // La salvaguarda. Saltear ante una lectura que no se pudo hacer dejaría la
+  // campaña pausada con precios rebajados vivos — el fallo caro, en la dirección
+  // contraria. Ante la duda se anota como incidencia y no se da por revertido.
+  const campaign = await campañaPorcentaje("comprobacion-falla");
+  const admin = catalogoChico();
+  const { job: apply } = await createJob({
+    campaignId: campaign.id, shopId: SHOP_ID, operation: "APPLY", payload: applyPayload(),
+  });
+  await drive(apply.id, { deadlineMs: 45_000, admin });
+
+  const adminRoto = catalogoChico({ missingProductIndexes: [5], existsQueryFails: true });
+  const { job: revert } = await createJob({
+    campaignId: campaign.id, shopId: SHOP_ID, operation: "REVERT",
+  });
+  await drive(revert.id, { deadlineMs: 45_000, admin: adminRoto });
+
+  const final = await getJob(revert.id, SHOP_ID);
+  assert.equal(final?.skippedCount, 0, "no se saltea nada sin poder comprobarlo");
+  assert.equal(final?.status, "COMPLETED_WITH_ERRORS", `estado: ${final?.status}`);
+
+  // 🔴 EXACTAMENTE 2, y ese número es el arreglo del bucle en una aserción.
+  //
+  // La unidad falla, no se sella, y `pendingUnits` la devuelve una segunda vez.
+  // En esa segunda pasada `ctx.job.errors` YA la contiene —porque el runner lo
+  // refresca tras cada ola— así que `failedBefore` la reconoce y la sella. Fin.
+  //
+  // Antes de ese refresco, `ctx.job.errors` era la foto del inicio del lote y no
+  // cambiaba nunca: la unidad no se sellaba jamás y el lote giraba sobre ella
+  // hasta agotar los 45 s. Así se llegó a errorCount=310 sobre 2 unidades reales.
+  // Si alguien deshace el refresco, este número se dispara y el test cae.
+  assert.equal(final?.errorCount, 2, `intentos por unidad: ${final?.errorCount}`);
+  assert.equal(await sinSellar(campaign.id, revert.id), 0, "se sella igual");
+  console.log(
+    `[salvaguarda] comprobación fallida -> incidencia (2 intentos, no 310), nunca salteo`
+  );
+});
+
 // ─── 8. Invariante final ──────────────────────────────────────────────────────
 
 test("al terminar la batería: cero campañas con el cerrojo puesto", async () => {

@@ -1,4 +1,4 @@
-# ESTADO · última actualización 2026-09-06
+# ESTADO · última actualización 2026-09-07
 
 > El archivo que hay que leer primero. Dice dónde está todo **hoy**, sin
 > reconstruirlo de los handoffs. Si algo de acá contradice a un handoff viejo,
@@ -490,6 +490,52 @@ Ya resuelto y verificado:
 
 Falta antes de subir: commitear, `[app_proxy]` en `shopify.app.toml`, verificar
 las variables de Vercel, y **que Jonas pruebe los dos cambios de hoy**.
+
+---
+
+## 🟢 Pausar campañas con productos borrados — 2026-09-07 (en `dev`)
+
+**El bloqueo:** un merchant (Greta) borró productos de su catálogo y a partir de
+ahí **no pudo pausar sus campañas**. Cada intento terminaba con cientos de
+«incidencias» —**310 sobre 2 unidades reales**— y una campaña quedó ACTIVE a
+medias.
+
+### Los tres fallos encadenados, y qué hace cada arreglo
+
+| | Antes | Ahora |
+|---|---|---|
+| **Producto borrado** | `Product does not exist` contaba como incidencia y degradaba el job a `COMPLETED_WITH_ERRORS` | Se **saltea**: no hay precio que revertir. `skippedCount` aparte, el job queda `COMPLETED` y la campaña **se pausa** |
+| **Variante borrada** | 🔴 Tumbaba la mutación del producto **entero** y sus variantes vivas **se quedaban rebajadas con la campaña pausada** | Se consulta qué variantes viven y se **reintenta solo con ésas**. Las hermanas sí recuperan su precio |
+| **El bucle** | La unidad fallida no se sellaba dentro del lote, `pendingUnits` la devolvía otra vez y el lote **giraba sobre ella hasta agotar los 45 s** | El runner **refresca `ctx.job.errors` tras cada ola** → tope de **2 intentos** por unidad |
+
+🔴 **El contador no medía productos rotos: medía cuántas vueltas cupieron en el
+plazo.** De ahí los 310 sobre 2 unidades.
+
+### La salvaguarda, que es la mitad del diseño
+
+**Ante una comprobación que no se puede hacer, NO se saltea.** Si la consulta de
+variantes vivas falla (throttling, token, red), la unidad se anota como
+**incidencia**, nunca como salteada. Saltear por una lectura fallida dejaría la
+campaña pausada con precios rebajados vivos — el fallo caro, en la dirección
+contraria. Y el matcher es el **texto exacto** de Shopify (`Product does not
+exist` / `Product variant does not exist`), con un test que prohíbe ensancharlo.
+
+### Lo salteado NO es un error, y se ve distinto
+
+`skippedCount` y `skipped` son columnas nuevas (migración **aditiva**
+`20260907160000_job_skipped_units`). Solo `errorCount` degrada el estado del job.
+El aviso en pantalla va **en gris, no en ámbar**, y distingue el producto
+eliminado del producto vivo al que le falta una variante — decirle «producto no
+encontrado» de uno que tiene delante en su catálogo lo mandaría a buscar un
+problema que no existe.
+
+### Verificación
+
+395 → **402 tests** (`npm test`) · typecheck **173, cero nuevos** · build verde ·
+**cero diff** en `extensions/`, los cuatro `*-calc.ts` y el `.toml` de producción
+→ **no hace falta app version**. La batería del motor contra Neon incorpora
+4 casos nuevos, entre ellos el de Jonas: **la mitad del catálogo borrado, y la
+campaña se pausa igual**.
 
 ---
 

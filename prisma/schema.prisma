@@ -235,6 +235,19 @@ model CampaignJob {
   errors     Json?
   lastError  String?
 
+  /// Unidades SALTEADAS: el producto o sus variantes ya no existen en Shopify.
+  ///
+  /// 🔴 Esto NO es un error y se cuenta aparte a propósito. No hay precio que
+  /// devolver a un producto borrado, así que no hay nada que el merchant pueda
+  /// arreglar ni nada que reintentar: se registra, se sella y se sigue. Mezclarlo
+  /// con `errorCount` fue el fallo de origen — una campaña con 50 productos
+  /// borrados terminaba COMPLETED_WITH_ERRORS y el merchant no sabía si sus
+  /// precios habían vuelto o no.
+  skippedCount Int   @default(0)
+  /// Detalle de lo salteado, para poder decir QUÉ no se encontró. Mismo motivo
+  /// que `errors` para vivir en BD: los logs de Hobby duran una hora.
+  skipped      Json?
+
   payload Json @default("{}")
 
   startedAt  DateTime?
