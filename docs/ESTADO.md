@@ -15,11 +15,11 @@
 
 | | |
 |---|---|
-| **Producción (Vercel)** | 🟡 **`main` = `5f78888`** pusheado · **que Vercel lo sirva NO está confirmado**: el deploy es server-only y no hay señal observable sin el token. Ver §0 del handoff de atribución |
+| **Producción (Vercel)** | 🟢 **`main` = `709cead`** · **build VERDE y confirmado**: el testigo del manifest se movió (`72c35394` → `c1e6a9a2`) y la sanidad por ruta da 200/410/400/404 |
 | App version en Shopify | 🟢 **`discountflow-11`** — 4 Functions + bloque de tema + `[app_proxy]` |
-| **Ramas** | `main` = `dev` = **`5f78888`**, las dos pusheadas |
-| Base de datos | Neon, ramas separadas. 🟢 **Las 3 migraciones aplicadas en el build** |
-| Tests de la app | **395** verdes (`npm test` — es `node --test`, **no** vitest) |
+| **Ramas** | `main` = `dev` = **`709cead`**, las dos pusheadas |
+| Base de datos | Neon, ramas separadas. 🟢 **Migraciones aplicadas en el build**, incluida `20260907160000_job_skipped_units` |
+| Tests de la app | **402** verdes (`npm test` — es `node --test`, **no** vitest) |
 | Fixtures contra el Wasm real | **91/91** · tiered 16 · pack 13 · order 16 · **cupón 46** |
 | Typecheck | **173** = línea base medida contra `HEAD`, **cero nuevos** · solo `TS2345`, `TS2322`, `TS2367` |
 | Build | Verde |
@@ -493,7 +493,7 @@ las variables de Vercel, y **que Jonas pruebe los dos cambios de hoy**.
 
 ---
 
-## 🟢 Pausar campañas con productos borrados — 2026-09-07 (en `dev`)
+## 🟢 Pausar campañas con productos borrados — DESPLEGADO 2026-09-07 (`709cead`)
 
 **El bloqueo:** un merchant (Greta) borró productos de su catálogo y a partir de
 ahí **no pudo pausar sus campañas**. Cada intento terminaba con cientos de
@@ -533,9 +533,24 @@ problema que no existe.
 
 395 → **402 tests** (`npm test`) · typecheck **173, cero nuevos** · build verde ·
 **cero diff** en `extensions/`, los cuatro `*-calc.ts` y el `.toml` de producción
-→ **no hace falta app version**. La batería del motor contra Neon incorpora
-4 casos nuevos, entre ellos el de Jonas: **la mitad del catálogo borrado, y la
-campaña se pausa igual**.
+→ **no hizo falta app version**.
+
+**Los 4 casos nuevos de la batería del motor, verdes**, entre ellos el que
+originó todo: *la mitad del catálogo borrado, y la campaña se pausa igual*.
+
+🟢 **No-regresión: 10/10, exit 0.** Los **siete** tests de precios que ya existían
+pasan **sin tocar ninguno**, con el catálogo de 1.000 productos: APPLY real,
+APPLY interrumpido, cuota de plan, REVERT, cancelar con compensación, tolerancia
+a fallos y DELETE, más el invariante de cerrojos.
+
+⚠️ **Lección de medición, la cuarta de esta familia**: la primera corrida de la
+batería estuvo **20 minutos sin mostrar una sola línea** porque se lanzó con
+`| grep | head -40`, y **`head` no puede flushear**: no entrega nada hasta
+acumular N líneas o hasta que el proceso muere. No se podía distinguir «va por el
+test 3» de «está trabada». Va con los dos `$?` en el mismo `printf` y con el
+testigo ciego del deploy server-only: **el instrumento roto, no el producto.**
+Para ver progreso en vivo: salida a un log y `tail -f | grep --line-buffered`,
+nunca `head` en la cadena.
 
 ---
 
