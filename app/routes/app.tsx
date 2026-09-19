@@ -8,20 +8,22 @@ import { getOrCreateShop, syncShopPlanIfStale } from "../lib/shopify/shop.server
 import { prisma } from "../lib/db";
 import { JobProgress } from "../components/JobProgress";
 import { SupportChat } from "../components/SupportChat";
-import { hasFeature } from "../lib/features.server";
 import { es } from "../i18n";
 
-// 🔴 EL FLAG `chat:tawk` ES AHORA EL ÚNICO CONTROL DEL CHAT, Y ES A PROPÓSITO.
+// 🔴 EL CHAT CARGA SIEMPRE, EN TODAS LAS TIENDAS. Decisión de Jonas, 2026-09-19.
 //
-// Durante la prueba hubo además una guardia de entorno que impedía montarlo en
-// producción. Se quitó el 2026-09-19, con el OK de Jonas, porque el chat va para
-// todas las tiendas. Lo que queda es lo que importa: `hasFeature` FALLA CERRADO
-// (ausencia, JSON corrupto o error de lectura = sin chat) y el flag vive en la
-// base, así que se apaga con un UPDATE, en segundos y SIN desplegar.
+// Antes estuvo detrás del flag `chat:tawk` y de una guardia de entorno. Las dos
+// se quitaron a propósito: el chat tiene que estar para todos los merchants,
+// incluidos los que instalen la app de ahora en adelante, sin que nadie tenga
+// que encender nada por tienda.
 //
-// ⚠️ No reemplazar esto por una variable de entorno: las env vars de Vercel no
-// surten efecto hasta un deployment nuevo, y entonces el apagado de emergencia
-// dejaría de ser inmediato. Es la lección de `PLAN_SYNC_OBSERVACION`.
+// ⚠️ LO QUE ESO CUESTA, para que quede escrito: ya NO hay apagado inmediato. Si
+// el widget molesta —tapa un botón, el script de Tawk falla, alguien se queja—,
+// la vuelta atrás es `git revert` + push y esperar el build (~4 min), no un
+// UPDATE de segundos. Por eso las tres defensas del propio componente
+// (try/catch, `return null`, y el id en un solo sitio) dejan de ser prolijidad y
+// pasan a ser lo único que evita que un fallo del chat tumbe la app entera de
+// los tres clientes que pagan. No aflojarlas.
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { admin, session } = await authenticate.admin(request);
@@ -46,16 +48,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     orderBy: { updatedAt: "desc" },
   });
 
-  // Chat de soporte: solo con el flag encendido en esta tienda. `hasFeature`
-  // falla cerrado, así que cualquier duda = sin chat.
+  // Datos para el panel del chat. Van siempre: el chat ya no depende de nada.
   //
   // ⚠️ El plan viaja al cliente SOLO para el panel de Tawk, nunca para pintarlo:
   // la nota de <s-app-nav> sigue en pie y el distintivo no vuelve. Aquí el
   // desfase es tolerable (el sondeo lo refresca cada 15 min como mucho) porque
   // nadie toma una decisión de dinero con este dato.
-  const chatSoporte = hasFeature(shop, "chat:tawk")
-    ? { shopDomain: shop.domain, plan: shop.plan }
-    : null;
+  const chatSoporte = { shopDomain: shop.domain, plan: shop.plan };
 
   return {
     // eslint-disable-next-line no-undef
@@ -90,9 +89,7 @@ export default function App() {
         <s-link href="/app/support">{es.nav.soporte}</s-link>
       </s-app-nav>
       {runningJobId && <JobProgress jobId={runningJobId} compact />}
-      {chatSoporte && (
-        <SupportChat shopDomain={chatSoporte.shopDomain} plan={chatSoporte.plan} />
-      )}
+      <SupportChat shopDomain={chatSoporte.shopDomain} plan={chatSoporte.plan} />
       <Outlet />
     </AppProvider>
   );

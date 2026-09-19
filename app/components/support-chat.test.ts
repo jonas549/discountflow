@@ -26,37 +26,58 @@ const RAIZ = path.resolve(import.meta.dirname, "../..");
 const leer = (p: string) =>
   fs.readFileSync(path.join(RAIZ, p), "utf8").replace(/\r\n/g, "\n");
 
+/**
+ * El fuente SIN comentarios.
+ *
+ * Los comentarios de este repo explican lo que se quitó y por qué —el flag, la
+ * guardia de entorno, qué pasa si un `throw` sube hasta el shell— y eso es
+ * memoria que hay que conservar. Pero si las aserciones los leen, la nota
+ * histórica hace fallar al test: el instrumento midiendo mal, no el producto.
+ * Pasó justo al escribir estas pruebas.
+ */
+const codigoDe = (p: string) =>
+  leer(p)
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    // `(?<!:)` salva las URLs — si no, `https://embed.tawk.to/...` se corta.
+    .replace(/(?<!:)\/\/.*$/gm, "");
+
 const COMPONENTE = "app/components/SupportChat.tsx";
 const SHELL = "app/routes/app.tsx";
 
-test("el chat solo se monta con el flag encendido", () => {
+test("el chat se monta SIEMPRE, sin depender de ningun interruptor", () => {
   const shell = leer(SHELL);
-  assert.match(
-    shell,
-    /hasFeature\(shop,\s*"chat:tawk"\)/,
-    "el shell debe decidir con hasFeature('chat:tawk'), que falla cerrado",
+
+  // Decisión de Jonas (2026-09-19): el chat va para todas las tiendas, incluidas
+  // las que instalen la app de ahora en adelante. Ni flag por tienda ni guardia
+  // de entorno: si vuelve a aparecer cualquiera de los dos, una tienda nueva
+  // nacería sin chat y nadie se enteraría hasta que un merchant no encuentre por
+  // dónde escribir.
+  const codigo = codigoDe(SHELL);
+  assert.ok(
+    !codigo.includes("hasFeature"),
+    "el flag por tienda se retiró: el chat no puede volver a depender de él",
+  );
+  assert.ok(
+    !codigo.includes("isProduction"),
+    "tampoco puede depender del entorno",
   );
   assert.match(
     shell,
-    /\{chatSoporte && \(/,
-    "el componente no puede renderizarse sin comprobar el flag",
+    /<SupportChat\s+shopDomain=\{chatSoporte\.shopDomain\}\s+plan=\{chatSoporte\.plan\}\s*\/>/,
+    "se monta sin condición delante",
   );
 });
 
-test("el flag es el UNICO control, y se apaga sin desplegar", () => {
-  const shell = leer(SHELL);
-  // Durante la prueba en dev hubo una guardia de entorno; se quitó el 2026-09-19
-  // porque el chat va para todas las tiendas. Lo que NO puede volver es que el
-  // control pase a una variable de entorno: en Vercel esas no surten efecto sin
-  // un deployment nuevo, y el apagado de emergencia dejaría de ser inmediato.
+test("🔴 sin interruptor, las defensas del componente son lo unico que queda", () => {
+  // Con flag, un fallo del chat se apagaba con un UPDATE en segundos. Sin flag,
+  // la vuelta atrás es un revert + build de ~4 min. Estas tres defensas pasan a
+  // ser lo que evita que el chat tumbe la app de los tres clientes que pagan.
+  const src = codigoDe(COMPONENTE);
+  assert.ok(src.includes("try {"), "los efectos van protegidos");
+  assert.ok(src.includes("return null;"), "no puede dejar un hueco en pantalla");
   assert.ok(
-    !shell.includes("isProduction"),
-    "el chat no puede depender del entorno: el apagado tiene que ser un UPDATE",
-  );
-  assert.match(
-    shell,
-    /const chatSoporte = hasFeature\(shop, "chat:tawk"\)/,
-    "la decision vive en el flag de la base, que falla cerrado",
+    !src.includes("throw "),
+    "el chat nunca lanza: un throw aquí sube hasta el shell",
   );
 });
 

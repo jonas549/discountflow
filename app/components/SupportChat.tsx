@@ -9,8 +9,12 @@
 //       script de Tawk sea asíncrono.
 //    2. No pinta nada propio (`return null`). El widget lo inyecta Tawk en el
 //       `<body>`; si el script no carga, no queda ni un hueco en la pantalla.
-//    3. Quien decide si esto se monta es el SERVIDOR, con el flag `chat:tawk` de
-//       `Shop.features`, que falla cerrado. Ver `app/routes/app.tsx`.
+//    3. 🔴 Y desde el 2026-09-19 ya NO hay interruptor: el chat carga para todas
+//       las tiendas, siempre (decisión de Jonas). Antes lo gobernaba el flag
+//       `chat:tawk`, que permitía apagarlo con un UPDATE en segundos; ahora la
+//       vuelta atrás es un revert y un build de ~4 min. Los dos puntos de arriba
+//       dejan de ser prolijidad: son lo único que queda entre un fallo de este
+//       archivo y la app caída de tres clientes que pagan.
 //
 // El merchant no ve ningún dato nuestro: lo que se manda son atributos para el
 // panel de Tawk, para saber con quién se está hablando.
