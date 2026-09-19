@@ -11,7 +11,16 @@
 //    interruptor matara también a los workers, sería él mismo quien generase los
 //    estados parciales que todo este sistema existe para evitar.
 
-export type FeatureFlag = "jobs:batched";
+export type FeatureFlag =
+  | "jobs:batched"
+  /**
+   * Chat de soporte (Tawk.to). PRUEBA EN DEV, una sola tienda.
+   * Encender:  UPDATE "Shop" SET features = features || '{"chat:tawk":true}'  WHERE domain = '...';
+   * Apagar:    UPDATE "Shop" SET features = features - 'chat:tawk'            WHERE domain = '...';
+   * Además del flag hay una guardia de entorno en `app/routes/app.tsx`: en
+   * producción el chat no se monta aunque esto esté en true.
+   */
+  | "chat:tawk";
 
 type ShopLike = { features?: unknown } | null | undefined;
 
