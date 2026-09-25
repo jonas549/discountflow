@@ -60,6 +60,14 @@ export const es = {
         "El comprador elige productos de una lista que vos curás y ve el descuento crecer en vivo.",
       ejemplo: "Arma tu rutina: 2 productos 10%, 3 productos 20%",
     },
+    // Cupones por tandas: solo se ofrece en las tiendas con el flag
+    // `cupones:viaje`, pero se presenta como un tipo más del catálogo.
+    tandas: {
+      titulo: "Cupones por tandas",
+      descripcion:
+        "Cupones de monto fijo con cupo limitado que se liberan de a uno: cuando se agota el primero, aparece el siguiente. El comprador lo elige con un clic en la ficha.",
+      ejemplo: "Cupón 1: $100.000, 5 usos. Al agotarse, se publica solo el Cupón 2 de $125.000",
+    },
     cupon: {
       titulo: "Cupón sobre precio original",
       descripcion:
@@ -892,6 +900,152 @@ export const es = {
 
     errNombre: "Ponle un nombre a la campaña.",
     errFechas: "La fecha de fin debe ser posterior a la de inicio.",
+  },
+  // Cupones de viaje. Feature de UNA tienda (flag `cupones:viaje`): ninguna otra
+  // tienda ve estas pantallas. Ver app/lib/cupones-viaje/cupones-viaje.ts.
+  cuponesViaje: {
+    volverCampanas: "← Campañas",
+    /** Lo que se ve en la columna «Descuento» del listado de campañas. */
+    etiquetaListado: (publicado: string | null) =>
+      publicado ? `${publicado} publicado` : "Todos agotados",
+
+    tituloNueva: "Nueva campaña de cupones por tandas",
+    tituloEditar: "Editar campaña de cupones por tandas",
+
+    secInfoGeneral: "Información general",
+    nombreLabel: "Nombre de la campaña",
+    nombreHelper: "Solo lo ves vos. Ej: «Lanzamiento — primeras tandas».",
+    nombrePlaceholder: "Lanzamiento",
+
+    secViaje: "Producto y modalidades de pago",
+    viajeHelper: "Elegí el producto. Los cupones aplican a todas sus variantes de cada modalidad.",
+    btnElegirViaje: "Elegir producto",
+    btnCambiarViaje: "Cambiar producto",
+    cargandoViaje: "Leyendo las variantes del producto…",
+    opcionLabel: "Opción que indica la modalidad",
+    opcionHelper: "La opción del producto donde el comprador elige entre pagar el total o reservar.",
+    totalLabel: "Valor que significa «Pago total»",
+    reservaLabel: "Valor que significa «Reserva»",
+    clasificacion: (total: number, reserva: number, otras: number) =>
+      `${total} variantes de Pago total · ${reserva} de Reserva` +
+      (otras ? ` · ${otras} no encajan en ninguna y quedan fuera del cupón` : ""),
+    avisoFechasNuevas:
+      "Si agregás variantes nuevas al producto, volvé a guardar la campaña para que el cupón las incluya.",
+
+    secCupones: "Cupones",
+    cuponesHelper:
+      "Se publican en este orden. Cuando uno se agota, aparece el siguiente solo. Los cupos cuentan PASAJEROS, de Pago total y de Reserva juntos.",
+    colEtiqueta: "Nombre en la tienda",
+    colMonto: "Monto",
+    colStock: "Cupos",
+    colUsados: "Usados",
+    montoHelper: "Monto neto, sin decimales. Podés escribir 100.000 o 100000.",
+    btnAgregarCupon: "Agregar cupón",
+    btnQuitar: "Quitar",
+    quitarBloqueado: "Tiene canjes: no se puede quitar.",
+    subir: "Subir",
+    bajar: "Bajar",
+    visiblesLabel: "Cupones disponibles que se muestran a la vez",
+    visiblesHelper:
+      "Con 1, el comprador ve un solo cupón disponible; los agotados se siguen viendo, apagados.",
+    autoLabel: "Cupón marcado al entrar a la ficha",
+    autoSi: "Marcado automáticamente",
+    autoSiHelper:
+      "El primer cupón disponible llega aplicado al cargar la ficha. El comprador puede quitarlo pinchándolo.",
+    autoNo: "El comprador lo pincha",
+    autoNoHelper: "Los cupones llegan sin marcar y el comprador elige uno.",
+    unaVezPorPedido:
+      "El cupón es por pasajero: con 3 pasajeros descuenta 3 veces el monto y consume 3 cupos.",
+    avisoSuperaPrecio: (cupones: string, precio: string) =>
+      `${cupones}: el monto es igual o mayor que el Pago total más barato del producto (${precio}). ` +
+      "En esas variantes el carrito quedaría en $0. En Reserva no pasa: ahí el cupón se descuenta del saldo.",
+
+    secMensajes: "Mensajes en la tienda",
+    mensajesHelper:
+      "Se muestran debajo de los cupones. Podés usar {monto} (el monto del cupón elegido) y {cupon} (su nombre).",
+    tituloTiendaLabel: "Título sobre los cupones",
+    mensajeTotalLabel: "Mensaje cuando el comprador elige «Pago total»",
+    mensajeReservaLabel: "Mensaje cuando el comprador elige «Reserva»",
+    avisoPrecioArriba:
+      "Importante: el precio de arriba de la ficha NO cambia al elegir un cupón. Los mensajes tienen que decirlo, o el comprador va a creer que no funcionó.",
+
+    previewTitulo: "Vista previa",
+    previewHelper: "Así se ven los cupones en la ficha del producto, con el stock de hoy.",
+    previewModalidad: "Si el comprador elige:",
+    previewTotal: "Pago total",
+    previewReserva: "Reserva",
+    agotado: "Agotado",
+    quedan: (n: number) => `quedan ${n}`,
+
+    resumenTitulo: "Resumen",
+    resumenNombre: "Nombre",
+    resumenViaje: "Producto",
+    resumenCupones: "Cupones",
+    resumenPublicado: "Publicado ahora",
+    resumenStockTotal: "Usos en total",
+    resumenVisibles: "A la vez",
+    sinDefinir: "Sin definir",
+    ninguno: "Ninguno (todos agotados)",
+
+    btnActivar: "Guardar y activar",
+    btnGuardar: "Guardar cambios",
+    btnBorrador: "Guardar borrador",
+    btnCargando: "Guardando…",
+    btnCancelar: "Cancelar",
+
+    estadoActiva: "Activa: los cupones se ven en la tienda.",
+    estadoPausada: "Pausada: la tienda no muestra cupones y los códigos no descuentan.",
+    estadoBorrador: "Borrador: todavía no se muestra en la tienda.",
+    btnPausar: "Pausar",
+    btnActivarCampana: "Activar",
+    btnEliminar: "Eliminar campaña",
+    confirmarEliminar: "¿Eliminar esta campaña? Se borran sus cupones y sus códigos.",
+    eliminarBloqueado: "Tiene canjes: no se puede eliminar, solo pausar.",
+    avisoOtraActiva: (nombre: string) =>
+      `Ojo: «${nombre}» también está activa sobre este producto. La tienda muestra la más nueva.`,
+
+    secCanjes: "Canjes",
+    canjesHelper:
+      "Cada pedido que usó un cupón. En Reserva, es el monto que la agencia tiene que descontar del saldo.",
+    sinCanjes: "Todavía no se usó ningún cupón.",
+    colFecha: "Fecha",
+    colPedido: "Pedido",
+    colModalidad: "Modalidad",
+    colCupon: "Cupón",
+    colPasajeros: "Pasajeros",
+    colDescuento: "Descuento",
+    colValidez: "Estado",
+    modalidadTotal: "Pago total — descontado en el checkout",
+    modalidadReserva: "Reserva — descontar del saldo",
+    valido: "Válido",
+    excedente: (sinCupo: number, pasajeros: number) =>
+      `Excedente: ${sinCupo} de ${pasajeros} ${pasajeros === 1 ? "pasajero llegó" : "pasajeros llegaron"} sin cupo. Decide la agencia.`,
+    simulado: "simulado",
+
+    secInstalacion: "Instalación en el tema (una sola vez)",
+    instalacionPasos: [
+      "En Shopify, andá a Tienda online → Temas → Personalizar.",
+      "Abrí la plantilla de producto.",
+      "Debajo del selector de fecha, Agregar bloque → «Liquid personalizado».",
+      "Pegá este código y guardá.",
+    ],
+    btnCopiar: "Copiar código",
+    copiado: "Copiado",
+    instalacionCarritoTitulo: "Y en la plantilla del carrito (recomendado)",
+    instalacionCarritoTexto:
+      "Mismo procedimiento en la plantilla Carrito. No muestra nada: si el comprador cambia la cantidad de pasajeros en el carrito, corrige el total a descontar del saldo.",
+    instalacionNota:
+      "El mismo bloque sirve para todos los productos: solo muestra cupones en los que tengan una campaña activa.",
+
+    secSimular: "Simular un pedido (solo en desarrollo)",
+    simularHelper:
+      "Registra un canje como si hubiera llegado un pedido, para ver el stock bajar y el siguiente cupón liberarse. Esta sección no existe en producción.",
+    btnSimularTotal: "Simular pedido con Pago total",
+    btnSimularReserva: "Simular pedido con Reserva",
+    simularSinPublicado: "No hay ningún cupón publicado para simular.",
+    simulado_ok: (cupon: string, resultado: string) => `Simulado: ${cupon} → ${resultado}.`,
+
+    errGuardar: (msg: string) => `No se pudo guardar: ${msg}`,
   },
 };
 

@@ -32,6 +32,9 @@ const FORMULARIOS = [
   ["Pack", "app/components/PackCampaignForm.tsx"],
   ["Monto de compra", "app/components/CartValueCampaignForm.tsx"],
   ["Cupon sobre precio original", "app/components/OriginalPriceCampaignForm.tsx"],
+  // No es un tipo de `CampaignType` (vive detrás del flag `cupones:viaje`, para
+  // una sola tienda), pero su pantalla es una campaña más y se ve igual.
+  ["Cupones de viaje", "app/components/TravelCouponCampaignForm.tsx"],
 ] as const;
 
 /**

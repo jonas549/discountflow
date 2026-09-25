@@ -92,6 +92,9 @@ import {
   comprobarTipoDeCampana,
 } from "../lib/billing/plan-limits.server";
 import { useSearchParams } from "react-router";
+import { tieneCuponesDeViaje } from "../lib/cupones-viaje/acceso.server";
+import { campanasDeLaTienda } from "../lib/cupones-viaje/cupones-viaje.server";
+import { cuponesPublicados, formatoMonto } from "../lib/cupones-viaje/cupones-viaje";
 
 const isProduction = process.env.NODE_ENV === "production";
 
@@ -599,6 +602,27 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     skipped,
     jobsFlagOn: hasFeature(shop, JOBS_FEATURE_FLAG),
     canToggleJobsFlag: !isProduction,
+    // Cupones por tandas: feature de UNA tienda (flag `cupones:viaje`). Sin el
+    // flag no hay tarjeta, no hay filas, y sus rutas responden 404. Con el flag
+    // se presentan como un tipo más: su tarjeta en el catálogo y sus campañas
+    // en esta misma lista, sin nada que delate que es a medida.
+    cuponesDeViaje: tieneCuponesDeViaje(shop),
+    tandas: tieneCuponesDeViaje(shop)
+      ? (await campanasDeLaTienda(shop.id)).map((t) => {
+          const publicado = cuponesPublicados(
+            t.coupons.map((c) => ({ ...c, amount: Number(c.amount) })),
+            t.visibleCount
+          )[0];
+          return {
+            id: t.id,
+            name: t.name,
+            status: t.status,
+            productTitle: t.productTitle,
+            publicado: publicado ? `${publicado.label} · ${formatoMonto(publicado.amount)}` : null,
+            createdAt: t.createdAt.toISOString(),
+          };
+        })
+      : [],
     campaigns: campaigns.map((c) => ({
       id: c.id,
       name: c.name,
@@ -610,6 +634,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       endsAt: c.endsAt?.toISOString() ?? null,
       /** jobId de la operación en curso, si la hay. Ancla de la barra. */
       activeJobId: c.activeJobId,
+      /** Solo para intercalar las campañas por tandas en orden de creación. */
+      createdAt: c.createdAt.toISOString(),
     })),
   };
 };
@@ -1053,6 +1079,67 @@ function MockupCupon() {
   );
 }
 
+/**
+ * Mockup de los cupones por tandas: tres cuadraditos como los del selector de
+ * variantes — uno agotado, uno disponible con su cupo y el siguiente esperando.
+ * Cuenta de un vistazo lo que hace el tipo: se liberan de a uno.
+ */
+function MockupTandas() {
+  const cuadro = (agotado: boolean, activo: boolean): React.CSSProperties => ({
+    flex: 1,
+    textAlign: "center",
+    padding: "6px 4px",
+    borderRadius: "5px",
+    fontSize: "10px",
+    fontWeight: 600,
+    background: activo ? "#202223" : "#ffffff",
+    color: activo ? "#ffffff" : agotado ? "#c9cccf" : "#8c9196",
+    border: `1px ${agotado || activo ? "solid" : "dashed"} ${activo ? "#202223" : "#c9cccf"}`,
+    textDecoration: agotado ? "line-through" : "none",
+  });
+  return (
+    <div
+      style={{
+        background: "#f8fafb",
+        border: "1px solid #e1e3e5",
+        borderRadius: "8px",
+        padding: "12px 14px",
+        marginBottom: "16px",
+      }}
+    >
+      <div style={{ display: "flex", gap: "6px" }}>
+        <span style={cuadro(true, false)}>Cupón 1</span>
+        <span style={cuadro(false, true)}>Cupón 2</span>
+        <span style={cuadro(false, false)}>Cupón 3</span>
+      </div>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          paddingTop: "8px",
+          fontSize: "9px",
+          color: "#6d7175",
+        }}
+      >
+        <span>agotado</span>
+        <span
+          style={{
+            background: "#e8f5e9",
+            color: "#2e7d32",
+            fontWeight: 700,
+            padding: "1px 6px",
+            borderRadius: "8px",
+          }}
+        >
+          $100 · quedan 3
+        </span>
+        <span>en espera</span>
+      </div>
+    </div>
+  );
+}
+
 // ─── Campaign type card ───────────────────────────────────────────────────────
 
 type CampaignCardProps = {
@@ -1250,8 +1337,15 @@ function DeleteModal({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function Campaigns() {
-  const { campaigns, skipped, jobsFlagOn, canToggleJobsFlag } =
+  const { campaigns, skipped, jobsFlagOn, canToggleJobsFlag, cuponesDeViaje, tandas } =
     useLoaderData<typeof loader>();
+
+  // Las campañas por tandas viven en otras tablas, pero se listan INTERCALADAS
+  // con las demás, por fecha de creación: una lista aparte delataría el tipo.
+  const filas = [
+    ...campaigns.map((c) => ({ tanda: null, campaign: c, createdAt: c.createdAt })),
+    ...tandas.map((t) => ({ tanda: t, campaign: null, createdAt: t.createdAt })),
+  ].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const [searchParams] = useSearchParams();
   const fetcher = useFetcher();
 
@@ -1262,6 +1356,8 @@ export default function Campaigns() {
   const [deleteCandidate, setDeleteCandidate] = useState<{
     id: string;
     name: string;
+    /** true = campaña por tandas: se elimina por su propia ruta. */
+    tanda?: boolean;
   } | null>(null);
 
   // Track which specific action is in-flight to show per-button loading state
@@ -1307,9 +1403,27 @@ export default function Campaigns() {
     fetcher.submit(fd, { method: "post" });
   };
 
+  /**
+   * Pausar, activar y eliminar una campaña por tandas. Van a SU ruta, no a la
+   * acción de esta pantalla: así esta acción —que sirve a todas las tiendas—
+   * no se toca. Mismo fetcher, así el banner de error y el «Pausando…» son los
+   * mismos que en las otras filas.
+   */
+  const submitAccionTanda = (id: string, actionType: "pause" | "activate" | "delete") => {
+    setPendingAction({ id, type: actionType });
+    const fd = new FormData();
+    fd.append(
+      "intent",
+      actionType === "pause" ? "pausar" : actionType === "activate" ? "activar-campana" : "eliminar"
+    );
+    fd.append("desde", "listado");
+    fetcher.submit(fd, { method: "post", action: `/app/cupones-viaje/${id}` });
+  };
+
   const handleDeleteConfirm = () => {
     if (!deleteCandidate) return;
-    submitAction(deleteCandidate.id, "delete");
+    if (deleteCandidate.tanda) submitAccionTanda(deleteCandidate.id, "delete");
+    else submitAction(deleteCandidate.id, "delete");
     setDeleteCandidate(null);
   };
 
@@ -1485,12 +1599,21 @@ export default function Campaigns() {
             ejemplo={es.campanas.cupon.ejemplo}
             href="/app/campaigns/new/original-price"
           />
+          {cuponesDeViaje && (
+            <CampaignCard
+              mockup={<MockupTandas />}
+              title={es.campanas.tandas.titulo}
+              description={es.campanas.tandas.descripcion}
+              ejemplo={es.campanas.tandas.ejemplo}
+              href="/app/cupones-viaje/nueva"
+            />
+          )}
         </div>
       </s-section>
 
       {/* Campaigns list */}
       <s-section heading={es.campanas.tusCampanas}>
-        {campaigns.length === 0 ? (
+        {filas.length === 0 ? (
           <div
             style={{
               textAlign: "center",
@@ -1537,7 +1660,22 @@ export default function Campaigns() {
                 </tr>
               </thead>
               <tbody>
-                {campaigns.map((c) => {
+                {filas.map((f) => {
+                  if (f.tanda)
+                    return (
+                      <FilaTanda
+                        key={f.tanda.id}
+                        t={f.tanda}
+                        ocupado={isBusy}
+                        pendiente={pendingAction?.id === f.tanda.id ? pendingAction.type : null}
+                        onAccion={(tipo) => submitAccionTanda(f.tanda!.id, tipo)}
+                        onEliminar={() =>
+                          setDeleteCandidate({ id: f.tanda!.id, name: f.tanda!.name, tanda: true })
+                        }
+                      />
+                    );
+                  const c = f.campaign;
+                  if (!c) return null;
                   const st = ESTADO_COLORS[c.status] ?? ESTADO_COLORS.DRAFT;
                   const rangeConfig = c.config as RangeCampaignConfig;
                   const discount =
@@ -1783,6 +1921,79 @@ export default function Campaigns() {
         )}
       </s-section>
     </s-page>
+  );
+}
+
+/**
+ * Una fila de campaña por tandas en «Tus campañas». Mismo aspecto y mismas
+ * acciones que las demás filas; lo único distinto es a dónde van las acciones
+ * (su propia ruta) y de dónde salen los datos (sus propias tablas).
+ */
+function FilaTanda({
+  t,
+  ocupado,
+  pendiente,
+  onAccion,
+  onEliminar,
+}: {
+  t: { id: string; name: string; status: string; productTitle: string; publicado: string | null };
+  ocupado: boolean;
+  pendiente: "pause" | "activate" | "delete" | null;
+  onAccion: (tipo: "pause" | "activate") => void;
+  onEliminar: () => void;
+}) {
+  const st = ESTADO_COLORS[t.status] ?? ESTADO_COLORS.DRAFT;
+  const gris: React.CSSProperties = { padding: "12px", color: "#6d7175", whiteSpace: "nowrap" };
+  return (
+    <tr style={{ borderBottom: "1px solid #f1f2f3" }}>
+      <td style={{ padding: "12px", fontWeight: "500", color: "#202223" }}>{t.name}</td>
+      <td style={{ padding: "12px", color: "#6d7175" }}>{es.campanas.tandas.titulo}</td>
+      <td style={{ padding: "12px" }}>
+        <span
+          style={{
+            background: st.bg,
+            color: st.text,
+            padding: "2px 9px",
+            borderRadius: "20px",
+            fontSize: "12px",
+            fontWeight: "500",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {estadoLabel(t.status)}
+        </span>
+      </td>
+      <td style={{ padding: "12px", color: "#6d7175" }}>
+        {es.cuponesViaje.etiquetaListado(t.publicado)}
+      </td>
+      <td style={{ padding: "12px", color: "#6d7175" }}>{t.productTitle}</td>
+      <td style={gris}>{formatDate(null)}</td>
+      <td style={gris}>{formatDate(null)}</td>
+      <td style={{ padding: "12px" }}>
+        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+          <LinkBtn to={`/app/cupones-viaje/${t.id}`} variant="primary" size="sm">
+            {es.campanas.acciones.editar}
+          </LinkBtn>
+          {t.status === "ACTIVE" && (
+            <Btn variant="muted" size="sm" disabled={ocupado} onClick={() => onAccion("pause")}>
+              {pendiente === "pause" ? "Pausando…" : es.campanas.acciones.pausar}
+            </Btn>
+          )}
+          {t.status !== "ACTIVE" && (
+            <Btn variant="primary" size="sm" disabled={ocupado} onClick={() => onAccion("activate")}>
+              {pendiente === "activate"
+                ? "Activando…"
+                : t.status === "DRAFT"
+                ? es.campanas.acciones.activar
+                : es.campanas.acciones.reactivar}
+            </Btn>
+          )}
+          <Btn variant="destructive" size="sm" disabled={ocupado} onClick={onEliminar}>
+            {pendiente === "delete" ? "Eliminando…" : es.campanas.acciones.eliminar}
+          </Btn>
+        </div>
+      </td>
+    </tr>
   );
 }
 

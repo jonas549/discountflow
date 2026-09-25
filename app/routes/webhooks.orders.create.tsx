@@ -33,11 +33,22 @@ import {
   normalizeDiscountCode,
   type OriginalPriceCampaignConfig,
 } from "../lib/discounts/original-price-client";
+import { tieneCuponesDeViaje } from "../lib/cupones-viaje/acceso.server";
+import { registrarPedido as registrarCuponesDeViaje } from "../lib/cupones-viaje/cupones-viaje.server";
 
 // Campos del payload orders/create que necesitamos (sin PII de cliente).
 // Level 1 Protected Customer Data — aprobado 2026-05.
 interface OrderPayload {
   admin_graphql_api_id: string; // gid://shopify/Order/...
+  /** «#1001». Solo lo usan los cupones de viaje, para el comprobante. */
+  name?: string;
+  /** Códigos aplicados. Solo lo usan los cupones de viaje (caso Pago total). */
+  discount_codes?: Array<{ code: string }> | null;
+  /**
+   * Atributos del carrito. 🔴 En el payload REST es un ARRAY de {name, value}.
+   * Solo lo usan los cupones de viaje (caso Reserva).
+   */
+  note_attributes?: Array<{ name: string; value: string }> | null;
   total_price: string;
   total_discounts: string;
   currency: string;
@@ -82,7 +93,7 @@ interface OrderPayload {
 }
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { shop, payload } = await authenticate.webhook(request);
+  const { shop, payload, admin } = await authenticate.webhook(request);
   const order = payload as OrderPayload;
 
   // En el contexto del webhook no tenemos sesión activa — buscamos el shop
@@ -592,6 +603,26 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         fallos,
       })
     );
+  }
+
+  // ── 7 · Cupones de viaje ─────────────────────────────────────────────────
+  // Feature de UNA tienda (flag `cupones:viaje`). Para todas las demás, este
+  // bloque ni se evalúa: la condición es lo primero y no toca la base.
+  //
+  // Va AL FINAL y aislado a propósito: los bloques de arriba atribuyen pedidos
+  // de todas las tiendas y no se tocaron. Si esto falla, lo de arriba ya se
+  // guardó (y es idempotente: `upsert` con `update: {}`).
+  //
+  // 🔴 Un fallo acá devuelve 500 para que Shopify REINTENTE. El canje es el
+  // comprobante del saldo que la agencia descuenta: perderlo es perder dinero
+  // del comprador. Reintentar es seguro — el canje es idempotente por pedido.
+  if (tieneCuponesDeViaje(shopRecord)) {
+    try {
+      await registrarCuponesDeViaje(shopRecord.id, order, admin ?? null);
+    } catch (err) {
+      console.error("[cupones-viaje] no se pudo registrar el pedido", orderId, err);
+      return new Response(null, { status: 500 });
+    }
   }
 
   return new Response(null, { status: 200 });

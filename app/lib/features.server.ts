@@ -11,7 +11,11 @@
 //    interruptor matara también a los workers, sería él mismo quien generase los
 //    estados parciales que todo este sistema existe para evitar.
 
-export type FeatureFlag = "jobs:batched";
+export type FeatureFlag =
+  | "jobs:batched"
+  // Cupones de viaje: feature de UNA tienda (GeoTerraViajes). Se lee SOLO a
+  // través de `tieneCuponesDeViaje()` (app/lib/cupones-viaje/acceso.server.ts).
+  | "cupones:viaje";
 
 type ShopLike = { features?: unknown } | null | undefined;
 

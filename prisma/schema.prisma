@@ -33,22 +33,25 @@ model Session {
 // ─── Multi-tenant shop ────────────────────────────────────────────────────────
 
 model Shop {
-  id              String     @id @default(cuid())
-  domain          String     @unique
-  accessToken     String
-  scopes          String?
-  currency        String     @default("USD")
-  installedAt     DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
+  id                    String                 @id @default(cuid())
+  domain                String                 @unique
+  accessToken           String
+  scopes                String?
+  currency              String                 @default("USD")
+  installedAt           DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
   // Billing / plan
-  plan            String     @default("FREE")
-  planActivatedAt DateTime?
-  lastSyncAt      DateTime?
+  plan                  String                 @default("FREE")
+  planActivatedAt       DateTime?
+  lastSyncAt            DateTime?
   /// Flags por tienda. Se lee SIEMPRE con hasFeature() (app/lib/features.server.ts),
   /// que falla CERRADO: ausencia, error o JSON corrupto = flag apagado = camino
   /// estable. Permite encender/apagar sin desplegar: UPDATE "Shop" SET features = ...
-  features        Json       @default("{}")
-  campaigns       Campaign[]
+  features              Json                   @default("{}")
+  campaigns             Campaign[]
+  /// Cupones de viaje. SOLO existen en las tiendas con el flag `cupones:viaje`
+  /// (ver app/lib/cupones-viaje/acceso.server.ts). Hoy: GeoTerraViajes.
+  travelCouponCampaigns TravelCouponCampaign[]
 }
 
 // ─── Campaign ─────────────────────────────────────────────────────────────────
@@ -293,4 +296,132 @@ model AnalyticsEvent {
   @@index([shopId])
   @@index([eventType])
   @@index([createdAt])
+}
+
+// ─── Cupones de viaje (feature de UNA tienda, detrás del flag `cupones:viaje`) ─
+//
+// 🔴 NO es un tipo de campaña (`CampaignType`) y es a propósito. Vive en sus
+// propias tablas para no entrar en NADA de lo que comparten las tiendas que
+// pagan: el listado de campañas, los límites de plan, el motor de jobs, la
+// atribución. Sin el flag, ninguna ruta ni ningún bloque del webhook lo toca.
+//
+// El negocio (agencia de viajes): cada viaje es un producto con dos
+// modalidades por fecha — «Pago total» y «Reserva». El mismo cupón:
+//   · con Pago total  → descuenta DE VERDAD en el checkout (código nativo);
+//   · con Reserva     → NO descuenta; queda anotado en el pedido para que la
+//                       agencia lo reste del saldo que cobra por fuera.
+// Detalle completo en app/lib/cupones-viaje/cupones-viaje.ts.
+
+model TravelCouponCampaign {
+  id     String         @id @default(cuid())
+  shopId String
+  shop   Shop           @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  name   String
+  status CampaignStatus @default(DRAFT)
+
+  /// El viaje: UN producto por campaña.
+  productId    String
+  productTitle String
+
+  /// Cómo se reconoce cada modalidad: la opción del producto y su valor.
+  /// Las listas de variantes se RESUELVEN en el servidor al guardar, con los
+  /// datos frescos de la Admin API, nunca con lo que mande el navegador.
+  optionName            String
+  fullPaymentValue      String
+  reservationValue      String
+  fullPaymentVariantIds Json   @default("[]")
+  reservationVariantIds Json   @default("[]")
+
+  /// Cuántos cupones disponibles se muestran a la vez (1, 2…).
+  visibleCount Int @default(1)
+
+  /// El cupón disponible llega MARCADO al cargar la ficha (el comprador puede
+  /// quitarlo). `false` = el comprador lo pincha. Las campañas guardadas antes
+  /// de la opción quedan en `false`: así se comportaban.
+  autoApply Boolean @default(false)
+
+  /// Textos de la tienda, editables por el merchant.
+  heading            String
+  messageFullPayment String
+  messageReservation String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  coupons     TravelCoupon[]
+  redemptions TravelCouponRedemption[]
+
+  @@index([shopId])
+  @@index([shopId, productId])
+}
+
+model TravelCoupon {
+  id         String               @id @default(cuid())
+  campaignId String
+  campaign   TravelCouponCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  /// Orden de liberación: se publica el de menor `position` que no esté agotado.
+  position Int
+  label    String
+  /// Monto NETO en la moneda de la tienda (CLP para GeoTerra: sin decimales).
+  amount   Decimal @db.Decimal(14, 2)
+  stock    Int
+  /// Usos consumidos. Se incrementa SOLO dentro de la transacción que bloquea
+  /// la fila (`SELECT … FOR UPDATE`): ver `consumirCupon`.
+  used     Int     @default(0)
+
+  /// Código del descuento nativo en Shopify. El comprador NUNCA lo escribe: lo
+  /// aplica el widget. Es aleatorio para que no se pueda adivinar el siguiente.
+  code              String
+  shopifyDiscountId String?
+  /// Lo que la app cree que está hoy en Shopify. Lo corrige `sincronizar…`.
+  shopifyActive     Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  redemptions TravelCouponRedemption[]
+
+  @@unique([campaignId, position])
+  @@index([code])
+}
+
+enum TravelCouponMode {
+  /// Pago total: el descuento se aplicó en el checkout.
+  FULL_PAYMENT
+  /// Reserva: se pagó completa; el monto se descuenta del saldo por fuera.
+  RESERVATION
+}
+
+/// Un uso de un cupón en un pedido. Es el comprobante que mira la agencia al
+/// cobrar el saldo, así que es INMUTABLE: nunca se reescribe ni se borra con
+/// la campaña (una campaña con canjes no se puede eliminar, solo pausar).
+model TravelCouponRedemption {
+  id         String               @id @default(cuid())
+  campaignId String
+  campaign   TravelCouponCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  couponId   String
+  coupon     TravelCoupon         @relation(fields: [couponId], references: [id], onDelete: Cascade)
+
+  shopifyOrderId   String
+  /// «#6127», el número que la agencia ve en su listado de pedidos.
+  orderName        String
+  mode             TravelCouponMode
+  /// Pasajeros del pedido en esa modalidad (la cantidad de la línea).
+  passengers       Int              @default(1)
+  /// Cuántos de esos pasajeros NO entraron en el stock (llegaron sin cupos).
+  excessPassengers Int              @default(0)
+  /// TOTAL descontado, o a descontar del saldo: monto del cupón × pasajeros.
+  amount           Decimal          @db.Decimal(14, 2)
+  /// true = llegó cuando el cupón ya estaba agotado. Se registra igual —el
+  /// pedido existe— pero la decisión de respetarlo es de la agencia.
+  excess           Boolean          @default(false)
+  /// "webhook" en producción; "simulado" solo desde la pantalla de dev.
+  source           String           @default("webhook")
+
+  createdAt DateTime @default(now())
+
+  /// Idempotencia: Shopify puede entregar el mismo webhook dos veces.
+  @@unique([couponId, shopifyOrderId])
+  @@index([campaignId, createdAt])
 }
