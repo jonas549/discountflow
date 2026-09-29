@@ -10,7 +10,7 @@ import type { LoaderFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 import { prisma } from "../lib/db";
 import { tieneCuponesDeViaje } from "../lib/cupones-viaje/acceso.server";
-import { payloadDeLaTienda, payloadPorCodigo } from "../lib/cupones-viaje/cupones-viaje.server";
+import { payloadsDeLaTienda, payloadPorCodigo } from "../lib/cupones-viaje/cupones-viaje.server";
 import { ATRIBUTOS_DEL_CARRITO } from "../lib/cupones-viaje/cupones-viaje";
 
 function json(data: unknown, status = 200) {
@@ -53,5 +53,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   const product = url.searchParams.get("product") ?? "";
   if (!/^\d+$/.test(product)) return json({ campana: null }, 400);
-  return json({ campana: await payloadDeLaTienda(shop.id, product) });
+  // `campanas`: todas las activas del viaje, cada una con sus fechas (el widget
+  // elige la de la fecha elegida). `campana` queda por los scripts ya
+  // cacheados en el navegador, que solo conocen una.
+  const campanas = await payloadsDeLaTienda(shop.id, product);
+  return json({ campana: campanas[0] ?? null, campanas });
 };

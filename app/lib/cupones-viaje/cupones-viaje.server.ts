@@ -19,7 +19,9 @@ import {
   estaAgotado,
   generarCodigo,
   limiteDeUsoEnShopify,
+  normalizarNombre,
   repartirPasajeros,
+  variantesEnComun,
   usosRestantes,
   type CampanaParaPedido,
   type Consumo,
@@ -138,6 +140,105 @@ const ids = (json: unknown): string[] =>
  *     etiqueta, su monto y subir su stock, nada más.
  *   · El orden de los cupones sale del orden de la lista del formulario.
  */
+/**
+ * Un error que tiene un CAMPO del formulario: se muestra al lado de ese campo,
+ * no en el banner de arriba. El 2026-09-29 el choque de nombres salía en el
+ * banner, arriba de todo, y con los botones abajo parecía que «no guardaba».
+ */
+export class ErrorDeCampo extends Error {
+  // Campo normal, no «parameter property»: los tests corren con
+  // `--experimental-strip-types`, que no la soporta.
+  readonly campo: "coupons" | "fechas";
+  constructor(campo: "coupons" | "fechas", mensaje: string) {
+    super(mensaje);
+    this.campo = campo;
+  }
+}
+
+/**
+ * Los nombres de cupón que ya usan las OTRAS campañas del viaje (activas y
+ * pausadas: las que ven la tienda y el webhook). El formulario los usa para no
+ * proponer un «Cupón 1» que ya existe.
+ */
+export async function nombresUsadosEnElViaje(
+  shopId: string,
+  productId: string,
+  excepto?: string
+): Promise<Array<{ nombre: string; campana: string }>> {
+  const otras = await prisma.travelCouponCampaign.findMany({
+    where: {
+      shopId,
+      productId,
+      status: { in: ["ACTIVE", "PAUSED"] },
+      ...(excepto ? { id: { not: excepto } } : {}),
+    },
+    select: { name: true, coupons: { select: { label: true } } },
+  });
+  return otras.flatMap((o) => o.coupons.map((c) => ({ nombre: c.label, campana: o.name })));
+}
+
+/**
+ * Las reglas entre campañas del MISMO viaje (2026-09-29, camino intermedio
+ * aprobado por Jonas: fechas por campaña, varias campañas por viaje):
+ *
+ *   1. Dos campañas ACTIVAS no pueden compartir ninguna variante. Si se
+ *      tocaran, la ficha tendría dos juegos de cupones para la misma fecha y
+ *      Shopify dos códigos vivos sobre la misma variante.
+ *   2. Los nombres de cupón no se repiten en el viaje (activas y pausadas).
+ *      El pedido de Reserva identifica el cupón por su NOMBRE en «Cupón de
+ *      viaje», y el carrito lo busca entre todas las campañas del viaje: dos
+ *      «Cupón 1» en el mismo viaje anotarían el monto equivocado.
+ */
+async function validarChoques(
+  shopId: string,
+  productId: string,
+  excepto: string | undefined,
+  nueva: {
+    activa: boolean;
+    fullPaymentVariantIds: string[];
+    reservationVariantIds: string[];
+    nombres: string[];
+    titulosDeVariante?: Map<string, string>;
+  }
+): Promise<void> {
+  if (!nueva.activa) return;
+  const otras = await prisma.travelCouponCampaign.findMany({
+    where: {
+      shopId,
+      productId,
+      status: { in: ["ACTIVE", "PAUSED"] },
+      ...(excepto ? { id: { not: excepto } } : {}),
+    },
+    include: { coupons: { select: { label: true } } },
+  });
+  for (const o of otras) {
+    if (o.status === "ACTIVE") {
+      const comunes = variantesEnComun(nueva, {
+        fullPaymentVariantIds: ids(o.fullPaymentVariantIds),
+        reservationVariantIds: ids(o.reservationVariantIds),
+      });
+      if (comunes.length > 0) {
+        const ejemplo = nueva.titulosDeVariante?.get(comunes[0]);
+        throw new ErrorDeCampo(
+          "fechas",
+          `Las fechas se solapan con la campaña activa «${o.name}»` +
+            (ejemplo ? ` (por ejemplo, «${ejemplo}»)` : "") +
+            ". Elegí fechas que no tenga esa campaña, o pausala primero."
+        );
+      }
+    }
+    const repetido = nueva.nombres.find((n) =>
+      o.coupons.some((c) => normalizarNombre(c.label) === normalizarNombre(n))
+    );
+    if (repetido)
+      throw new ErrorDeCampo(
+        "coupons",
+        `Ya hay un cupón llamado «${repetido}» en la campaña «${o.name}» del mismo viaje. ` +
+          "Los nombres no se repiten dentro de un viaje: el pedido de Reserva identifica el cupón por su nombre."
+      );
+  }
+}
+
 export async function guardarCampana(
   admin: AdminClient,
   shopId: string,
@@ -150,12 +251,16 @@ export async function guardarCampana(
     producto.variants,
     datos.optionName,
     datos.fullPaymentValue,
-    datos.reservationValue
+    datos.reservationValue,
+    { optionName: datos.dateOptionName, values: datos.dateValues }
   );
   if (clasificadas.fullPayment.length === 0 && clasificadas.reservation.length === 0)
     throw new Error(
-      `Ninguna variante de «${producto.title}» tiene «${datos.optionName}» igual a ` +
-        `«${datos.fullPaymentValue}» o «${datos.reservationValue}». Revisá la opción elegida.`
+      datos.dateValues.length > 0
+        ? `Ninguna variante de «${producto.title}» de las fechas elegidas tiene «${datos.optionName}» ` +
+            `igual a «${datos.fullPaymentValue}» o «${datos.reservationValue}». Revisá las fechas y la opción.`
+        : `Ninguna variante de «${producto.title}» tiene «${datos.optionName}» igual a ` +
+            `«${datos.fullPaymentValue}» o «${datos.reservationValue}». Revisá la opción elegida.`
     );
 
   const anterior = opciones.campaignId
@@ -165,6 +270,17 @@ export async function guardarCampana(
       })
     : null;
   if (opciones.campaignId && !anterior) throw new Error("La campaña no existe.");
+
+  // Choques con las otras campañas del MISMO viaje. Se valida con el estado en
+  // que va a quedar: una campaña en borrador puede solaparse (no se ve en la
+  // tienda); al activarla, `cambiarEstado` vuelve a validar.
+  await validarChoques(shopId, producto.id, opciones.campaignId, {
+    activa: (opciones.estado ?? anterior?.status) === "ACTIVE",
+    fullPaymentVariantIds: clasificadas.fullPayment,
+    reservationVariantIds: clasificadas.reservation,
+    nombres: cupones.map((c) => c.label),
+    titulosDeVariante: new Map(producto.variants.map((v) => [v.id, v.title ?? v.id])),
+  });
 
   const quedan = new Set(cupones.map((c) => c.id).filter(Boolean));
   const quitados = (anterior?.coupons ?? []).filter((c) => !quedan.has(c.id));
@@ -184,6 +300,8 @@ export async function guardarCampana(
     reservationValue: datos.reservationValue,
     fullPaymentVariantIds: clasificadas.fullPayment,
     reservationVariantIds: clasificadas.reservation,
+    dateOptionName: datos.dateValues.length > 0 ? datos.dateOptionName : "",
+    dateValues: datos.dateValues,
     visibleCount: datos.visibleCount,
     autoApply: datos.autoApply,
     heading: datos.heading,
@@ -354,6 +472,19 @@ export async function cambiarEstado(
   campaignId: string,
   estado: "ACTIVE" | "PAUSED"
 ): Promise<void> {
+  if (estado === "ACTIVE") {
+    const campana = await prisma.travelCouponCampaign.findFirst({
+      where: { id: campaignId, shopId },
+      include: { coupons: { select: { label: true } } },
+    });
+    if (!campana) throw new Error("La campaña no existe.");
+    await validarChoques(shopId, campana.productId, campana.id, {
+      activa: true,
+      fullPaymentVariantIds: ids(campana.fullPaymentVariantIds),
+      reservationVariantIds: ids(campana.reservationVariantIds),
+      nombres: campana.coupons.map((c) => c.label),
+    });
+  }
   const r = await prisma.travelCouponCampaign.updateMany({
     where: { id: campaignId, shopId },
     data: { status: estado },
@@ -563,7 +694,19 @@ export async function payloadDeLaTienda(
   shopId: string,
   productIdNumerico: string
 ): Promise<PayloadDeLaTienda | null> {
-  const campana = await prisma.travelCouponCampaign.findFirst({
+  return (await payloadsDeLaTienda(shopId, productIdNumerico))[0] ?? null;
+}
+
+/**
+ * TODAS las campañas activas de un viaje (2026-09-29): cada una cubre sus
+ * fechas y no se tocan (`validarChoques`). El widget elige la de la fecha que
+ * está elegida en la ficha, y se esconde si ninguna la cubre.
+ */
+export async function payloadsDeLaTienda(
+  shopId: string,
+  productIdNumerico: string
+): Promise<PayloadDeLaTienda[]> {
+  const campanas = await prisma.travelCouponCampaign.findMany({
     where: {
       shopId,
       status: "ACTIVE",
@@ -572,8 +715,10 @@ export async function payloadDeLaTienda(
     include: conCupones,
     orderBy: { createdAt: "desc" },
   });
-  if (!campana) return null;
+  return campanas.map(aPayload);
+}
 
+function aPayload(campana: CampanaConCupones): PayloadDeLaTienda {
   const cupones = campana.coupons.map((c) => ({ ...c, amount: Number(c.amount) }));
   return {
     campaignId: campana.id,
@@ -608,20 +753,45 @@ export async function payloadPorCodigo(
 ): Promise<PayloadDeLaTienda | null> {
   const cupon = await prisma.travelCoupon.findFirst({
     where: { code: codigo, campaign: { shopId, status: "ACTIVE" } },
-    select: { campaign: { select: { productId: true } } },
+    select: { campaignId: true },
   });
   if (!cupon) return null;
-  return payloadDeLaTienda(shopId, numerico(cupon.campaign.productId));
+  // La campaña DEL CÓDIGO, no la más nueva del viaje: con varias campañas
+  // por viaje pueden ser distintas.
+  const campana = await prisma.travelCouponCampaign.findUnique({
+    where: { id: cupon.campaignId },
+    include: conCupones,
+  });
+  return campana ? aPayload(campana) : null;
 }
 
-/** Otra campaña ACTIVA sobre el mismo producto, para avisar al guardar. */
+/**
+ * Otra campaña ACTIVA del mismo viaje cuyas fechas se TOCAN con esta, para
+ * avisar al abrirla. Desde el 2026-09-29 varias campañas por viaje son
+ * normales si sus fechas no se tocan: esas no se avisan.
+ */
 export async function otraCampanaActivaDelProducto(
   shopId: string,
   productId: string,
   excepto?: string
 ) {
-  return prisma.travelCouponCampaign.findFirst({
+  const esta = excepto
+    ? await prisma.travelCouponCampaign.findUnique({
+        where: { id: excepto },
+        select: { fullPaymentVariantIds: true, reservationVariantIds: true },
+      })
+    : null;
+  const otras = await prisma.travelCouponCampaign.findMany({
     where: { shopId, productId, status: "ACTIVE", ...(excepto ? { id: { not: excepto } } : {}) },
-    select: { id: true, name: true },
+    select: { id: true, name: true, fullPaymentVariantIds: true, reservationVariantIds: true },
   });
+  const choca = otras.find(
+    (o) =>
+      !esta ||
+      variantesEnComun(
+        { fullPaymentVariantIds: ids(esta.fullPaymentVariantIds), reservationVariantIds: ids(esta.reservationVariantIds) },
+        { fullPaymentVariantIds: ids(o.fullPaymentVariantIds), reservationVariantIds: ids(o.reservationVariantIds) }
+      ).length > 0
+  );
+  return choca ? { id: choca.id, name: choca.name } : null;
 }

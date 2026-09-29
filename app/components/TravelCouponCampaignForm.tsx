@@ -37,7 +37,9 @@ import {
   formatoMonto,
   parseMontoEntero,
   rellenarMensaje,
+  normalizarNombre,
   sugerirModalidades,
+  sugerirOpcionDeFecha,
   MAX_CUPONES,
   MAX_VISIBLES,
   type ErroresDelFormulario,
@@ -64,6 +66,9 @@ export type TravelFormInitial = {
   optionName: string;
   fullPaymentValue: string;
   reservationValue: string;
+  /** La opción que es la fecha y las fechas elegidas (vacío = todas). */
+  dateOptionName: string;
+  dateValues: string[];
   visibleCount: number;
   autoApply: boolean;
   heading: string;
@@ -74,10 +79,31 @@ export type TravelFormInitial = {
 
 type ProductoLeido = { options: OpcionDeProducto[]; variants: VarianteConOpciones[] };
 
+/** Botón con aspecto de enlace (marcar todas / limpiar las fechas). */
+const estiloEnlace = {
+  background: "none",
+  border: "none",
+  padding: 0,
+  color: "#2c6ecb",
+  cursor: "pointer",
+  fontSize: "12.5px",
+  textDecoration: "underline",
+} as const;
+
 let contadorDeFilas = 0;
 const nuevaClave = () => `nueva-${++contadorDeFilas}-${Date.now()}`;
 
+/** El primer «Cupón N» que no está tomado. */
+function nombreLibre(tomados: string[], desde = 1): string {
+  const set = new Set(tomados.map(normalizarNombre));
+  let n = desde;
+  while (set.has(normalizarNombre(`Cupón ${n}`))) n++;
+  return `Cupón ${n}`;
+}
+
 export function TravelCouponCampaignForm({
+  campaignId,
+  nombresUsadosIniciales,
   initial,
   productoInicial,
   errors,
@@ -86,6 +112,10 @@ export function TravelCouponCampaignForm({
   showDraftButton,
   avisoOtraActiva,
 }: {
+  /** En edición: sus propios cupones no cuentan como «nombres ya usados». */
+  campaignId?: string;
+  /** En edición: los nombres de las otras campañas del viaje, ya leídos. */
+  nombresUsadosIniciales?: Array<{ nombre: string; campana: string }>;
   initial: TravelFormInitial;
   /** En edición, el viaje ya leído: permite mostrar la clasificación sin esperar. */
   productoInicial: ProductoLeido | null;
@@ -104,6 +134,8 @@ export function TravelCouponCampaignForm({
   const [optionName, setOptionName] = useState(initial.optionName);
   const [fullPaymentValue, setFullPaymentValue] = useState(initial.fullPaymentValue);
   const [reservationValue, setReservationValue] = useState(initial.reservationValue);
+  const [dateOptionName, setDateOptionName] = useState(initial.dateOptionName);
+  const [dateValues, setDateValues] = useState<string[]>(initial.dateValues);
   const [coupons, setCoupons] = useState<FilaDeCupon[]>(initial.coupons);
   const [visibleCount, setVisibleCount] = useState(initial.visibleCount);
   const [autoApply, setAutoApply] = useState(initial.autoApply);
@@ -122,37 +154,86 @@ export function TravelCouponCampaignForm({
   // respuesta nueva; el `{}` vacío de «sin errores» no reinicia nada.
   useEffect(() => {
     if (Object.keys(errors).length > 0) setTocado({});
+    // Los botones de guardar están ABAJO: sin esto, un error arriba (o en
+    // medio) no se ve y parece que el formulario no guardó (2026-09-29).
+    if (Object.keys(errors).length > 0)
+      requestAnimationFrame(() =>
+        document.querySelector("[data-df-error]")?.scrollIntoView({ behavior: "smooth", block: "center" })
+      );
   }, [errors]);
   const err = (k: keyof ErroresDelFormulario) => (tocado[k] ? undefined : errors[k]);
   const marcar = (k: keyof ErroresDelFormulario) =>
     setTocado((p) => (p[k] ? p : { ...p, [k]: true }));
 
   // ── El viaje ──────────────────────────────────────────────────────────────
-  const fetcher = useFetcher<{ producto?: ProductoLeido & { id: string; title: string }; error?: string }>();
+  const fetcher = useFetcher<{
+    producto?: ProductoLeido & { id: string; title: string };
+    nombresUsados?: Array<{ nombre: string; campana: string }>;
+    error?: string;
+  }>();
+  // Los nombres de cupón de las OTRAS campañas de este viaje (no se repiten).
+  const [nombresUsados, setNombresUsados] = useState<Array<{ nombre: string; campana: string }>>(
+    nombresUsadosIniciales ?? []
+  );
   const pedido = useRef<string | null>(null);
 
   useEffect(() => {
     const leido = fetcher.data?.producto;
     if (!leido || leido.id !== pedido.current) return;
     setProducto({ options: leido.options, variants: leido.variants });
+    const usados = fetcher.data?.nombresUsados ?? [];
+    setNombresUsados(usados);
+    // Un «Cupón N» NUEVO (sin guardar) cuyo nombre ya existe en otra campaña
+    // del viaje pasa al siguiente libre. Lo que el merchant escribió a mano no
+    // se toca: si choca, se avisa abajo.
+    const tomados = usados.map((u) => u.nombre);
+    setCoupons((cs) => {
+      const vistos = [...tomados];
+      return cs.map((c) => {
+        if (!c.id && /^Cupón \d+$/.test(c.label) && vistos.some((v) => normalizarNombre(v) === normalizarNombre(c.label))) {
+          const libre = nombreLibre(vistos.concat(cs.map((x) => x.label)));
+          vistos.push(libre);
+          return { ...c, label: libre };
+        }
+        vistos.push(c.label);
+        return c;
+      });
+    });
     // Se propone la modalidad solo si la actual no existe en este producto: al
     // editar, lo que eligió el merchant manda sobre la sugerencia.
     const valida = leido.options.some(
       (o) => o.name === optionName && o.values.includes(fullPaymentValue) && o.values.includes(reservationValue)
     );
+    let opcionModalidad = optionName;
     if (!valida) {
       const s = sugerirModalidades(leido.options);
-      setOptionName(s?.optionName ?? leido.options[0]?.name ?? "");
+      opcionModalidad = s?.optionName ?? leido.options[0]?.name ?? "";
+      setOptionName(opcionModalidad);
       setFullPaymentValue(s?.fullPaymentValue ?? "");
       setReservationValue(s?.reservationValue ?? "");
+    }
+    // La fecha: se conserva la elegida si existe en este producto; si no, se
+    // propone y se vacían las fechas (= todas), nunca se inventa una selección.
+    const fechaValida = leido.options.some((o) => o.name === dateOptionName && o.name !== opcionModalidad);
+    if (!fechaValida) {
+      setDateOptionName(sugerirOpcionDeFecha(leido.options, opcionModalidad));
+      setDateValues([]);
+    } else {
+      const existentes = leido.options.find((o) => o.name === dateOptionName)?.values ?? [];
+      setDateValues((vs) => vs.filter((v) => existentes.includes(v)));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fetcher.data]);
 
   const elegirViaje = async () => {
+    // 🔴 `variants: false`: el selector de Shopify deja marcar variantes por
+    // defecto, y esta pantalla NO las lee — se descartaban en silencio y el
+    // merchant creía haber limitado el cupón (2026-09-29). Las fechas se
+    // eligen abajo, en «Fechas a las que aplica».
     const elegidos = await shopify.resourcePicker({
       type: "product",
       multiple: false,
+      filter: { variants: false },
       selectionIds: productId ? [{ id: productId }] : [],
     });
     const p = (elegidos as Array<{ id: string; title: string }> | undefined)?.[0];
@@ -163,13 +244,33 @@ export function TravelCouponCampaignForm({
     setProductTitle(p.title);
     setProducto(null);
     pedido.current = p.id;
-    fetcher.load(`/app/cupones-viaje/producto?id=${encodeURIComponent(p.id)}`);
+    fetcher.load(
+      `/app/cupones-viaje/producto?id=${encodeURIComponent(p.id)}` +
+        (campaignId ? `&excepto=${encodeURIComponent(campaignId)}` : "")
+    );
   };
 
   const opcionElegida = producto?.options.find((o) => o.name === optionName);
+  const opcionFecha = producto?.options.find((o) => o.name === dateOptionName && o.name !== optionName);
   const clasificadas = producto
-    ? clasificarVariantes(producto.variants, optionName, fullPaymentValue, reservationValue)
+    ? clasificarVariantes(producto.variants, optionName, fullPaymentValue, reservationValue, {
+        optionName: dateOptionName,
+        values: dateValues,
+      })
     : null;
+  // Aviso EN VIVO, antes de guardar: un nombre de cupón que ya usa otra
+  // campaña del mismo viaje.
+  const repetidoEnElViaje = (() => {
+    for (const c of coupons) {
+      const u = nombresUsados.find((x) => normalizarNombre(x.nombre) === normalizarNombre(c.label));
+      if (u) return u;
+    }
+    return null;
+  })();
+  const alternarFecha = (v: string) => {
+    marcar("fechas");
+    setDateValues((vs) => (vs.includes(v) ? vs.filter((x) => x !== v) : vs.concat(v)));
+  };
 
   // ── Cupones ───────────────────────────────────────────────────────────────
   const setCupon = (i: number, patch: Partial<FilaDeCupon>) => {
@@ -217,6 +318,8 @@ export function TravelCouponCampaignForm({
     optionName,
     fullPaymentValue,
     reservationValue,
+    dateOptionName: dateValues.length > 0 ? dateOptionName : "",
+    dateValues,
     visibleCount,
     autoApply,
     heading,
@@ -233,7 +336,11 @@ export function TravelCouponCampaignForm({
       {/* 🔴 La ÚNICA fuente de lo que se guarda. Ver la cabecera. */}
       <input type="hidden" name="datos" value={JSON.stringify(datos)} />
 
-      {errors.general && <GeneralErrorBanner message={errors.general} />}
+      {errors.general && (
+        <div data-df-error>
+          <GeneralErrorBanner message={errors.general} />
+        </div>
+      )}
       {avisoOtraActiva && (
         <div
           style={{
@@ -351,9 +458,75 @@ export function TravelCouponCampaignForm({
                     {t.clasificacion(
                       clasificadas.fullPayment.length,
                       clasificadas.reservation.length,
-                      clasificadas.sinClasificar.length
+                      clasificadas.sinClasificar.length,
+                      clasificadas.fueraDeFechas.length
                     )}
                   </p>
+                )}
+
+                {/* ── Fechas: vacío = todas ── */}
+                {err("fechas") && <div data-df-error />}
+                <FieldGroup label={t.fechaOpcionLabel} error={err("fechas")}>
+                  <select
+                    value={dateOptionName}
+                    onChange={(e) => {
+                      marcar("fechas");
+                      setDateOptionName(e.target.value);
+                      setDateValues([]);
+                    }}
+                    style={inputStyle}
+                  >
+                    <option value="">—</option>
+                    {producto.options
+                      .filter((o) => o.name !== optionName)
+                      .map((o) => (
+                        <option key={o.name} value={o.name}>
+                          {o.name}
+                        </option>
+                      ))}
+                  </select>
+                </FieldGroup>
+                {opcionFecha && (
+                  <FieldGroup label={t.fechasLabel} helper={t.fechasHelper}>
+                    <div style={{ display: "flex", gap: "12px", alignItems: "center", marginBottom: "6px" }}>
+                      <span style={{ fontSize: "12.5px", fontWeight: 600 }}>
+                        {dateValues.length === 0
+                          ? t.fechasTodas
+                          : t.fechasElegidas(dateValues.length, opcionFecha.values.length)}
+                      </span>
+                      <button
+                        type="button"
+                        style={estiloEnlace}
+                        onClick={() => {
+                          marcar("fechas");
+                          setDateValues([...opcionFecha.values]);
+                        }}
+                      >
+                        {t.fechasMarcarTodas}
+                      </button>
+                      <button
+                        type="button"
+                        style={estiloEnlace}
+                        onClick={() => {
+                          marcar("fechas");
+                          setDateValues([]);
+                        }}
+                      >
+                        {t.fechasLimpiar}
+                      </button>
+                    </div>
+                    <div
+                      data-df-fechas
+                      style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: "4px 12px" }}
+                    >
+                      {opcionFecha.values.map((v) => (
+                        <label key={v} style={{ display: "flex", gap: "6px", alignItems: "center", fontSize: "13px" }}>
+                          <input type="checkbox" checked={dateValues.includes(v)} onChange={() => alternarFecha(v)} />
+                          {v}
+                        </label>
+                      ))}
+                    </div>
+                  </FieldGroup>
                 )}
                 <p style={{ fontSize: "12px", color: "#8c9196", marginTop: "6px" }}>{t.avisoFechasNuevas}</p>
               </>
@@ -407,7 +580,10 @@ export function TravelCouponCampaignForm({
                     setCoupons((cs) =>
                       cs.concat({
                         key: nuevaClave(),
-                        label: `Cupón ${cs.length + 1}`,
+                        label: nombreLibre(
+                          nombresUsados.map((u) => u.nombre).concat(cs.map((x) => x.label)),
+                          cs.length + 1
+                        ),
                         // El siguiente arranca con los valores del anterior: lo
                         // habitual es cambiar solo el monto.
                         amount: ultimo?.amount ?? "",
@@ -422,8 +598,13 @@ export function TravelCouponCampaignForm({
                 </Btn>
               </div>
             )}
+            {repetidoEnElViaje && (
+              <p data-df-error style={{ fontSize: "12px", color: "#d82c0d", marginTop: "8px" }}>
+                {t.nombreRepetidoEnViaje(repetidoEnElViaje.nombre, repetidoEnElViaje.campana)}
+              </p>
+            )}
             {err("coupons") && (
-              <p style={{ fontSize: "12px", color: "#d82c0d", marginTop: "8px" }}>{err("coupons")}</p>
+              <p data-df-error style={{ fontSize: "12px", color: "#d82c0d", marginTop: "8px" }}>{err("coupons")}</p>
             )}
             {superanElPrecio.length > 0 && minimoPagoTotal !== null && (
               <div

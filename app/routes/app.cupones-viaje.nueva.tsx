@@ -5,7 +5,7 @@ import { Link, redirect, useActionData, useNavigation } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { TravelCouponCampaignForm } from "../components/TravelCouponCampaignForm";
 import { abrirCuponesDeViaje, esProduccion } from "../lib/cupones-viaje/admin.server";
-import { guardarCampana } from "../lib/cupones-viaje/cupones-viaje.server";
+import { ErrorDeCampo, guardarCampana } from "../lib/cupones-viaje/cupones-viaje.server";
 import {
   leerDatosDelFormulario,
   validarFormulario,
@@ -47,6 +47,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     });
     return redirect("/app/campaigns");
   } catch (err) {
+    if (err instanceof ErrorDeCampo)
+      return Response.json({ errors: { [err.campo]: err.message } }, { status: 422 });
     return Response.json(
       { errors: { general: es.cuponesViaje.errGuardar(err instanceof Error ? err.message : String(err)) } },
       { status: 500 }
@@ -74,6 +76,8 @@ export default function NuevaCampanaDeViaje() {
           optionName: "",
           fullPaymentValue: "",
           reservationValue: "",
+          dateOptionName: "",
+          dateValues: [],
           visibleCount: 1,
           // Las campañas nuevas nacen con el cupón marcado: es lo que pidió
           // la agencia (2026-09-25). El merchant lo cambia en el formulario.

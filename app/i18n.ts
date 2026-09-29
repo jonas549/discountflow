@@ -918,7 +918,8 @@ export const es = {
     nombrePlaceholder: "Lanzamiento",
 
     secViaje: "Producto y modalidades de pago",
-    viajeHelper: "Elegí el producto. Los cupones aplican a todas sus variantes de cada modalidad.",
+    viajeHelper:
+      "Elegí el producto. Después, si querés, las fechas: sin fechas marcadas, los cupones aplican a todas.",
     btnElegirViaje: "Elegir producto",
     btnCambiarViaje: "Cambiar producto",
     cargandoViaje: "Leyendo las variantes del producto…",
@@ -926,11 +927,22 @@ export const es = {
     opcionHelper: "La opción del producto donde el comprador elige entre pagar el total o reservar.",
     totalLabel: "Valor que significa «Pago total»",
     reservaLabel: "Valor que significa «Reserva»",
-    clasificacion: (total: number, reserva: number, otras: number) =>
+    clasificacion: (total: number, reserva: number, otras: number, fuera = 0) =>
       `${total} variantes de Pago total · ${reserva} de Reserva` +
+      (fuera ? ` · ${fuera} de otras fechas quedan fuera` : "") +
       (otras ? ` · ${otras} no encajan en ninguna y quedan fuera del cupón` : ""),
     avisoFechasNuevas:
       "Si agregás variantes nuevas al producto, volvé a guardar la campaña para que el cupón las incluya.",
+    fechaOpcionLabel: "Opción que indica la fecha",
+    nombreRepetidoEnViaje: (nombre: string, campana: string) =>
+      `«${nombre}» ya existe en la campaña «${campana}» de este mismo producto. Poné otro nombre: el pedido de Reserva identifica el cupón por su nombre.`,
+    fechasLabel: "Fechas a las que aplica",
+    fechasHelper:
+      "Sin ninguna marcada, aplica a TODAS. En las fechas que no marques, la tienda no muestra estos cupones. Otra campaña activa del mismo producto puede cubrir las demás fechas, si no se tocan.",
+    fechasTodas: "Todas las fechas",
+    fechasElegidas: (n: number, total: number) => `${n} de ${total} fechas`,
+    fechasMarcarTodas: "Marcar todas",
+    fechasLimpiar: "Limpiar (= todas)",
 
     secCupones: "Cupones",
     cuponesHelper:
@@ -1002,7 +1014,7 @@ export const es = {
     confirmarEliminar: "¿Eliminar esta campaña? Se borran sus cupones y sus códigos.",
     eliminarBloqueado: "Tiene canjes: no se puede eliminar, solo pausar.",
     avisoOtraActiva: (nombre: string) =>
-      `Ojo: «${nombre}» también está activa sobre este producto. La tienda muestra la más nueva.`,
+      `Ojo: «${nombre}» también está activa sobre este producto y sus fechas se tocan con las de esta. Al guardar activa, elegí fechas distintas.`,
 
     secCanjes: "Canjes",
     canjesHelper:

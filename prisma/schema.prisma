@@ -332,6 +332,13 @@ model TravelCouponCampaign {
   fullPaymentVariantIds Json   @default("[]")
   reservationVariantIds Json   @default("[]")
 
+  /// Las FECHAS del viaje a las que aplica la campaña: la opción del producto
+  /// que es la fecha y los valores elegidos. Lista vacía = TODAS (así se
+  /// comportaban las campañas guardadas antes del 2026-09-29). Varias campañas
+  /// activas sobre el mismo viaje son válidas si sus fechas no se tocan.
+  dateOptionName String @default("")
+  dateValues     Json   @default("[]")
+
   /// Cuántos cupones disponibles se muestran a la vez (1, 2…).
   visibleCount Int @default(1)
 

@@ -18,6 +18,8 @@ import {
   leerProductoDeViaje,
   necesitaSincronizar,
   otraCampanaActivaDelProducto,
+  nombresUsadosEnElViaje,
+  ErrorDeCampo,
   registrarPedido,
   sincronizarConShopify,
   type ProductoDeViaje,
@@ -77,9 +79,10 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     producto = null;
   }
 
-  const [canjes, otra] = await Promise.all([
+  const [canjes, otra, nombresUsados] = await Promise.all([
     canjesDeLaCampana(campana.id),
     otraCampanaActivaDelProducto(shop.id, campana.productId, campana.id),
+    nombresUsadosEnElViaje(shop.id, campana.productId, campana.id),
   ]);
 
   return {
@@ -92,6 +95,10 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       optionName: campana.optionName,
       fullPaymentValue: campana.fullPaymentValue,
       reservationValue: campana.reservationValue,
+      dateOptionName: campana.dateOptionName,
+      dateValues: Array.isArray(campana.dateValues)
+        ? (campana.dateValues as unknown[]).filter((v): v is string => typeof v === "string")
+        : [],
       visibleCount: campana.visibleCount,
       autoApply: campana.autoApply,
       heading: campana.heading,
@@ -121,6 +128,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       source: r.source,
     })),
     otraActiva: otra?.name ?? null,
+    nombresUsados,
     avisoSincronizacion,
     puedeSimular: !esProduccion(),
   };
@@ -186,6 +194,8 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     if (err instanceof Response) throw err;
     if (desdeListado)
       return Response.json({ error: err instanceof Error ? err.message : String(err) }, { status: 422 });
+    if (err instanceof ErrorDeCampo)
+      return Response.json({ errors: { [err.campo]: err.message } }, { status: 422 });
     return fallo(err);
   }
 };
@@ -326,6 +336,8 @@ export default function EditarCampanaDeViaje() {
       )}
 
       <TravelCouponCampaignForm
+        campaignId={c.id}
+        nombresUsadosIniciales={data.nombresUsados}
         key={c.id + c.coupons.map((x) => `${x.id}:${x.used}`).join(",")}
         initial={{
           name: c.name,
@@ -334,6 +346,8 @@ export default function EditarCampanaDeViaje() {
           optionName: c.optionName,
           fullPaymentValue: c.fullPaymentValue,
           reservationValue: c.reservationValue,
+          dateOptionName: c.dateOptionName,
+          dateValues: c.dateValues,
           visibleCount: c.visibleCount,
           autoApply: c.autoApply,
           heading: c.heading,

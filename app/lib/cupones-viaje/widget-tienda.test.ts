@@ -409,6 +409,22 @@ test("elegido: fondo con el color del texto y texto con el fondo (oscuro sobre c
   assert.match(w.botones()[1].style.cssText, /background:transparent/);
 });
 
+test("🔴 CONTRATO con el tema de la tienda: las clases y `aria-pressed` que usa su CSS no cambian", async () => {
+  // GeoTerra pinta sus colores con `[data-df-cupones-viaje] .df-cv__btn[aria-pressed="true"]`
+  // y `.df-cv__estado` (CSS pegado en su tema, 2026-09-29). Renombrarlos le
+  // borraría el color sin ningún error: si este test falla, avisarle ANTES.
+  const w = montar({ variante: "22" });
+  await esperar();
+  w.pinchar(1);
+  await esperar();
+  const b = w.botones()[1];
+  assert.equal(b.className, "df-cv__btn");
+  assert.equal(b.getAttribute("aria-pressed"), "true");
+  assert.equal(w.botones()[0].getAttribute("aria-pressed"), "false");
+  assert.equal(w.botones()[0].disabled, true);
+  assert.equal(todos(w.root, (n) => n.className === "df-cv__estado").length, 1);
+});
+
 test("agotado: borde punteado, apagado y sin cursor de clic", async () => {
   const w = montar();
   await esperar();

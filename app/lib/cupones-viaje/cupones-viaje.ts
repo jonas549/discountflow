@@ -280,24 +280,59 @@ export function sugerirModalidades(
 }
 
 /**
+ * Las fechas a las que aplica una campaña: la opción del producto que es la
+ * fecha y los valores elegidos. `values` vacío = TODAS las fechas.
+ */
+export type FechasDeLaCampana = { optionName: string; values: string[] };
+
+/**
+ * Propone cuál opción del producto es la FECHA: la que no es la modalidad,
+ * con preferencia por una que diga «fecha» (en GeoTerra: «Selecciona la fecha
+ * de tu viaje»). Solo una sugerencia: el merchant la ve y la puede cambiar.
+ */
+export function sugerirOpcionDeFecha(opciones: OpcionDeProducto[], opcionModalidad: string): string {
+  const otras = opciones.filter((o) => normalizar(o.name) !== normalizar(opcionModalidad));
+  return (otras.find((o) => /fecha/i.test(o.name)) ?? otras[0])?.name ?? "";
+}
+
+/**
  * Separa las variantes del viaje en Pago total, Reserva y las que no encajan.
  *
  * 🔴 Una variante que no encaja en ninguna queda FUERA: ni descuenta ni se
  * anota. Es el fallo seguro — si no se puede afirmar que es un pago total, no
  * se le aplica un descuento real.
+ *
+ * Con `fechas` elegidas, una variante de OTRA fecha también queda fuera
+ * (`fueraDeFechas`): ni el código de Shopify, ni el widget, ni el webhook la
+ * ven como parte de la campaña. Sin fechas elegidas, entran todas.
  */
 export function clasificarVariantes(
   variantes: VarianteConOpciones[],
   optionName: string,
   fullPaymentValue: string,
-  reservationValue: string
-): { fullPayment: string[]; reservation: string[]; sinClasificar: string[] } {
-  const out = { fullPayment: [] as string[], reservation: [] as string[], sinClasificar: [] as string[] };
+  reservationValue: string,
+  fechas?: FechasDeLaCampana
+): { fullPayment: string[]; reservation: string[]; sinClasificar: string[]; fueraDeFechas: string[] } {
+  const out = {
+    fullPayment: [] as string[],
+    reservation: [] as string[],
+    sinClasificar: [] as string[],
+    fueraDeFechas: [] as string[],
+  };
   const opcion = normalizar(optionName);
   const total = normalizar(fullPaymentValue);
   const reserva = normalizar(reservationValue);
+  const opcionFecha = normalizar(fechas?.optionName ?? "");
+  const elegidas = new Set((fechas?.values ?? []).map(normalizar));
 
   for (const v of variantes) {
+    if (elegidas.size > 0) {
+      const fecha = v.selectedOptions.find((o) => normalizar(o.name) === opcionFecha)?.value;
+      if (fecha === undefined || !elegidas.has(normalizar(fecha))) {
+        out.fueraDeFechas.push(v.id);
+        continue;
+      }
+    }
     const valor = v.selectedOptions.find((o) => normalizar(o.name) === opcion)?.value;
     const n = valor === undefined ? undefined : normalizar(valor);
     if (n !== undefined && n === total) out.fullPayment.push(v.id);
@@ -305,6 +340,20 @@ export function clasificarVariantes(
     else out.sinClasificar.push(v.id);
   }
   return out;
+}
+
+/**
+ * ¿Dos campañas del mismo viaje se tocan? Se compara por VARIANTES ya
+ * resueltas (Pago total + Reserva de cada una), no por los textos de las
+ * fechas: así «vacío = todas» se cruza con cualquiera sin casos especiales, y
+ * un cambio de nombre de la opción no esconde un choque.
+ */
+export function variantesEnComun(
+  a: { fullPaymentVariantIds: string[]; reservationVariantIds: string[] },
+  b: { fullPaymentVariantIds: string[]; reservationVariantIds: string[] }
+): string[] {
+  const deB = new Set([...b.fullPaymentVariantIds, ...b.reservationVariantIds]);
+  return [...a.fullPaymentVariantIds, ...a.reservationVariantIds].filter((v) => deB.has(v));
 }
 
 // ─── Montos ───────────────────────────────────────────────────────────────────
@@ -382,6 +431,9 @@ export type DatosDelFormulario = {
   optionName: string;
   fullPaymentValue: string;
   reservationValue: string;
+  /** La opción del producto que es la fecha, y las fechas elegidas (vacío = todas). */
+  dateOptionName: string;
+  dateValues: string[];
   visibleCount: number;
   /** El cupón disponible llega marcado a la ficha. */
   autoApply: boolean;
@@ -392,7 +444,7 @@ export type DatosDelFormulario = {
 };
 
 export type ErroresDelFormulario = Partial<
-  Record<"name" | "product" | "modalidades" | "coupons" | "messages" | "general", string>
+  Record<"name" | "product" | "modalidades" | "fechas" | "coupons" | "messages" | "general", string>
 >;
 
 /** Un cupón del formulario ya leído a números. */
@@ -417,6 +469,11 @@ export function leerDatosDelFormulario(raw: unknown): DatosDelFormulario {
     optionName: str(o.optionName),
     fullPaymentValue: str(o.fullPaymentValue),
     reservationValue: str(o.reservationValue),
+    dateOptionName: str(o.dateOptionName),
+    // Lo que falte = ninguna fecha elegida = TODAS: lo de siempre.
+    dateValues: Array.isArray(o.dateValues)
+      ? [...new Set(o.dateValues.filter((v): v is string => typeof v === "string" && v !== ""))]
+      : [],
     visibleCount: Number(o.visibleCount) || 0,
     // Solo un `true` explícito lo enciende: lo que falte deja el
     // comportamiento de siempre (el comprador lo pincha).
@@ -456,6 +513,11 @@ export function validarFormulario(
     errores.modalidades = "Indicá qué opción del producto distingue «Pago total» de «Reserva».";
   else if (d.productId && normalizar(d.fullPaymentValue) === normalizar(d.reservationValue))
     errores.modalidades = "«Pago total» y «Reserva» no pueden ser el mismo valor.";
+
+  if (d.dateValues.length > 0 && !d.dateOptionName)
+    errores.fechas = "Indicá qué opción del producto es la fecha.";
+  else if (d.dateValues.length > 0 && normalizar(d.dateOptionName) === normalizar(d.optionName))
+    errores.fechas = "La fecha no puede ser la misma opción que distingue «Pago total» de «Reserva».";
 
   if (d.coupons.length === 0) errores.coupons = "Agregá al menos un cupón.";
   else if (d.coupons.length > MAX_CUPONES)

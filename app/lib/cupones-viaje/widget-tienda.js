@@ -347,11 +347,25 @@
 
   var contador = 0;
 
+  /**
+   * 🔴 El tema RE-DIBUJA el bloque al cambiar de variante (Dawn, medido en el
+   * tema de GeoTerra el 2026-09-29): tira nuestro nodo y pone uno nuevo, vacío.
+   * Si el nuevo arrancaba de cero —esperar, pedir la campaña al servidor,
+   * pintar— el cupón aparecía, se iba ~350 ms y volvía: el parpadeo.
+   *
+   * Por eso las campañas de un viaje se guardan en la PÁGINA después de la
+   * primera consulta, y el bloque nuevo hereda el estado del anterior: se
+   * pinta en el mismo instante en que el tema lo inserta, sin red.
+   */
+  var CAMPANAS_DE = {}; // id de producto → campañas ya leídas en esta página
+  var VIVOS = {}; // id de producto → la instancia que manda hoy (las viejas se apagan)
+
   function Widget(root) {
     this.root = root;
     this.formato = root.getAttribute("data-money-format") || "";
     this.productId = String(root.getAttribute("data-product-id") || "");
-    this.datos = null;
+    this.datos = null; // la campaña de la FECHA elegida (o null: esa fecha no tiene)
+    this.todas = []; // todas las campañas activas del viaje, cada una con sus fechas
     this.elegido = null; // código del cupón elegido
     this.modalidad = null; // "FULL_PAYMENT" | "RESERVATION" | null
     this.variante = "";
@@ -360,21 +374,93 @@
     this.nombreGrupo = "df-cv-" + ++contador;
   }
 
+  /** La instancia vigente del producto: la vieja le pasa a ésta lo que termina tarde. */
+  Widget.prototype.actual = function () {
+    return VIVOS[this.productId] || this;
+  };
+
+  /** Una instancia cuyo bloque el tema ya quitó no hace nada más. */
+  Widget.prototype.apagada = function () {
+    // `=== false`: un navegador (o un DOM de prueba) sin `isConnected` no
+    // tiene que apagar el widget por no saberlo.
+    return !!this.muerto || this.root.isConnected === false;
+  };
+
   Widget.prototype.ocultar = function () {
     this.root.hidden = true;
+    // `pintar` deja `display:block` EN LÍNEA, y eso le gana al atributo
+    // `hidden`: sin esto, un bloque ya pintado no se escondería nunca.
+    this.root.style.display = "none";
+  };
+
+  Widget.prototype.mostrar = function () {
+    this.root.hidden = false;
+    this.root.style.display = "";
+  };
+
+  /**
+   * La campaña que cubre una variante (2026-09-29: fechas por campaña, varias
+   * campañas por viaje, sin solaparse). Sin variante legible —un tema que no
+   * expone el formulario— se usa la primera, como antes de las fechas.
+   */
+  Widget.prototype.campanaDe = function (variante) {
+    var t = this.todas;
+    if (!variante) return t[0] || null;
+    for (var i = 0; i < t.length; i++)
+      if (t[i].fullPaymentVariantIds.indexOf(variante) > -1 || t[i].reservationVariantIds.indexOf(variante) > -1)
+        return t[i];
+    return null;
+  };
+
+  /**
+   * La fecha elegida pasó a otra campaña, o a ninguna. El cupón elegido se
+   * SUELTA (código y atributos fuera del carrito): es de otras fechas y no
+   * vale para esta. Después se pinta la campaña nueva —y se marca sola si
+   * tiene `autoApply`— o el bloque se esconde entero.
+   */
+  Widget.prototype.cambiarCampana = function (nueva) {
+    var self = this;
+    // `aplicar` toma la campaña y la modalidad VIEJAS al llamarlo: suelta lo
+    // que se había aplicado con ellas, aunque acá ya se cambien.
+    var soltado = this.elegido ? this.aplicar(null) : null;
+    this.elegido = null;
+    this.datos = nueva;
+    this.modalidad = nueva ? this.modalidadDe(this.variante) : null;
+    if (!nueva) {
+      this.root.setAttribute("data-df-estado", "sin-fecha");
+      this.ocultar();
+      return;
+    }
+    this.mostrar();
+    this.pintar();
+    this.root.setAttribute("data-df-estado", "listo");
+    Promise.resolve(soltado).then(function () {
+      self.marcarSolo();
+    });
   };
 
   Widget.prototype.arrancar = function () {
     var self = this;
-    // Vigilante: pase lo que pase, en 10 s el bloque queda pintado u oculto.
-    var vigilante = setTimeout(function () {
-      if (!self.root.getAttribute("data-df-estado")) self.ocultar();
-    }, 10000);
-
     if (!/^\d+$/.test(this.productId)) {
       this.ocultar();
       return;
     }
+
+    // El bloque anterior del mismo producto (el tema lo re-dibujó): se apaga y
+    // éste hereda lo que tenía.
+    var previo = VIVOS[this.productId] || null;
+    if (previo) previo.muerto = true;
+    VIVOS[this.productId] = this;
+
+    if (CAMPANAS_DE[this.productId]) {
+      this.iniciar(CAMPANAS_DE[this.productId], null, previo);
+      return;
+    }
+
+    // Vigilante: pase lo que pase, en 10 s el bloque queda pintado u oculto.
+    var vigilante = setTimeout(function () {
+      if (!self.root.getAttribute("data-df-estado")) self.ocultar();
+    }, 10000);
 
     Promise.resolve()
       .then(function () {
@@ -389,40 +475,17 @@
       })
       .then(function (r) {
         clearTimeout(vigilante);
-        var datos = r[0] && r[0].campana;
-        if (!datos || !datos.coupons || datos.coupons.length === 0) {
-          self.root.setAttribute("data-df-estado", "sin-campana");
-          self.ocultar();
-          return;
-        }
-        self.datos = datos;
-        // Si el carrito ya trae un cupón nuestro que sigue publicado, se
-        // muestra elegido: el comprador volvió a la ficha y no tiene que
-        // volver a pincharlo.
-        var enCarrito = nombreDelCupon(r[1] && r[1].attributes ? r[1].attributes[datos.atributos.cupon] : "");
-        if (enCarrito)
-          datos.coupons.forEach(function (c) {
-            if (c.code && normalizarNombre(c.label) === enCarrito) self.elegido = c.code;
-          });
-        self.variante = varianteActual();
-        self.modalidad = self.modalidadDe(self.variante);
-        self.pasajeros = self.contarPasajeros(r[1], self.modalidad);
-        self.cantidadFicha = pasajerosActuales();
-        self.pintar();
-        self.root.setAttribute("data-df-estado", "listo");
-        elGuardian(self.formato).sembrar(datos);
-        self.vigilarCompraRapida();
-        self.marcarSolo();
-        setInterval(function () {
-          self.revisarVariante();
-        }, 400);
-        // Con un cupón elegido, el carrito se relee cada pocos segundos: si el
-        // comprador agrega otra vez o cambia la cantidad en el carrito lateral,
-        // el total anotado se corrige solo. Es la API del carrito de la tienda,
-        // no nuestro servidor: no cuesta invocaciones.
-        setInterval(function () {
-          self.revisarCarrito();
-        }, 2500);
+        // `campanas` desde el 2026-09-29 (varias por viaje, cada una con sus
+        // fechas); `campana` sola si el servidor todavía es el de antes.
+        var todas = ((r[0] && (r[0].campanas || (r[0].campana ? [r[0].campana] : []))) || []).filter(
+          function (c) {
+            return c && c.coupons && c.coupons.length > 0;
+          }
+        );
+        CAMPANAS_DE[self.productId] = todas;
+        // Si mientras tanto el tema ya re-dibujó el bloque, pinta el nuevo.
+        var vigente = self.actual();
+        vigente.iniciar(todas, r[1], vigente === self ? null : self);
       })
       .catch(function (e) {
         clearTimeout(vigilante);
@@ -432,17 +495,104 @@
       });
   };
 
-  /** Las variantes del viaje de una modalidad (o de las dos si no hay). */
-  Widget.prototype.idsDe = function (modalidad) {
-    var d = this.datos;
+  /**
+   * Pinta el bloque con las campañas del viaje. `carrito` es el /cart.js leído
+   * al arrancar (null si no se leyó); `previo`, el bloque que el tema acaba de
+   * reemplazar (null la primera vez).
+   */
+  Widget.prototype.iniciar = function (todas, carrito, previo) {
+    var self = this;
+    if (todas.length === 0) {
+      this.root.setAttribute("data-df-estado", "sin-campana");
+      this.ocultar();
+      return;
+    }
+    this.todas = todas;
+    this.variante = varianteActual();
+    var datos = this.campanaDe(this.variante);
+    this.datos = datos;
+    this.cantidadFicha = pasajerosActuales();
+    if (!previo) elGuardian(this.formato).sembrar(todas);
+    this.vigilarCompraRapida();
+
+    // ¿El bloque anterior tenía un cupón de OTRA campaña (u otra fecha sin
+    // campaña)? Se suelta con SUS datos: el tema re-dibujó antes de que el
+    // sondeo del bloque anterior viera el cambio.
+    var mismaCampana = !!(previo && previo.datos && datos && previo.datos.campaignId === datos.campaignId);
+    var soltado = previo && previo.elegido && !mismaCampana ? previo.aplicar(null) : null;
+
+    if (datos) {
+      if (mismaCampana) {
+        this.elegido = previo.elegido;
+        this.pasajeros = previo.pasajeros;
+      } else if (carrito) {
+        // Si el carrito ya trae un cupón nuestro que sigue publicado, se
+        // muestra elegido: el comprador volvió a la ficha y no tiene que
+        // volver a pincharlo.
+        var enCarrito = nombreDelCupon(carrito.attributes ? carrito.attributes[datos.atributos.cupon] : "");
+        if (enCarrito)
+          datos.coupons.forEach(function (c) {
+            if (c.code && normalizarNombre(c.label) === enCarrito) self.elegido = c.code;
+          });
+      }
+      this.modalidad = this.modalidadDe(this.variante);
+      if (carrito) this.pasajeros = this.contarPasajeros(carrito, this.modalidad);
+      else if (!mismaCampana) this.pasajeros = pasajerosActuales();
+      this.mostrar();
+      this.pintar();
+      // El «✓ aplicado» del bloque anterior sigue siendo cierto: no se borra.
+      if (mismaCampana && previo.estado) this.estado.textContent = previo.estado.textContent;
+      this.root.setAttribute("data-df-estado", "listo");
+      if (!this.elegido)
+        Promise.resolve(soltado).then(function () {
+          if (!self.apagada()) self.marcarSolo();
+        });
+    } else {
+      // La fecha elegida no tiene campaña: no se muestra nada. El sondeo lo
+      // pinta si el comprador elige una fecha que sí tenga.
+      this.root.setAttribute("data-df-estado", "sin-fecha");
+      this.ocultar();
+    }
+
+    setInterval(function () {
+      if (!self.apagada()) self.revisarVariante();
+    }, 400);
+    // Con un cupón elegido, el carrito se relee cada pocos segundos: si el
+    // comprador agrega otra vez o cambia la cantidad en el carrito lateral,
+    // el total anotado se corrige solo. Es la API del carrito de la tienda,
+    // no nuestro servidor: no cuesta invocaciones.
+    setInterval(function () {
+      if (!self.apagada()) self.revisarCarrito();
+    }, 2500);
+    // Y al cambiar el desplegable se revisa YA, sin esperar al sondeo: el
+    // cupón aparece o se va en el momento.
+    document.addEventListener("change", function () {
+      if (self.apagada()) return;
+      setTimeout(function () {
+        if (!self.apagada()) self.revisarVariante();
+      }, 0);
+    });
+  };
+
+  /**
+   * Las variantes del viaje de una modalidad (o de las dos si no hay).
+   *
+   * 🔴 `datos` explícito: al SOLTAR un cupón porque la fecha pasó a otra
+   * campaña (o a ninguna), `this.datos` ya es la nueva —o null— cuando se
+   * lee el carrito. Sin esto, soltar fallaba y el cupón quedaba en el carrito
+   * (medido en el tema de GeoTerra el 2026-09-29).
+   */
+  Widget.prototype.idsDe = function (modalidad, datos) {
+    var d = datos || this.datos;
+    if (!d) return [];
     if (modalidad === "FULL_PAYMENT") return d.fullPaymentVariantIds;
     if (modalidad === "RESERVATION") return d.reservationVariantIds;
     return d.fullPaymentVariantIds.concat(d.reservationVariantIds);
   };
 
   /** Pasajeros: los del carrito si el viaje ya está ahí; si no, los de la ficha. */
-  Widget.prototype.contarPasajeros = function (carrito, modalidad) {
-    var enCarrito = pasajerosEnCarrito(carrito, this.idsDe(modalidad));
+  Widget.prototype.contarPasajeros = function (carrito, modalidad, datos) {
+    var enCarrito = pasajerosEnCarrito(carrito, this.idsDe(modalidad, datos));
     return enCarrito > 0 ? enCarrito : pasajerosActuales();
   };
 
@@ -472,7 +622,7 @@
    */
   Widget.prototype.marcarSolo = function () {
     var d = this.datos;
-    if (!d.autoApply || this.elegido || fueSoltado(d.campaignId)) return;
+    if (!d || !d.autoApply || this.elegido || fueSoltado(d.campaignId)) return;
     for (var i = 0; i < d.coupons.length; i++)
       if (!d.coupons[i].agotado && d.coupons[i].code) {
         this.aplicar(d.coupons[i].code);
@@ -503,6 +653,19 @@
       var cantidad = pasajerosActuales();
       if (v === this.variante && cantidad === this.cantidadFicha) return;
       this.variante = v;
+      // ¿Otra fecha con otra campaña, o sin campaña? Se suelta el cupón y se
+      // pinta la nueva (o se esconde). Dentro de la MISMA campaña el cupón
+      // sigue valiendo para la fecha nueva y se conserva.
+      var nueva = this.campanaDe(v);
+      if ((nueva && nueva.campaignId) !== (this.datos && this.datos.campaignId)) {
+        this.cantidadFicha = cantidad;
+        this.cambiarCampana(nueva);
+        return;
+      }
+      if (!this.datos) {
+        this.cantidadFicha = cantidad;
+        return;
+      }
       var m = this.modalidadDe(v);
       var cambioModalidad = m !== this.modalidad;
       var cambioCantidad = cantidad !== this.cantidadFicha;
@@ -591,7 +754,9 @@
 
   /** El mensaje que corresponde a la modalidad elegida, con el monto del cupón. */
   Widget.prototype.pintarMensaje = function () {
-    if (!this.mensaje) return;
+    // Sin campaña (la fecha no tiene) no hay mensaje: y `aplicar(null)` puede
+    // estar soltando el cupón de la campaña anterior justo ahora.
+    if (!this.mensaje || !this.datos) return;
     var d = this.datos;
     var c = this.cupon(this.elegido);
     if (!c)
@@ -639,7 +804,7 @@
       return pedirJSON("/cart.js", { credentials: "same-origin" }).then(function (carrito) {
         // Los pasajeros salen del CARRITO (ver `pasajerosEnCarrito`), leídos
         // justo antes de escribir: lo anotado es lo que se va a cobrar.
-        var pasajeros = self.contarPasajeros(carrito, modalidad);
+        var pasajeros = self.contarPasajeros(carrito, modalidad, d);
         self.pasajeros = pasajeros;
         resultado.pasajeros = pasajeros;
 
@@ -653,6 +818,12 @@
           c = null;
           self.elegido = null;
           self.pintarBotones();
+          // Si el tema re-dibujó el bloque en el medio, el vigente tampoco lo tiene.
+          var w = self.actual();
+          if (w !== self && w.elegido === code) {
+            w.elegido = null;
+            w.pintarBotones();
+          }
         }
         resultado.cupon = c;
         self.pintarMensaje();
@@ -694,12 +865,16 @@
       .then(function () {
         var c = resultado.cupon;
         var pasajeros = resultado.pasajeros;
+        // El texto va al bloque VIGENTE: si el tema re-dibujó mientras se
+        // escribía el carrito, el de esta instancia ya no está en la página.
+        var w = self.actual();
+        var destino = w !== self && w.estado && w.datos && w.elegido === code ? w.estado : self.estado;
         if (resultado.aviso) {
-          self.estado.textContent = resultado.aviso;
+          destino.textContent = resultado.aviso;
           return;
         }
         if (!c) return;
-        self.estado.textContent =
+        destino.textContent =
           modalidad === "RESERVATION"
             ? "✓ " + c.label + " anotado en tu reserva: " + money(c.amount * pasajeros, self.formato) +
               (pasajeros > 1 ? " (" + pasajeros + " pasajeros)" : "")
@@ -735,7 +910,7 @@
             ev.target && ev.target.closest
               ? ev.target.closest(".shopify-payment-button__button--unbranded, .shopify-payment-button button")
               : null;
-          if (!b || !self.elegido || !self.datos) return;
+          if (!b || !self.elegido || !self.datos || self.apagada()) return;
           var variante = varianteActual();
           if (!self.modalidadDe(variante)) return;
           ev.preventDefault();
@@ -804,7 +979,7 @@
   function Guardian(formato) {
     this.formato = formato || "";
     this.atributos = null;
-    this.campanas = {}; // id de producto → campaña (o null si no tiene)
+    this.campanas = {}; // id de producto → sus campañas activas (lista, puede ser vacía)
     this.activo = false; // el último carrito leído traía un cupón nuestro
     this.pendiente = null;
     this.cambios = 0; // respuestas del carrito vistas (del tema o nuestras)
@@ -818,11 +993,10 @@
     });
   }
 
-  /** La ficha ya tiene la campaña: se la pasa para no pedirla de nuevo. */
-  Guardian.prototype.sembrar = function (campana) {
-    var self = this;
-    this.atributos = campana.atributos;
-    this.sembrada = campana;
+  /** La ficha ya tiene las campañas del viaje: se las pasa para no pedirlas de nuevo. */
+  Guardian.prototype.sembrar = function (campanas) {
+    this.atributos = campanas[0].atributos;
+    this.sembradas = campanas;
     this.marcarListo();
     this.revisar();
   };
@@ -911,15 +1085,20 @@
    */
   Guardian.prototype.datosDelCupon = function (nombre, carrito) {
     var self = this;
-    function buscar(campana) {
+    // En una LISTA de campañas: un viaje puede tener varias (una por fechas).
+    // Los nombres no se repiten dentro del viaje, así que el primero que
+    // coincide es el cupón. Sus reservas son SOLO las de sus fechas.
+    function buscar(campanas) {
       var hallado = null;
-      ((campana && campana.coupons) || []).forEach(function (c) {
-        if (!hallado && normalizarNombre(c.label) === nombre)
-          hallado = { monto: c.amount, reservas: campana.reservationVariantIds };
+      (campanas || []).forEach(function (campana) {
+        ((campana && campana.coupons) || []).forEach(function (c) {
+          if (!hallado && normalizarNombre(c.label) === nombre)
+            hallado = { monto: c.amount, reservas: campana.reservationVariantIds };
+        });
       });
       return hallado;
     }
-    var dato = buscar(this.sembrada) || recordado(nombre);
+    var dato = buscar(this.sembradas) || recordado(nombre);
     if (dato) return Promise.resolve(dato);
     var productos = [];
     ((carrito && carrito.items) || []).forEach(function (it) {
@@ -931,7 +1110,7 @@
         if (id in self.campanas) return Promise.resolve(self.campanas[id]);
         return pedirJSON(PROXY + "?product=" + encodeURIComponent(id), { credentials: "same-origin" })
           .then(function (r) {
-            self.campanas[id] = (r && r.campana) || null;
+            self.campanas[id] = (r && (r.campanas || (r.campana ? [r.campana] : []))) || [];
             return self.campanas[id];
           })
           .catch(function () {
@@ -1107,14 +1286,18 @@
   // Temas que re-renderizan la sección del producto al cambiar de variante: el
   // bloque nuevo llega sin inicializar y se engancha acá.
   try {
-    var pendiente = false;
-    new MutationObserver(function () {
-      if (pendiente) return;
-      pendiente = true;
-      setTimeout(function () {
-        pendiente = false;
-        iniciarPendientes();
-      }, 150);
+    // SIN demora: el observador corre antes de que el navegador pinte, así que
+    // el bloque nuevo sale ya dibujado (con las campañas guardadas) y no se
+    // ve el hueco. Solo mira cuando se AGREGAN elementos.
+    new MutationObserver(function (registros) {
+      for (var i = 0; i < registros.length; i++) {
+        var nodos = registros[i].addedNodes;
+        for (var k = 0; k < nodos.length; k++)
+          if (nodos[k].nodeType === 1) {
+            iniciarPendientes();
+            return;
+          }
+      }
     }).observe(document.documentElement, { childList: true, subtree: true });
   } catch (e) {
     /* sin observador: el bloque inicial igual funciona */

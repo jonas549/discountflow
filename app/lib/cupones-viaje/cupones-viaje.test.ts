@@ -19,7 +19,9 @@ import {
   parseMontoEntero,
   rellenarMensaje,
   sugerirModalidades,
+  sugerirOpcionDeFecha,
   validarFormulario,
+  variantesEnComun,
   type CampanaParaPedido,
   type PedidoParaCupones,
 } from "./cupones-viaje.ts";
@@ -171,6 +173,99 @@ test("🔴 separa Pago total de Reserva; lo que no encaja queda FUERA del descue
 test("la clasificación no distingue mayúsculas ni espacios de más", () => {
   const r = clasificarVariantes(variantes, " tipo de reserva ", "PAGO TOTAL", "reserva");
   assert.deepEqual(r.fullPayment, ["v1", "v3"]);
+});
+
+// ─── Fechas por campaña (2026-09-29) ─────────────────────────────────────────
+
+test("🔴 con fechas elegidas, las variantes de OTRAS fechas quedan fuera de la campaña", () => {
+  const r = clasificarVariantes(variantes, "Tipo de Reserva", "Pago Total", "Reserva", {
+    optionName: "Fecha",
+    values: ["24 Nov"],
+  });
+  assert.deepEqual(r.fullPayment, ["v1"]);
+  assert.deepEqual(r.reservation, ["v2"]);
+  assert.deepEqual(r.fueraDeFechas, ["v3", "v4", "v5"]);
+});
+
+test("sin fechas elegidas entran TODAS: las campañas guardadas antes no cambian", () => {
+  const sin = clasificarVariantes(variantes, "Tipo de Reserva", "Pago Total", "Reserva");
+  const vacio = clasificarVariantes(variantes, "Tipo de Reserva", "Pago Total", "Reserva", {
+    optionName: "Fecha",
+    values: [],
+  });
+  assert.deepEqual(vacio, sin);
+  assert.deepEqual(sin.fueraDeFechas, []);
+});
+
+test("las fechas no distinguen mayúsculas; una opción de fecha inexistente deja TODO fuera", () => {
+  const r = clasificarVariantes(variantes, "Tipo de Reserva", "Pago Total", "Reserva", {
+    optionName: " fecha ",
+    values: ["09 MAR"],
+  });
+  assert.deepEqual(r.fullPayment, ["v3"]);
+  const nada = clasificarVariantes(variantes, "Tipo de Reserva", "Pago Total", "Reserva", {
+    optionName: "No existe",
+    values: ["09 Mar"],
+  });
+  assert.deepEqual([nada.fullPayment, nada.reservation], [[], []]);
+});
+
+test("sugiere como fecha la opción que no es la modalidad (la de GeoTerra)", () => {
+  const opciones = [
+    { name: "Tipo de Reserva", values: ["Pago total", "Reserva"] },
+    { name: "Selecciona la fecha de tu viaje", values: ["06 al 10 de Enero 2027"] },
+  ];
+  assert.equal(sugerirOpcionDeFecha(opciones, "Tipo de Reserva"), "Selecciona la fecha de tu viaje");
+  assert.equal(sugerirOpcionDeFecha([opciones[0]], "Tipo de Reserva"), "");
+});
+
+test("🔴 dos campañas se tocan si comparten una variante; vacío (= todas) toca a cualquiera", () => {
+  const enero = { fullPaymentVariantIds: ["t1"], reservationVariantIds: ["r1"] };
+  const marzo = { fullPaymentVariantIds: ["t3"], reservationVariantIds: ["r3"] };
+  const todas = { fullPaymentVariantIds: ["t1", "t3"], reservationVariantIds: ["r1", "r3"] };
+  assert.deepEqual(variantesEnComun(enero, marzo), []);
+  assert.deepEqual(variantesEnComun(enero, todas), ["t1", "r1"]);
+  assert.deepEqual(variantesEnComun(todas, marzo), ["t3", "r3"]);
+});
+
+test("el formulario lee las fechas; lo que falte = ninguna = todas", () => {
+  const d = leerDatosDelFormulario({ ...formularioValido, dateOptionName: "Fecha", dateValues: ["24 Nov", "24 Nov", 3, ""] });
+  assert.deepEqual(d.dateValues, ["24 Nov"]);
+  assert.deepEqual(leerDatosDelFormulario(formularioValido).dateValues, []);
+  const sinOpcion = validarFormulario(leerDatosDelFormulario({ ...formularioValido, dateValues: ["24 Nov"] }));
+  assert.ok(sinOpcion.errores.fechas);
+  const misma = validarFormulario(
+    leerDatosDelFormulario({ ...formularioValido, dateOptionName: "Tipo de Reserva", dateValues: ["Reserva"] })
+  );
+  assert.ok(misma.errores.fechas);
+});
+
+test("🔴 el webhook cuenta pasajeros SOLO de las fechas de la campaña", () => {
+  // Campaña de enero (t1/r1). El pedido trae 2 reservas de enero y 3 de marzo
+  // (r3, de OTRA campaña o de ninguna): el canje es por 2, no por 5.
+  const campana: CampanaParaPedido = {
+    id: "enero",
+    fullPaymentVariantIds: ["gid://shopify/ProductVariant/1"],
+    reservationVariantIds: ["gid://shopify/ProductVariant/2"],
+    visibleCount: 1,
+    coupons: [{ id: "c1", code: "AAAA1111", label: "Enero", amount: 20000, position: 1, used: 0, stock: 10 }],
+  };
+  const pedido: PedidoParaCupones = {
+    admin_graphql_api_id: "gid://shopify/Order/9",
+    line_items: [
+      { variant_id: 2, quantity: 2 },
+      { variant_id: 4, quantity: 3 },
+    ],
+    note_attributes: [{ name: ATRIBUTO_CUPON, value: "Enero · $20.000 por pasajero" }],
+  };
+  const [c] = decidirConsumos(pedido, [campana]);
+  assert.equal(c.passengers, 2);
+  assert.equal(c.amount, 40000);
+  // Y un pedido SOLO de marzo no consume el cupón de enero.
+  assert.deepEqual(
+    decidirConsumos({ ...pedido, line_items: [{ variant_id: 4, quantity: 3 }] }, [campana]),
+    []
+  );
 });
 
 // ─── El formulario ───────────────────────────────────────────────────────────

@@ -6,15 +6,22 @@
 
 import type { LoaderFunctionArgs } from "react-router";
 import { abrirCuponesDeViaje } from "../lib/cupones-viaje/admin.server";
-import { leerProductoDeViaje } from "../lib/cupones-viaje/cupones-viaje.server";
+import { leerProductoDeViaje, nombresUsadosEnElViaje } from "../lib/cupones-viaje/cupones-viaje.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { admin } = await abrirCuponesDeViaje(request);
-  const id = new URL(request.url).searchParams.get("id") ?? "";
+  const { admin, shop } = await abrirCuponesDeViaje(request);
+  const url = new URL(request.url);
+  const id = url.searchParams.get("id") ?? "";
+  // La campaña que se está editando no cuenta: sus propios nombres no chocan.
+  const excepto = url.searchParams.get("excepto") || undefined;
   if (!id.startsWith("gid://shopify/Product/"))
     return Response.json({ error: "Producto inválido." }, { status: 400 });
   try {
-    return Response.json({ producto: await leerProductoDeViaje(admin, id) });
+    const [producto, nombresUsados] = await Promise.all([
+      leerProductoDeViaje(admin, id),
+      nombresUsadosEnElViaje(shop.id, id, excepto),
+    ]);
+    return Response.json({ producto, nombresUsados });
   } catch (err) {
     return Response.json({ error: String(err instanceof Error ? err.message : err) }, { status: 502 });
   }
