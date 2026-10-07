@@ -8,6 +8,7 @@ import {
   ATRIBUTO_CUPON,
   clasificarVariantes,
   cuponAnotadoSinCanje,
+  saldoQueNoCoincide,
   cuponesAMostrar,
   cuponesPublicados,
   decidirConsumos,
@@ -600,4 +601,37 @@ test("🔴 #6327: un pedido con cupón anotado que no consume nada se AVISA; si 
 
   // Sin cupón anotado: no hay nada que avisar.
   assert.equal(cuponAnotadoSinCanje({ ...pegado, note_attributes: [] }, []), null);
+});
+
+test("🔴 saldo anotado con OTRA cantidad de pasajeros: se avisa (casos reales de GeoTerra)", () => {
+  const torres: CampanaParaPedido = {
+    id: "t",
+    fullPaymentVariantIds: ["gid://shopify/ProductVariant/1"],
+    reservationVariantIds: ["gid://shopify/ProductVariant/2"],
+    visibleCount: 1,
+    coupons: [{ id: "c", code: "DFVT", label: "Oferta Cyber 1", amount: 320000, position: 1, used: 0, stock: 50 }],
+  };
+  const pedido = (cantidad: number, saldo: string): PedidoParaCupones => ({
+    admin_graphql_api_id: "gid://shopify/Order/1",
+    line_items: [{ variant_id: 2, quantity: cantidad }],
+    note_attributes: [
+      { name: ATRIBUTO_CUPON, value: "Oferta Cyber 1 · $320,000 por pasajero" },
+      { name: "Descontar del saldo", value: saldo },
+    ],
+  });
+  const ver = (p: PedidoParaCupones) => saldoQueNoCoincide(p, decidirConsumos(p, [torres]));
+
+  // #6178: compró 1, la nota dice 3.
+  assert.deepEqual(ver(pedido(1, "$960,000 (3 pasajeros × $320,000)")), {
+    saldo: "$960,000 (3 pasajeros × $320,000)", anotados: 3, comprados: 1,
+  });
+  // #6196: compró 6, la nota dice «$51,000» (uno solo).
+  assert.deepEqual(ver(pedido(6, "$320,000")), { saldo: "$320,000", anotados: 1, comprados: 6 });
+  // Bien: 2 y «(2 pasajeros…)», 1 y «$320,000» solo.
+  assert.equal(ver(pedido(2, "$640,000 (2 pasajeros × $320,000)")), null);
+  assert.equal(ver(pedido(1, "$320,000")), null);
+  // Sin nota de saldo (Pago total): nada que comparar.
+  assert.equal(saldoQueNoCoincide({ ...pedido(1, ""), note_attributes: [] }, []), null);
+  // Nota de saldo sin ninguna reserva canjeada: se avisa (0 comprados).
+  assert.deepEqual(saldoQueNoCoincide(pedido(1, "$320,000"), []), { saldo: "$320,000", anotados: 1, comprados: 0 });
 });

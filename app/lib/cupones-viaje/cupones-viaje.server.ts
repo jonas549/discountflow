@@ -14,6 +14,7 @@ import {
   ATRIBUTOS_DEL_CARRITO,
   clasificarVariantes,
   cuponAnotadoSinCanje,
+  saldoQueNoCoincide,
   cuponesAMostrar,
   cuponesPublicados,
   decidirConsumos,
@@ -663,22 +664,34 @@ export async function registrarPedido(
 }
 
 /**
- * `[cupones-viaje-miss]`: un pedido con cupón anotado que no consumió nada
- * (#6327). Solo log, sin tabla (decisión de Jonas, 2026-10-07). Sin datos del
- * comprador: el número de pedido, lo anotado y las variantes con su cantidad.
- * Nunca lanza: un aviso no puede tumbar el webhook.
+ * Dos avisos, solo log, sin tabla (decisión de Jonas, 2026-10-07):
+ *   · `[cupones-viaje-miss]`: cupón anotado que no consumió nada (#6327);
+ *   · `[cupones-viaje-saldo]`: «Descontar del saldo» con otra cantidad de
+ *     pasajeros que la comprada en Reserva.
+ * Sin datos del comprador: el número de pedido, lo anotado y las variantes con
+ * su cantidad. Cada uno en su try: un aviso no tapa al otro ni tumba el webhook.
  */
 function avisarSiNoConsumio(pedido: PedidoParaCupones, consumos: Consumo[]): void {
   try {
     const anotado = cuponAnotadoSinCanje(pedido, consumos);
-    if (!anotado) return;
-    console.warn(
+    if (anotado)
+      console.warn(
       `[cupones-viaje-miss] ${pedido.name ?? pedido.admin_graphql_api_id}: «${anotado}» anotado y no consumió ningún cupo`,
       JSON.stringify({
         lineas: pedido.line_items.map((li) => ({ variant: li.variant_id, cantidad: li.quantity })),
         codigos: (pedido.discount_codes ?? []).map((d) => d?.code),
       })
     );
+  } catch {
+    /* el aviso nunca rompe el registro */
+  }
+  try {
+    const saldo = saldoQueNoCoincide(pedido, consumos);
+    if (saldo)
+      console.warn(
+        `[cupones-viaje-saldo] ${pedido.name ?? pedido.admin_graphql_api_id}: «Descontar del saldo» anota ${saldo.anotados} ` +
+          `pasajero(s) y en Reserva se compraron ${saldo.comprados}: la nota dice «${saldo.saldo}»`
+      );
   } catch {
     /* el aviso nunca rompe el registro */
   }

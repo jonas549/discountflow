@@ -718,3 +718,30 @@ export function cuponAnotadoSinCanje(pedido: PedidoParaCupones, consumos: Consum
   const anotado = leerAtributo(pedido, ATRIBUTO_CUPON);
   return anotado && consumos.length === 0 ? anotado : null;
 }
+
+/**
+ * 🔴 2026-10-07: «Descontar del saldo» anota otra cantidad de pasajeros que la
+ * que se compró en Reserva. Medido en GeoTerra: 12 pedidos entre el 30/09 y el
+ * 07/10 (#6178 anota 3 y compró 1; #6196 anota 1 y compró 6). Pasa cuando el
+ * comprador cambia la cantidad en /cart y el tema no tiene el guardián del
+ * carrito. La agencia lee ESA nota para descontar el saldo; el canje, en
+ * cambio, se calcula con las líneas del pedido y está bien.
+ *
+ * Lee los pasajeros del texto que arma el widget: «$X (N pasajeros × $Y)», o
+ * «$X» solo cuando es 1. Devuelve qué dice la nota y cuántos se compraron, o
+ * `null` si coinciden o no hay nada que comparar. Solo AVISA.
+ */
+export function saldoQueNoCoincide(
+  pedido: PedidoParaCupones,
+  consumos: Consumo[]
+): { saldo: string; anotados: number; comprados: number } | null {
+  const saldo = leerAtributo(pedido, ATRIBUTO_SALDO);
+  if (!saldo) return null;
+  const n = /\((\d+)\s+pasajeros?\b/i.exec(saldo);
+  const anotados = n ? Number(n[1]) : 1;
+  // Sin canje de Reserva, la nota no corresponde a ninguna reserva del pedido.
+  const comprados = consumos
+    .filter((c) => c.mode === "RESERVATION")
+    .reduce((s, c) => s + c.passengers, 0);
+  return anotados === comprados ? null : { saldo, anotados, comprados };
+}
