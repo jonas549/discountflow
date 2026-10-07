@@ -163,9 +163,16 @@
       return false;
     }
   }
-  function recordar(nombre, monto, reservas) {
+  function recordar(nombre, monto, reservas, pagoTotal) {
     try {
-      if (nombre) window.localStorage.setItem(RECUERDO, JSON.stringify({ nombre: nombre, monto: monto, reservas: reservas }));
+      // `pagoTotal` (2026-10-07): con las reservas, son TODAS las variantes de
+      // la campaña del cupón. La conciliación (`Guardian.revisar`) las necesita
+      // para saber si el carrito todavía tiene algo de esa campaña.
+      if (nombre)
+        window.localStorage.setItem(
+          RECUERDO,
+          JSON.stringify({ nombre: nombre, monto: monto, reservas: reservas, pagoTotal: pagoTotal })
+        );
       else window.localStorage.removeItem(RECUERDO);
     } catch (e) {
       /* sin almacenamiento: el guardián lo pide al servidor */
@@ -505,6 +512,10 @@
     if (todas.length === 0) {
       this.root.setAttribute("data-df-estado", "sin-campana");
       this.ocultar();
+      // 🔴 #6327: un viaje SIN campañas también tiene que conciliar el carrito.
+      // Si el comprador trae el cupón de otro viaje y compra éste, sin el
+      // guardián el cupón llegaba al pedido sin descontar nada.
+      if (!previo) elGuardian(this.formato).sinCampanas(this.productId);
       return;
     }
     this.todas = todas;
@@ -512,7 +523,7 @@
     var datos = this.campanaDe(this.variante);
     this.datos = datos;
     this.cantidadFicha = pasajerosActuales();
-    if (!previo) elGuardian(this.formato).sembrar(todas);
+    if (!previo) elGuardian(this.formato).sembrar(todas, this.productId);
     this.vigilarCompraRapida();
 
     // ¿El bloque anterior tenía un cupón de OTRA campaña (u otra fecha sin
@@ -851,7 +862,12 @@
         // que la agencia tiene que restar, sin hacer la cuenta.
         atributos[d.atributos.saldo] =
           c && modalidad === "RESERVATION" ? textoSaldo(c.amount, pasajeros, self.formato) : "";
-        recordar(c ? normalizarNombre(c.label) : "", c ? c.amount : 0, d.reservationVariantIds);
+        recordar(
+          c ? normalizarNombre(c.label) : "",
+          c ? c.amount : 0,
+          d.reservationVariantIds,
+          d.fullPaymentVariantIds
+        );
 
         var codigos = c && modalidad === "FULL_PAYMENT" ? otros.concat(c.code) : otros;
         return pedirJSON("/cart/update.js", {
@@ -926,7 +942,8 @@
               return self.aplicar(self.elegido);
             })
             .then(function () {
-              return elGuardian(self.formato).revisar();
+              // Estricto: va directo al checkout (ver `Guardian.revisar`).
+              return elGuardian(self.formato).revisar(true);
             })
             .catch(function (e) {
               if (window.console) console.warn("[DiscountFlow] cupones de viaje (compra rápida):", e);
@@ -994,9 +1011,23 @@
   }
 
   /** La ficha ya tiene las campañas del viaje: se las pasa para no pedirlas de nuevo. */
-  Guardian.prototype.sembrar = function (campanas) {
+  Guardian.prototype.sembrar = function (campanas, productId) {
     this.atributos = campanas[0].atributos;
     this.sembradas = campanas;
+    if (productId) this.campanas[productId] = campanas;
+    this.marcarListo();
+    this.revisar();
+  };
+
+  /**
+   * La ficha de un viaje SIN campañas: no hay payload del que sacar los
+   * atributos, así que se usan los que el servidor escribió en el script. Sin
+   * ellos (el script leído en crudo) no se arranca, como antes.
+   */
+  Guardian.prototype.sinCampanas = function (productId) {
+    if (productId && !(productId in this.campanas)) this.campanas[productId] = [];
+    if (this.atributos || !ATRIBUTOS) return;
+    this.atributos = ATRIBUTOS;
     this.marcarListo();
     this.revisar();
   };
@@ -1005,14 +1036,31 @@
    * Deja el total anotado igual a los pasajeros del carrito. Devuelve una
    * promesa que se cumple cuando el carrito quedó en regla. Varias llamadas
    * seguidas, antes de que arranque, se funden en una sola.
+   *
+   * 🔴 Y CONCILIA (#6327, 2026-10-07): el cupón anotado se suelta si ya no
+   * corresponde a nada. El atributo y el código viven en el CARRITO, no en una
+   * línea: si la ficha cargaba en otra fecha (recarga, `?variant=`, otra
+   * pestaña, otro día) o el comprador compraba otro viaje, quedaban pegados y
+   * el pedido salía con un cupón anotado que Shopify no había descontado.
+   *
+   * El cupón SIGUE si su campaña tiene una variante en el carrito, o si la
+   * ficha abierta muestra una variante de su campaña (el comprador pincha el
+   * cupón ANTES de agregar: el carrito está vacío y el cupón es legítimo).
+   * `estricto` = camino al checkout: ahí la ficha ya no cuenta, solo el carrito.
+   *
+   * Solo se suelta con CERTEZA: se conoce la campaña del cupón y se pudieron
+   * leer las campañas de todos los viajes del carrito. Ante la duda, se deja.
    */
-  Guardian.prototype.revisar = function () {
+  Guardian.prototype.revisar = function (estricto) {
     var self = this;
+    if (estricto) this.estricto = true;
     if (this.pendiente) return this.pendiente;
     if (!this.atributos) return Promise.resolve();
     var a = this.atributos;
     this.pendiente = enCola(function () {
       self.pendiente = null;
+      var esEstricto = !!self.estricto;
+      self.estricto = false;
       return pedirJSON("/cart.js", { credentials: "same-origin" }).then(function (carrito) {
         var valor = (carrito.attributes && carrito.attributes[a.cupon]) || "";
         self.activo = !!valor;
@@ -1024,10 +1072,33 @@
         });
         if (!valor) return escribir(carrito, null, limpiar);
         var nombre = nombreDelCupon(valor);
-        return self.datosDelCupon(nombre, carrito).then(function (dato) {
-          return escribir(carrito, dato, limpiar);
+        return self.cuponVigente(nombre, carrito, esEstricto).then(function (vigente) {
+          if (!vigente) return soltar(carrito, limpiar);
+          return self.datosDelCupon(nombre, carrito).then(function (dato) {
+            return escribir(carrito, dato, limpiar);
+          });
         });
       });
+      function soltar(carrito, atributos) {
+        self.activo = false;
+        atributos[a.cupon] = "";
+        if (carrito.attributes && carrito.attributes[a.saldo] != null) atributos[a.saldo] = "";
+        recordar("");
+        // Los códigos del comprador se conservan; solo se van los nuestros.
+        var otros = (carrito.discount_codes || [])
+          .map(function (x) {
+            return x && x.code;
+          })
+          .filter(function (x) {
+            return x && !PREFIJO_NUESTRO.test(x);
+          });
+        return pedirJSON("/cart/update.js", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({ attributes: atributos, discount: otros.join(",") }),
+        });
+      }
       function escribir(carrito, dato, atributos) {
         if (dato) {
           var pasajeros = pasajerosEnCarrito(carrito, dato.reservas);
@@ -1062,8 +1133,9 @@
     var self = this;
     function vuelta() {
       var antes = self.cambios;
+      // Estricto: `asentar` es el paso al checkout.
       return self
-        .revisar()
+        .revisar(true)
         .then(function () {
           // Sin cupón nuestro en el carrito no hay nada que esperar.
           if (!self.activo) return;
@@ -1100,6 +1172,22 @@
     }
     var dato = buscar(this.sembradas) || recordado(nombre);
     if (dato) return Promise.resolve(dato);
+    return this.campanasDelCarrito(carrito).then(function (campanas) {
+      for (var k = 0; k < campanas.length; k++) {
+        var x = buscar(campanas[k]);
+        if (x) return x;
+      }
+      return null;
+    });
+  };
+
+  /**
+   * Las campañas de cada viaje del carrito, en el orden de sus productos: una
+   * consulta por producto, guardada. `null` en un producto = no se pudo leer
+   * (se reintenta en la próxima vuelta).
+   */
+  Guardian.prototype.campanasDelCarrito = function (carrito) {
+    var self = this;
     var productos = [];
     ((carrito && carrito.items) || []).forEach(function (it) {
       var id = String(it.product_id || "");
@@ -1117,13 +1205,65 @@
             return null;
           });
       })
-    ).then(function (campanas) {
-      for (var k = 0; k < campanas.length; k++) {
-        var x = buscar(campanas[k]);
-        if (x) return x;
-      }
-      return null;
+    );
+  };
+
+  /**
+   * ¿El cupón llamado `nombre` todavía corresponde al carrito? (#6327, ver
+   * `revisar`). Promesa de `true` = se deja; `false` = se suelta.
+   *
+   * Las campañas candidatas son TODAS las que tienen un cupón con ese nombre:
+   * los nombres solo son únicos dentro de un viaje, y dos viajes pueden tener
+   * su «Cupón 1». Basta con que UNA tenga una variante en el carrito (o en la
+   * ficha) para dejarlo.
+   */
+  Guardian.prototype.cuponVigente = function (nombre, carrito, estricto) {
+    var self = this;
+    var lineas = ((carrito && carrito.items) || []).map(function (it) {
+      return String(it.variant_id);
     });
+    var ficha = estricto ? "" : varianteActual();
+    var candidatas = [];
+    function sumar(campanas) {
+      (campanas || []).forEach(function (c) {
+        if (!c || !c.fullPaymentVariantIds || !c.reservationVariantIds) return;
+        for (var i = 0; i < ((c.coupons && c.coupons.length) || 0); i++)
+          if (normalizarNombre(c.coupons[i].label) === nombre) {
+            candidatas.push(c.fullPaymentVariantIds.concat(c.reservationVariantIds));
+            return;
+          }
+      });
+    }
+    function cubre() {
+      return candidatas.some(function (ids) {
+        if (ficha && ids.indexOf(ficha) > -1) return true;
+        return lineas.some(function (v) {
+          return ids.indexOf(v) > -1;
+        });
+      });
+    }
+    sumar(this.sembradas);
+    // El recuerdo del navegador guarda la campaña con la que se aplicó: cubre
+    // una campaña pausada después, que el proxy ya no devuelve.
+    var r = recordado(nombre);
+    if (r && r.pagoTotal) candidatas.push(r.pagoTotal.concat(r.reservas));
+    // Lo barato primero: si ya se sabe que vale, no se consulta nada más.
+    if (cubre()) return Promise.resolve(true);
+    return this.campanasDelCarrito(carrito).then(
+      function (porProducto) {
+        // Un viaje del carrito cuyas campañas no se pudieron leer puede ser el
+        // del cupón: ante la duda, se deja.
+        if (porProducto.indexOf(null) > -1) return true;
+        porProducto.forEach(sumar);
+        // Sin ninguna campaña conocida con ese nombre, no se sabe de dónde
+        // salió el cupón: tampoco se toca.
+        if (candidatas.length === 0) return true;
+        return cubre();
+      },
+      function () {
+        return true;
+      }
+    );
   };
 
   Guardian.prototype.vigilar = function () {

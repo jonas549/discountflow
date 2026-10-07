@@ -7,6 +7,7 @@ import {
   ATRIBUTO_CODIGO,
   ATRIBUTO_CUPON,
   clasificarVariantes,
+  cuponAnotadoSinCanje,
   cuponesAMostrar,
   cuponesPublicados,
   decidirConsumos,
@@ -569,4 +570,34 @@ test("autoApply solo se enciende con un `true` explícito: lo que falte deja el 
   assert.equal(leerDatosDelFormulario({ ...formularioValido, autoApply: true }).autoApply, true);
   assert.equal(leerDatosDelFormulario({ ...formularioValido, autoApply: "true" }).autoApply, false);
   assert.equal(leerDatosDelFormulario(formularioValido).autoApply, false);
+});
+
+test("🔴 #6327: un pedido con cupón anotado que no consume nada se AVISA; si consume, no", () => {
+  const enero: CampanaParaPedido = {
+    id: "enero",
+    fullPaymentVariantIds: ["gid://shopify/ProductVariant/1"],
+    reservationVariantIds: ["gid://shopify/ProductVariant/2"],
+    visibleCount: 1,
+    coupons: [{ id: "c1", code: "DFVENERO", label: "Precio Cyber (3 ENE)", amount: 30000, position: 1, used: 0, stock: 20 }],
+  };
+  const anotado = "Precio Cyber (3 ENE) · $30,000 por pasajero";
+  // Lo del #6327: Pago total de FEBRERO (variante 3), sin código, con el cupón de enero anotado.
+  const pegado: PedidoParaCupones = {
+    admin_graphql_api_id: "gid://shopify/Order/6327",
+    line_items: [{ variant_id: 3, quantity: 2 }],
+    discount_codes: [],
+    note_attributes: [{ name: ATRIBUTO_CUPON, value: anotado }],
+  };
+  const nada = decidirConsumos(pegado, [enero]);
+  assert.deepEqual(nada, []);
+  assert.equal(cuponAnotadoSinCanje(pegado, nada), anotado);
+
+  // Bien aplicado: Pago total de enero con el código → consume, no se avisa.
+  const bien = { ...pegado, line_items: [{ variant_id: 1, quantity: 2 }], discount_codes: [{ code: "DFVENERO" }] };
+  const consumos = decidirConsumos(bien, [enero]);
+  assert.equal(consumos.length, 1);
+  assert.equal(cuponAnotadoSinCanje(bien, consumos), null);
+
+  // Sin cupón anotado: no hay nada que avisar.
+  assert.equal(cuponAnotadoSinCanje({ ...pegado, note_attributes: [] }, []), null);
 });

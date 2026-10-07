@@ -13,6 +13,7 @@ import {
   ATRIBUTO_SALDO,
   ATRIBUTOS_DEL_CARRITO,
   clasificarVariantes,
+  cuponAnotadoSinCanje,
   cuponesAMostrar,
   cuponesPublicados,
   decidirConsumos,
@@ -609,7 +610,10 @@ export async function registrarPedido(
     where: { shopId, status: { in: ["ACTIVE", "PAUSED"] } },
     include: { coupons: true },
   });
-  if (campanas.length === 0) return [];
+  if (campanas.length === 0) {
+    avisarSiNoConsumio(pedido, []);
+    return [];
+  }
 
   const paraDecidir: CampanaParaPedido[] = campanas.map((c) => ({
     id: c.id,
@@ -628,6 +632,7 @@ export async function registrarPedido(
   }));
 
   const consumos = decidirConsumos(pedido, paraDecidir);
+  avisarSiNoConsumio(pedido, consumos);
   const out: Array<Consumo & { resultado: ResultadoDelConsumo }> = [];
   for (const consumo of consumos) {
     const resultado = await consumirCupon(
@@ -655,6 +660,28 @@ export async function registrarPedido(
       }
 
   return out;
+}
+
+/**
+ * `[cupones-viaje-miss]`: un pedido con cupón anotado que no consumió nada
+ * (#6327). Solo log, sin tabla (decisión de Jonas, 2026-10-07). Sin datos del
+ * comprador: el número de pedido, lo anotado y las variantes con su cantidad.
+ * Nunca lanza: un aviso no puede tumbar el webhook.
+ */
+function avisarSiNoConsumio(pedido: PedidoParaCupones, consumos: Consumo[]): void {
+  try {
+    const anotado = cuponAnotadoSinCanje(pedido, consumos);
+    if (!anotado) return;
+    console.warn(
+      `[cupones-viaje-miss] ${pedido.name ?? pedido.admin_graphql_api_id}: «${anotado}» anotado y no consumió ningún cupo`,
+      JSON.stringify({
+        lineas: pedido.line_items.map((li) => ({ variant: li.variant_id, cantidad: li.quantity })),
+        codigos: (pedido.discount_codes ?? []).map((d) => d?.code),
+      })
+    );
+  } catch {
+    /* el aviso nunca rompe el registro */
+  }
 }
 
 // ─── Lo que ve la tienda ──────────────────────────────────────────────────────

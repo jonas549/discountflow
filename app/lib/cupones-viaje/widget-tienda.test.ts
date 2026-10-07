@@ -134,6 +134,12 @@ function montar(
     almacen?: Record<string, string> | false;
     /** El almacenamiento de la visita (pestaña), compartible entre montajes. */
     sesion?: Record<string, string>;
+    /** Códigos que ya tiene el carrito. */
+    codigos?: Array<{ code: string }>;
+    /** Campañas de OTROS productos, por id (lo que responde el proxy). */
+    porProducto?: Record<string, unknown[]>;
+    /** El script como lo sirve el servidor: con los atributos escritos adentro. */
+    servido?: boolean;
   } = {}
 ) {
   const root = nodo("div");
@@ -153,7 +159,7 @@ function montar(
   const carrito = {
     items: [...(opciones.carrito ?? [])],
     attributes: { ...(opciones.atributos ?? {}) } as Record<string, string>,
-    codigos: [{ code: "OTRO10" }, { code: "DFVVIEJO" }],
+    codigos: opciones.codigos ?? [{ code: "OTRO10" }, { code: "DFVVIEJO" }],
   };
   const actualizaciones: Array<{ attributes: Record<string, string>; discount?: string }> = [];
   const intervalos: Array<() => void> = [];
@@ -191,7 +197,11 @@ function montar(
       Promise.resolve({ ok: status < 400, status, json: () => Promise.resolve(data) });
     const payload = opciones.payload === undefined ? PAYLOAD : opciones.payload;
     if (url.startsWith("/apps/discountflow/cupones-viaje?product=555"))
-      return responder({ campana: payload });
+      // Una lista = varias campañas del viaje (fechas por campaña, 2026-09-29).
+      return responder(Array.isArray(payload) ? { campana: payload[0] ?? null, campanas: payload } : { campana: payload });
+    const otro = /cupones-viaje\?product=(\d+)$/.exec(url);
+    if (otro && opciones.porProducto && otro[1] in opciones.porProducto)
+      return responder({ campanas: opciones.porProducto[otro[1]] });
     if (url === "/apps/discountflow/cupones-viaje?modo=carrito")
       return responder({ atributos: PAYLOAD.atributos });
     if (url.startsWith("/apps/discountflow/cupones-viaje?codigo=")) return responder({ campana: payload });
@@ -266,7 +276,10 @@ function montar(
   sandbox.window = sandbox;
   vm.createContext(sandbox);
   const windowDelScript: unknown = vm.runInContext("window", sandbox);
-  vm.runInContext(SRC, sandbox);
+  vm.runInContext(
+    opciones.servido ? SRC.replace("/*__DF_ATRIBUTOS__*/null", JSON.stringify(PAYLOAD.atributos)) : SRC,
+    sandbox
+  );
 
   /** Una vuelta de todos los sondeos del widget (variante, cantidad y carrito). */
   const tick = () => {
@@ -646,6 +659,8 @@ test("al elegir el cupón, el cálculo queda en el NAVEGADOR (no en el carrito);
     nombre: "cupón 2",
     monto: 125000,
     reservas: PAYLOAD.reservationVariantIds,
+    // #6327: con las reservas, toda la campaña (lo usa la conciliación).
+    pagoTotal: PAYLOAD.fullPaymentVariantIds,
   });
   w.pinchar(1);
   await esperar();
@@ -752,4 +767,152 @@ test("🔴 si el comprador QUITA el cupón, no se le vuelve a marcar solo en esa
   await esperar();
   assert.equal(otra.botones()[1].getAttribute("aria-pressed"), "false");
   assert.equal(otra.actualizaciones.filter((u) => "discount" in u).length, 0);
+});
+
+// ─── #6327 (2026-10-07): el cupón de otra fecha quedaba pegado en el carrito ─
+//
+// El atributo y el código viven en el CARRITO. Si la ficha cargaba en otra
+// fecha, o el comprador compraba otro viaje, nadie los soltaba y el pedido
+// salía con un cupón anotado que Shopify no había descontado. La conciliación
+// los suelta; los casos «se queda» importan tanto como los «se va».
+
+const ENERO = {
+  ...PAYLOAD,
+  campaignId: "enero",
+  fullPaymentVariantIds: ["11"],
+  reservationVariantIds: ["12"],
+  coupons: [{ label: "Precio Cyber (3 ENE)", amount: 30000, restantes: 20, agotado: false, code: "DFVENERO" }],
+};
+const FEBRERO = {
+  ...PAYLOAD,
+  campaignId: "febrero",
+  fullPaymentVariantIds: ["33"],
+  reservationVariantIds: ["34"],
+  coupons: [{ label: "Feb 1", amount: 20000, restantes: 20, agotado: false, code: "DFVFEB" }],
+};
+const CON_ENERO = { [PAYLOAD.atributos.cupon]: "Precio Cyber (3 ENE) · $30.000 por pasajero" };
+const codigosDe = (w: ReturnType<typeof montar>) => w.carrito.codigos.map((c: { code: string }) => c.code);
+
+test("🔴 #6327: la ficha CARGA en una fecha sin campaña con el cupón de enero → se suelta", async () => {
+  const w = montar({
+    payload: [ENERO], variante: "33", atributos: CON_ENERO,
+    codigos: [{ code: "OTRO10" }, { code: "DFVENERO" }], carrito: [{ variant_id: 33, quantity: 2 }],
+  });
+  await esperar();
+  assert.equal(w.carrito.attributes[PAYLOAD.atributos.cupon], undefined);
+  assert.deepEqual(codigosDe(w), ["OTRO10"], "el código del comprador se conserva");
+});
+
+test("🔴 #6327: la ficha CARGA en una fecha con OTRA campaña (sin marcado) → el de enero se suelta", async () => {
+  const w = montar({
+    payload: [FEBRERO, ENERO], variante: "33", atributos: CON_ENERO,
+    codigos: [{ code: "DFVENERO" }], carrito: [{ variant_id: 33, quantity: 2 }],
+  });
+  await esperar();
+  assert.equal(w.carrito.attributes[PAYLOAD.atributos.cupon], undefined);
+  assert.deepEqual(codigosDe(w), []);
+});
+
+test("🔴 #6327: otro viaje SIN campañas con el cupón de enero recordado → se suelta", async () => {
+  const almacen = {
+    "df-cupon-viaje": JSON.stringify({ nombre: "precio cyber (3 ene)", monto: 30000, reservas: ["12"], pagoTotal: ["11"] }),
+  };
+  const w = montar({
+    servido: true, payload: [], variante: "99", atributos: CON_ENERO, almacen,
+    codigos: [{ code: "DFVENERO" }], carrito: [{ variant_id: 99, quantity: 1, product_id: 777 } as LineaDeCarrito],
+    porProducto: { "777": [] },
+  });
+  await esperar();
+  assert.equal(w.carrito.attributes[PAYLOAD.atributos.cupon], undefined);
+  assert.deepEqual(codigosDe(w), []);
+});
+
+test("🔴 #6327 SE QUEDA: Pago total de la fecha del cupón en el carrito", async () => {
+  const w = montar({
+    payload: [FEBRERO, ENERO], variante: "11", atributos: CON_ENERO,
+    codigos: [{ code: "DFVENERO" }], carrito: [{ variant_id: 11, quantity: 2 }],
+  });
+  await esperar();
+  w.tick();
+  await esperar();
+  assert.equal(w.carrito.attributes[PAYLOAD.atributos.cupon], CON_ENERO[PAYLOAD.atributos.cupon]);
+  assert.deepEqual(codigosDe(w), ["DFVENERO"]);
+});
+
+test("🔴 #6327 SE QUEDA: Reserva de la fecha del cupón, y el saldo se sigue anotando", async () => {
+  const w = montar({
+    payload: [ENERO], variante: "12", atributos: CON_ENERO, codigos: [], carrito: [{ variant_id: 12, quantity: 2 }],
+  });
+  await esperar();
+  w.tick();
+  await esperar();
+  assert.equal(w.carrito.attributes[PAYLOAD.atributos.cupon], CON_ENERO[PAYLOAD.atributos.cupon]);
+  assert.match(w.carrito.attributes[PAYLOAD.atributos.saldo] ?? "", /60.000/);
+});
+
+test("🔴 #6327 SE QUEDA: cupón pinchado con el carrito VACÍO, en la ficha de su fecha", async () => {
+  const w = montar({ payload: [ENERO], variante: "11", codigos: [] });
+  await esperar();
+  w.pinchar(0);
+  await esperar();
+  for (let i = 0; i < 3; i++) {
+    w.tick(); // los sondeos del guardián, varias vueltas
+    await esperar();
+  }
+  assert.match(w.carrito.attributes[PAYLOAD.atributos.cupon] ?? "", /Precio Cyber/);
+  assert.deepEqual(codigosDe(w), ["DFVENERO"]);
+});
+
+test("🔴 #6327 SE QUEDA: en la ficha de OTRA fecha, si el carrito tiene la línea de la fecha del cupón", async () => {
+  const w = montar({
+    payload: [ENERO], variante: "33", atributos: CON_ENERO,
+    codigos: [{ code: "DFVENERO" }], carrito: [{ variant_id: 11, quantity: 2 }],
+  });
+  await esperar();
+  w.tick();
+  await esperar();
+  assert.equal(w.carrito.attributes[PAYLOAD.atributos.cupon], CON_ENERO[PAYLOAD.atributos.cupon]);
+  assert.deepEqual(codigosDe(w), ["DFVENERO"]);
+});
+
+test("🔴 #6327 MODO CARRITO: solo la línea de febrero → se suelta; con la de enero → se queda", async () => {
+  const sin = montar({
+    modoCarrito: true, variante: "", payload: [ENERO], atributos: CON_ENERO,
+    codigos: [{ code: "DFVENERO" }], carrito: [{ variant_id: 33, quantity: 2 }],
+  });
+  await esperar();
+  assert.equal(sin.carrito.attributes[PAYLOAD.atributos.cupon], undefined);
+  const con = montar({
+    modoCarrito: true, variante: "", payload: [ENERO], atributos: CON_ENERO,
+    codigos: [{ code: "DFVENERO" }], carrito: [{ variant_id: 11, quantity: 2 }],
+  });
+  await esperar();
+  assert.equal(con.carrito.attributes[PAYLOAD.atributos.cupon], CON_ENERO[PAYLOAD.atributos.cupon]);
+  assert.deepEqual(codigosDe(con), ["DFVENERO"]);
+});
+
+test("🔴 #6327 ANTE LA DUDA SE QUEDA: no se pudieron leer las campañas de un viaje del carrito", async () => {
+  // Modo carrito, sin recuerdo: el proxy del producto 777 falla (404 en el doble).
+  const w = montar({
+    modoCarrito: true, variante: "", payload: [ENERO], atributos: CON_ENERO, almacen: false,
+    codigos: [{ code: "DFVENERO" }], carrito: [{ variant_id: 99, quantity: 1, product_id: 777 } as LineaDeCarrito],
+  });
+  await esperar();
+  assert.equal(w.carrito.attributes[PAYLOAD.atributos.cupon], CON_ENERO[PAYLOAD.atributos.cupon]);
+});
+
+test("🔴 #6327 SE QUEDA: dos viajes con un cupón del MISMO nombre, la línea es del otro viaje", async () => {
+  // La ficha es del viaje 555 («Cupón 2» en 11/22); el carrito tiene el viaje
+  // 777, cuyo propio «Cupón 2» cubre la variante 70. El cupón es del 777.
+  const otroViaje = { ...PAYLOAD, campaignId: "otro", fullPaymentVariantIds: ["70"], reservationVariantIds: ["71"] };
+  const w = montar({
+    payload: [PAYLOAD], variante: "33", atributos: { [PAYLOAD.atributos.cupon]: "Cupón 2 · $125.000 por pasajero" },
+    codigos: [{ code: "DFVOTRO" }], carrito: [{ variant_id: 70, quantity: 1, product_id: 777 } as LineaDeCarrito],
+    porProducto: { "777": [otroViaje] },
+  });
+  await esperar();
+  w.tick();
+  await esperar();
+  assert.equal(w.carrito.attributes[PAYLOAD.atributos.cupon], "Cupón 2 · $125.000 por pasajero");
+  assert.deepEqual(codigosDe(w), ["DFVOTRO"]);
 });

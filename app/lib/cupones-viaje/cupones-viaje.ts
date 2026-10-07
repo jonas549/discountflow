@@ -704,3 +704,17 @@ export function decidirConsumos(
   }
   return consumos;
 }
+
+/**
+ * 🔴 #6327 (2026-10-07): el pedido trae un cupón anotado en «Cupón de viaje»
+ * pero no consumió NINGÚN cupo. Pasa cuando el cupón quedó pegado en el
+ * carrito de otra fecha u otro viaje: Shopify no aplicó el código y el webhook
+ * no tenía nada que contar. Antes fallaba en silencio en las tres capas.
+ *
+ * Devuelve el valor anotado (para el log) o `null` si no hay nada que avisar.
+ * Solo AVISA: no cambia lo que se consume.
+ */
+export function cuponAnotadoSinCanje(pedido: PedidoParaCupones, consumos: Consumo[]): string | null {
+  const anotado = leerAtributo(pedido, ATRIBUTO_CUPON);
+  return anotado && consumos.length === 0 ? anotado : null;
+}
