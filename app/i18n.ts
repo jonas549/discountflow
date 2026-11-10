@@ -151,8 +151,10 @@ export const es = {
       "Se aplicará a todos los productos de la tienda.",
     excluirToggle: "Excluir productos",
     excluirHelper:
-      "Excluye productos específicos que NO recibirán el descuento",
+      "Excluye productos específicos o colecciones completas que NO recibirán el descuento. Las dos listas se suman.",
     btnExcluirProductos: "Seleccionar exclusiones",
+    btnExcluirColecciones: "Excluir colecciones",
+    chipColeccionExcluida: "Colección:",
     programarToggle: "Programar campaña",
     fechaInicioLabel: "Fecha y hora de inicio",
     fechaFinLabel: "Fecha y hora de fin (opcional)",

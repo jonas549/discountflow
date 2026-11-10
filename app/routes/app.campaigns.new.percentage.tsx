@@ -27,6 +27,8 @@ import { JOBS_FEATURE_FLAG } from "../lib/jobs/constants";
 import { type Plan, PLAN_LIMITS } from "../lib/billing/plan-limits";
 import { getActiveCampaignCount, getVariantCount } from "../lib/billing/plan-limits.server";
 import { isPlanLimitError } from "../lib/billing/plan-limit-error";
+import { parseExcludedCollectionIds } from "../lib/discounts/percentage-exclusions";
+import { resolverVariantesExcluidas } from "../lib/discounts/percentage-exclusions.server";
 import { es } from "../i18n";
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
@@ -70,6 +72,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const selectedProductTypesJson = (formData.get("selectedProductTypesJson") as string) || "[]";
   const enableExclusions = formData.get("enableExclusions") === "on";
   const excludedProductsJson = (formData.get("excludedProductsJson") as string) || "[]";
+  const excludedCollectionIds = parseExcludedCollectionIds(
+    formData.get("excludedCollectionIdsJson") as string | null
+  );
   const startsAt = (formData.get("startsAt") as string) || "";
   const endsAt = (formData.get("endsAt") as string) || "";
   const intent = (formData.get("intent") as "draft" | "activate") || "draft";
@@ -120,10 +125,24 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   let excluded: SelectedProductInput[] = [];
   try { excluded = JSON.parse(excludedProductsJson); } catch { /* noop */ }
-  const excludedVariantIds =
-    enableExclusions && excluded.length > 0
-      ? new Set(excluded.flatMap((p) => (p.variants ?? []).map((v) => v.id)))
-      : undefined;
+  // Productos sueltos + colecciones excluidas, en un solo conjunto de variantes.
+  // Solo hace falta al activar (un borrador no toca precios). Se resuelve ANTES
+  // de crear la campaña: si una colección no se puede leer, no queda nada escrito.
+  let excludedVariantIds: Set<string> | undefined;
+  if (
+    shouldActivate &&
+    enableExclusions &&
+    (excluded.length > 0 || excludedCollectionIds.length > 0)
+  ) {
+    try {
+      excludedVariantIds = await resolverVariantesExcluidas(admin, excluded, excludedCollectionIds);
+    } catch (err) {
+      return Response.json(
+        { errors: { general: `No se pudieron leer las colecciones excluidas: ${String(err)}` } },
+        { status: 422 }
+      );
+    }
+  }
 
   // Plan enforcement — only when activating (drafts are always allowed)
   let usedVariants = 0;
@@ -169,6 +188,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         selectedVendors,
         selectedProductTypes,
         excludedProductIds: enableExclusions ? excluded.map((p) => p.id) : [],
+        excludedCollectionIds: enableExclusions ? excludedCollectionIds : [],
         enableExclusions,
       },
       startsAt: campaignStartsAt,
@@ -459,6 +479,9 @@ export default function NewPercentageCampaign() {
   const [excludedProducts, setExcludedProducts] = useState<
     Array<{ id: string; title: string; variants: Array<{ id: string }> }>
   >([]);
+  const [excludedCollections, setExcludedCollections] = useState<
+    Array<{ id: string; title: string }>
+  >([]);
   const [startsAt, setStartsAt] = useState("");
   const [endsAt, setEndsAt] = useState("");
 
@@ -545,6 +568,22 @@ export default function NewPercentageCampaign() {
     });
     if (selected) {
       setSelectedCollections(
+        (selected as Array<{ id: string; title: string }>).map((c) => ({
+          id: c.id,
+          title: c.title,
+        }))
+      );
+    }
+  };
+
+  const handleSelectExcludedCollections = async () => {
+    const selected = await shopify.resourcePicker({
+      type: "collection",
+      multiple: true,
+      selectionIds: excludedCollections.map((c) => ({ id: c.id })),
+    });
+    if (selected) {
+      setExcludedCollections(
         (selected as Array<{ id: string; title: string }>).map((c) => ({
           id: c.id,
           title: c.title,
@@ -647,6 +686,11 @@ export default function NewPercentageCampaign() {
           type="hidden"
           name="excludedProductsJson"
           value={JSON.stringify(excludedProducts.map((p) => ({ id: p.id, variants: p.variants })))}
+        />
+        <input
+          type="hidden"
+          name="excludedCollectionIdsJson"
+          value={JSON.stringify(excludedCollections.map((c) => c.id))}
         />
 
         {/* Layout 2 columnas: secciones izquierda + preview derecha */}
@@ -1029,12 +1073,46 @@ export default function NewPercentageCampaign() {
                 >
                   {es.nuevaPorcentaje.btnExcluirProductos}
                 </button>
+                <button
+                  type="button"
+                  onClick={handleSelectExcludedCollections}
+                  style={{
+                    background: "#fff",
+                    border: "1px solid #c9cccf",
+                    borderRadius: "6px",
+                    padding: "7px 14px",
+                    fontSize: "13px",
+                    cursor: "pointer",
+                    color: "#202223",
+                    marginLeft: "8px",
+                  }}
+                >
+                  {es.nuevaPorcentaje.btnExcluirColecciones}
+                </button>
                 <ProductChips
                   products={excludedChips}
                   onRemove={(id) =>
                     setExcludedProducts((prev) => prev.filter((p) => p.id !== id))
                   }
                 />
+                {excludedCollections.length > 0 && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "10px" }}>
+                    {excludedCollections.map((c) => (
+                      <div key={c.id} style={chipStyle}>
+                        {es.nuevaPorcentaje.chipColeccionExcluida} {c.title}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setExcludedCollections((prev) => prev.filter((x) => x.id !== c.id))
+                          }
+                          style={chipRemoveStyle}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>

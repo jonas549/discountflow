@@ -23,7 +23,14 @@ import {
   type SelectedProductInput,
   type SelectionMode,
 } from "../lib/discounts/percentage";
-import { getCollections, getProductMetadata, getProductsByIds } from "../lib/shopify/admin-api";
+import {
+  getCollections,
+  getCollectionsByIds,
+  getProductMetadata,
+  getProductsByIds,
+} from "../lib/shopify/admin-api";
+import { parseExcludedCollectionIds } from "../lib/discounts/percentage-exclusions";
+import { resolverVariantesExcluidas } from "../lib/discounts/percentage-exclusions.server";
 import { PLAN_LIMITS, type Plan } from "../lib/billing/plan-limits";
 import {
   getActiveCampaignCount,
@@ -58,6 +65,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     selectedVendors?: string[];
     selectedProductTypes?: string[];
     excludedProductIds?: string[];
+    excludedCollectionIds?: string[];
     enableExclusions?: boolean;
   };
 
@@ -68,7 +76,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
 
   const productIdsToHydrate = uniqueProducts.map((p) => p.shopifyProductId);
 
-  const [collections, productMeta, prefilledProducts, prefilledExcludedProducts] = await Promise.all([
+  const [collections, productMeta, prefilledProducts, prefilledExcludedProducts, prefilledExcludedCollections] = await Promise.all([
     getCollections(admin),
     getProductMetadata(admin),
     config.selectionMode === "products" || !config.selectionMode
@@ -76,6 +84,9 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       : Promise.resolve([]),
     (config.excludedProductIds ?? []).length > 0
       ? getProductsByIds(admin, config.excludedProductIds!)
+      : Promise.resolve([]),
+    (config.excludedCollectionIds ?? []).length > 0
+      ? getCollectionsByIds(admin, config.excludedCollectionIds!)
       : Promise.resolve([]),
   ]);
 
@@ -106,6 +117,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       prefilledProductTypes: config.selectedProductTypes ?? [],
       prefilledProducts,
       prefilledExcludedProducts,
+      prefilledExcludedCollections,
       enableExclusions: config.enableExclusions ?? false,
       existingProductsCount: uniqueProducts.length,
       startsAt: campaign.startsAt
@@ -153,6 +165,9 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   const selectedProductTypesJson = (formData.get("selectedProductTypesJson") as string) || "[]";
   const enableExclusions = formData.get("enableExclusions") === "on";
   const excludedProductsJson = (formData.get("excludedProductsJson") as string) || "[]";
+  const excludedCollectionIds = parseExcludedCollectionIds(
+    formData.get("excludedCollectionIdsJson") as string | null
+  );
   const startsAt = (formData.get("startsAt") as string) || "";
   const endsAt = (formData.get("endsAt") as string) || "";
   const intent = (formData.get("intent") as "draft" | "activate") || "draft";
@@ -212,10 +227,24 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   // Parse exclusions before updating config so they can be persisted
   let excluded: SelectedProductInput[] = [];
   try { excluded = JSON.parse(excludedProductsJson); } catch { /* noop */ }
-  const excludedVariantIds =
-    enableExclusions && excluded.length > 0
-      ? new Set(excluded.flatMap((p) => (p.variants ?? []).map((v) => v.id)))
-      : undefined;
+  // Productos sueltos + colecciones excluidas, en un solo conjunto de variantes.
+  // 🔴 Tiene que resolverse AQUÍ, antes del revert de más abajo: si una colección
+  // no se puede leer, se aborta sin haber tocado un solo precio.
+  let excludedVariantIds: Set<string> | undefined;
+  if (
+    shouldActivate &&
+    enableExclusions &&
+    (excluded.length > 0 || excludedCollectionIds.length > 0)
+  ) {
+    try {
+      excludedVariantIds = await resolverVariantesExcluidas(admin, excluded, excludedCollectionIds);
+    } catch (err) {
+      return Response.json(
+        { errors: { general: `No se pudieron leer las colecciones excluidas: ${String(err)}` } },
+        { status: 422 }
+      );
+    }
+  }
 
   // Plan enforcement — only when transitioning to ACTIVE from a non-active state.
   // CRÍTICO: este bloque debe quedar ANTES del revert de precios de más abajo.
@@ -278,6 +307,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
         selectedVendors,
         selectedProductTypes,
         excludedProductIds: enableExclusions ? excluded.map((p) => p.id) : [],
+        excludedCollectionIds: enableExclusions ? excludedCollectionIds : [],
         enableExclusions,
       },
       startsAt: campaignStartsAt,
@@ -570,11 +600,16 @@ export default function EditPercentageCampaign() {
   );
   const [pickerMode, setPickerMode] = useState<"tags" | "vendors" | "productTypes" | null>(null);
   const [enableExclusions, setEnableExclusions] = useState(
-    campaign.enableExclusions || campaign.prefilledExcludedProducts.length > 0
+    campaign.enableExclusions ||
+      campaign.prefilledExcludedProducts.length > 0 ||
+      campaign.prefilledExcludedCollections.length > 0
   );
   const [excludedProducts, setExcludedProducts] = useState<
     Array<{ id: string; title: string; variants: Array<{ id: string }> }>
   >(campaign.prefilledExcludedProducts);
+  const [excludedCollections, setExcludedCollections] = useState<
+    Array<{ id: string; title: string }>
+  >(campaign.prefilledExcludedCollections);
   const [startsAt, setStartsAt] = useState(campaign.startsAt);
   const [endsAt, setEndsAt] = useState(campaign.endsAt);
 
@@ -635,6 +670,22 @@ export default function EditPercentageCampaign() {
     });
     if (selected) {
       setSelectedCollections(
+        (selected as Array<{ id: string; title: string }>).map((c) => ({
+          id: c.id,
+          title: c.title,
+        }))
+      );
+    }
+  };
+
+  const handleSelectExcludedCollections = async () => {
+    const selected = await shopify.resourcePicker({
+      type: "collection",
+      multiple: true,
+      selectionIds: excludedCollections.map((c) => ({ id: c.id })),
+    });
+    if (selected) {
+      setExcludedCollections(
         (selected as Array<{ id: string; title: string }>).map((c) => ({
           id: c.id,
           title: c.title,
@@ -720,6 +771,11 @@ export default function EditPercentageCampaign() {
           type="hidden"
           name="excludedProductsJson"
           value={JSON.stringify(excludedProducts.map((p) => ({ id: p.id, variants: p.variants })))}
+        />
+        <input
+          type="hidden"
+          name="excludedCollectionIdsJson"
+          value={JSON.stringify(excludedCollections.map((c) => c.id))}
         />
 
         {/* Layout 2 columnas: secciones izquierda + preview derecha */}
@@ -1105,12 +1161,46 @@ export default function EditPercentageCampaign() {
                 >
                   {es.nuevaPorcentaje.btnExcluirProductos}
                 </button>
+                <button
+                  type="button"
+                  onClick={handleSelectExcludedCollections}
+                  style={{
+                    background: "#fff",
+                    border: "1px solid #c9cccf",
+                    borderRadius: "6px",
+                    padding: "7px 14px",
+                    fontSize: "13px",
+                    cursor: "pointer",
+                    color: "#202223",
+                    marginLeft: "8px",
+                  }}
+                >
+                  {es.nuevaPorcentaje.btnExcluirColecciones}
+                </button>
                 <ProductChips
                   products={excludedChips}
                   onRemove={(id) =>
                     setExcludedProducts((prev) => prev.filter((p) => p.id !== id))
                   }
                 />
+                {excludedCollections.length > 0 && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "10px" }}>
+                    {excludedCollections.map((c) => (
+                      <div key={c.id} style={chipStyle}>
+                        {es.nuevaPorcentaje.chipColeccionExcluida} {c.title}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setExcludedCollections((prev) => prev.filter((x) => x.id !== c.id))
+                          }
+                          style={chipRemoveStyle}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
