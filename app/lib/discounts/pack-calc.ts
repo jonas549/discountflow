@@ -107,13 +107,20 @@ export type PackOutcome =
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
 /**
- * Mínimo duro del tipo de campaña: un "pack" de un solo producto no es un pack.
+ * Mínimo duro del tipo de campaña.
  *
- * En modo PER_PRODUCT es el mínimo efectivo (decisión de producto del
- * 2026-09-05). En modo PACK_SIZE el mínimo real lo fija el primer nivel, que
- * nunca puede estar por debajo de esto.
+ * 🟢 Desde el 2026-11-13 es 1 (decisión de Jonas, para los DOS modos): se pueden
+ * armar niveles 1, 2 y 3. Antes era 2 ("un pack de un solo producto no es un
+ * pack", decisión del 2026-09-05) y el formulario no dejaba bajar de ahí.
+ *
+ * En modo PER_PRODUCT es el mínimo efectivo: con un solo producto del pack en el
+ * carrito ya aplica su porcentaje. En modo PACK_SIZE el mínimo real lo fija el
+ * primer nivel, que nunca puede estar por debajo de esto.
+ *
+ * ⚠️ Este archivo se compila dentro del Wasm de la Function y dentro del widget
+ *    de la tienda: cambiarlo exige app version nueva (Function + widget).
  */
-export const MIN_PACK_PRODUCTS = 2;
+export const MIN_PACK_PRODUCTS = 1;
 
 export const MIN_PACK_PERCENT = 0;
 export const MAX_PACK_PERCENT = 99;

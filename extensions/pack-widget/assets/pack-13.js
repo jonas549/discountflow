@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════════════
- * DiscountFlow · widget de packs · BUILD 12
+ * DiscountFlow · widget de packs · BUILD 13
  *
  * GENERADO — NO EDITAR A MANO.
  * Fuentes: app/lib/discounts/pack-calc.ts + scripts/pack-widget-src/*.js
@@ -46,7 +46,7 @@ var DiscountFlowPackCalc = (() => {
     resolvePackTier: () => resolvePackTier,
     savingsCents: () => savingsCents
   });
-  var MIN_PACK_PRODUCTS = 2;
+  var MIN_PACK_PRODUCTS = 1;
   var MIN_PACK_PERCENT = 0;
   var MAX_PACK_PERCENT = 99;
   var MAX_PACK_TIERS = 5;
@@ -212,9 +212,9 @@ var DiscountFlowPackCalc = (() => {
 
 /* Marca de versión en tiempo de ejecución. La de verdad, la que se puede
    comprobar SIN ejecutar nada, está en el HTML del bloque. */
-window.DF_PACK_BUILD = 12;
+window.DF_PACK_BUILD = 13;
 try {
-  console.log("[DiscountFlow] widget de packs · build 12 cargado");
+  console.log("[DiscountFlow] widget de packs · build 13 cargado");
 } catch (e) {}
 
 /* DiscountFlow — widget «Armá tu pack».

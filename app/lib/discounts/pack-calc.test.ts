@@ -94,12 +94,33 @@ test("modo A: el ahorro del wireframe con 3 productos", () => {
   assert.equal(p.total, 38249.5);
 });
 
-test("modo A: con 1 solo producto el pack NO aplica", () => {
+// Desde el 2026-11-13 el mínimo es 1 en los dos modos (decisión de Jonas). Antes
+// este test afirmaba lo contrario: con 1 producto el pack no aplicaba.
+test("modo A: con 1 solo producto el pack YA aplica (mínimo 1)", () => {
   const o = computePack("PER_PRODUCT", CATALOGO_A, [], lineas("serum"));
+  assertAplica(o);
+  assert.equal(o.distinctProducts, 1);
+  assert.equal(o.lines.length, 1);
+});
+
+test("modo A: con el carrito sin productos del pack sigue sin aplicar", () => {
+  const o = computePack("PER_PRODUCT", CATALOGO_A, [], []);
   assertNoAplica(o);
   assert.equal(o.reason, "BELOW_MINIMUM");
-  assert.equal(o.distinctProducts, 1);
   assert.deepEqual(o.nextTier, { productsNeeded: 1, percent: 0 });
+});
+
+test("modo B: un primer nivel en 1 producto aplica con 1, y sube con 2 y 3", () => {
+  const niveles = normalizePackTiers([
+    { minProducts: 1, percent: 5 },
+    { minProducts: 2, percent: 10 },
+    { minProducts: 3, percent: 20 },
+  ]);
+  assert.equal(packMinimumProducts("PACK_SIZE", niveles), 1);
+  assert.equal(resolvePackTier(niveles, 0), null);
+  assert.equal(resolvePackTier(niveles, 1)?.percent, 5);
+  assert.equal(resolvePackTier(niveles, 2)?.percent, 10);
+  assert.equal(resolvePackTier(niveles, 3)?.percent, 20);
 });
 
 test("modo A: un producto al 0% entra al pack pero no se emite candidate", () => {
@@ -286,13 +307,15 @@ test("normalizePackTiers ordena, recorta y respeta el mínimo duro", () => {
   const out = normalizePackTiers([
     { minProducts: 4, percent: 30 },
     { minProducts: 2, percent: 10 },
-    { minProducts: 1, percent: 5 }, // por debajo del mínimo duro → fuera
+    { minProducts: 1, percent: 5 }, // el mínimo duro ahora es 1 → entra
+    { minProducts: 0, percent: 50 }, // por debajo del mínimo duro → fuera
     { minProducts: 3, percent: 20 },
     { minProducts: 3, percent: 25 }, // duplicado: gana el último
     { minProducts: NaN, percent: 10 },
     { minProducts: 5, percent: -1 },
   ]);
   assert.deepEqual(out, [
+    { minProducts: 1, percent: 5 },
     { minProducts: 2, percent: 10 },
     { minProducts: 3, percent: 25 },
     { minProducts: 4, percent: 30 },
@@ -359,9 +382,12 @@ test("una línea cuyo producto no está en el catálogo recibe 0% en modo A", ()
 
 test("validatePack exige productos suficientes", () => {
   assert.ok(validatePack("PER_PRODUCT", [], []).errors.length > 0);
-  assert.ok(
-    validatePack("PER_PRODUCT", [{ productId: "a", percent: 10 }], []).errors.length > 0,
-    "un pack de 1 producto no es un pack"
+  // Desde el 2026-11-13 un pack de 1 producto es válido (mínimo 1).
+  assert.equal(
+    validatePack("PER_PRODUCT", [{ productId: "a", percent: 10 }], []).errors.some((e) =>
+      e.includes("al menos")
+    ),
+    false
   );
   const muchos = Array.from({ length: MAX_PACK_CATALOG + 1 }, (_, i) => ({
     productId: `p${i}`,

@@ -57,7 +57,9 @@ export function validatePack(
     errors.push("Elegí al menos un producto para el pack.");
   } else if (catalog.length < MIN_PACK_PRODUCTS) {
     errors.push(
-      `Un pack necesita al menos ${MIN_PACK_PRODUCTS} productos para que el comprador pueda armarlo.`
+      `Un pack necesita al menos ${MIN_PACK_PRODUCTS} ${
+        MIN_PACK_PRODUCTS === 1 ? "producto" : "productos"
+      } para que el comprador pueda armarlo.`
     );
   }
 
