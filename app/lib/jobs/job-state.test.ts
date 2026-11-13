@@ -89,6 +89,15 @@ test("isStalled solo marca jobs vivos que dejaron de latir", () => {
   assert.equal(isStalled("QUEUED", null, NOW, STALE), false);
 });
 
+test("un job en cola que nunca arrancó cuenta como colgado pasado el margen", () => {
+  // Recién creado: todavía no, lo normal es que arranque enseguida.
+  assert.equal(isStalled("QUEUED", null, NOW, STALE, ago(2_000)), false);
+  // Creado hace rato y sin un solo latido: la llamada que lo arrancaba se perdió.
+  assert.equal(isStalled("QUEUED", null, NOW, STALE, ago(20_000)), true);
+  // Sin fecha de creación se conserva el comportamiento anterior.
+  assert.equal(isStalled("QUEUED", null, NOW, STALE, null), false);
+});
+
 // ─── Porcentaje ───────────────────────────────────────────────────────────────
 
 test("sin denominador el porcentaje es null, no 0 (barra indeterminada)", () => {

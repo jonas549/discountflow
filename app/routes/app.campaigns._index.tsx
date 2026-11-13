@@ -651,7 +651,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       /** Aviso si la programación no pudo cumplirse (p. ej. límite del plan). */
       scheduleNote: c.scheduleNote,
       /** Productos que la última aplicación saltó por tener ya descuento manual. */
-      skipReport: readSkipReport(c.skipReport),
+      skipReport: c.status === "DRAFT" ? null : readSkipReport(c.skipReport),
       /** jobId de la operación en curso, si la hay. Ancla de la barra. */
       activeJobId: c.activeJobId,
       /** Solo para intercalar las campañas por tandas en orden de creación. */
@@ -1664,7 +1664,7 @@ export default function Campaigns() {
                     <th
                       key={h}
                       style={{
-                        padding: "10px 12px",
+                        padding: "10px 8px",
                         textAlign: "left",
                         color: "#6d7175",
                         fontWeight: "500",
@@ -1754,7 +1754,7 @@ export default function Campaigns() {
                             : "1px solid #f1f2f3",
                       }}
                     >
-                      <td style={{ padding: "12px", fontWeight: "500", color: "#202223" }}>
+                      <td style={{ padding: "12px 8px", fontWeight: "500", color: "#202223" }}>
                         <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
                           {c.name}
                           {c.type === "BXGY" && (
@@ -1780,10 +1780,10 @@ export default function Campaigns() {
                           )}
                         </span>
                       </td>
-                      <td style={{ padding: "12px", color: "#6d7175" }}>
+                      <td style={{ padding: "12px 8px", color: "#6d7175" }}>
                         {tipoLabel(c.type)}
                       </td>
-                      <td style={{ padding: "12px" }}>
+                      <td style={{ padding: "12px 8px" }}>
                         <span
                           style={{
                             background: programada ? "#eaf4ff" : st.bg,
@@ -1798,7 +1798,7 @@ export default function Campaigns() {
                           {programada ? "Programada" : estadoLabel(c.status)}
                         </span>
                       </td>
-                      <td style={{ padding: "12px", color: "#6d7175" }}>
+                      <td style={{ padding: "12px 8px", color: "#6d7175" }}>
                         {codigoCupon && (
                           <span
                             style={{
@@ -1820,7 +1820,7 @@ export default function Campaigns() {
                         )}
                         {discount}
                       </td>
-                      <td style={{ padding: "12px", color: "#6d7175" }}>
+                      <td style={{ padding: "12px 8px", color: "#6d7175" }}>
                         {/* TIERED y PACK no crean filas en CampaignProduct:
                             su conteo sale del config. El resto no se toca. */}
                         {c.type === "TIERED"
@@ -1837,7 +1837,7 @@ export default function Campaigns() {
                       </td>
                       <td
                         style={{
-                          padding: "12px",
+                          padding: "12px 8px",
                           color: "#6d7175",
                           whiteSpace: "nowrap",
                         }}
@@ -1846,7 +1846,7 @@ export default function Campaigns() {
                       </td>
                       <td
                         style={{
-                          padding: "12px",
+                          padding: "12px 8px",
                           color: "#6d7175",
                           whiteSpace: "nowrap",
                         }}
@@ -1855,9 +1855,9 @@ export default function Campaigns() {
                       </td>
 
                       {/* ── Acciones inline — sin dropdown ── */}
-                      <td style={{ padding: "12px" }}>
+                      <td style={{ padding: "12px 8px" }}>
                         <div
-                          style={{ display: "flex", gap: "8px", alignItems: "center" }}
+                          style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}
                         >
                           {/* Editar — ruta difiere por tipo.
                               Con un job en curso se bloquea: la fase de
@@ -2037,12 +2037,12 @@ function FilaTanda({
   onEliminar: () => void;
 }) {
   const st = ESTADO_COLORS[t.status] ?? ESTADO_COLORS.DRAFT;
-  const gris: React.CSSProperties = { padding: "12px", color: "#6d7175", whiteSpace: "nowrap" };
+  const gris: React.CSSProperties = { padding: "12px 8px", color: "#6d7175", whiteSpace: "nowrap" };
   return (
     <tr style={{ borderBottom: "1px solid #f1f2f3" }}>
-      <td style={{ padding: "12px", fontWeight: "500", color: "#202223" }}>{t.name}</td>
-      <td style={{ padding: "12px", color: "#6d7175" }}>{es.campanas.tandas.titulo}</td>
-      <td style={{ padding: "12px" }}>
+      <td style={{ padding: "12px 8px", fontWeight: "500", color: "#202223" }}>{t.name}</td>
+      <td style={{ padding: "12px 8px", color: "#6d7175" }}>{es.campanas.tandas.titulo}</td>
+      <td style={{ padding: "12px 8px" }}>
         <span
           style={{
             background: st.bg,
@@ -2057,14 +2057,14 @@ function FilaTanda({
           {estadoLabel(t.status)}
         </span>
       </td>
-      <td style={{ padding: "12px", color: "#6d7175" }}>
+      <td style={{ padding: "12px 8px", color: "#6d7175" }}>
         {es.cuponesViaje.etiquetaListado(t.publicado)}
       </td>
-      <td style={{ padding: "12px", color: "#6d7175" }}>{t.productTitle}</td>
+      <td style={{ padding: "12px 8px", color: "#6d7175" }}>{t.productTitle}</td>
       <td style={gris}>{formatDate(null)}</td>
       <td style={gris}>{formatDate(null)}</td>
-      <td style={{ padding: "12px" }}>
-        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+      <td style={{ padding: "12px 8px" }}>
+        <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
           <LinkBtn to={`/app/cupones-viaje/${t.id}`} variant="primary" size="sm">
             {es.campanas.acciones.editar}
           </LinkBtn>

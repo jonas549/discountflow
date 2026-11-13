@@ -114,6 +114,12 @@ export async function dispatchNextBatch(
       "x-discountflow-job-secret": secret,
     },
     body: JSON.stringify({ jobId }),
+  }).then((res) => {
+    // Un fetch que responde 4xx/5xx NO lanza: sin esto, un lote rechazado por
+    // la plataforma se perdía sin dejar rastro y el job se quedaba en cola.
+    if (!res.ok)
+      console.error(`[jobs] el worker respondió ${res.status} al despachar el job ${jobId}`);
+    return res;
   });
 
   await extendLifetime(call);

@@ -112,7 +112,7 @@ export async function sweepStalledJobs(
     const now = new Date();
     let despertados = 0;
     for (const job of colgados) {
-      if (!isStalled(job.status as JobStatus, job.heartbeatAt, now, LEASE_STALE_MS))
+      if (!isStalled(job.status as JobStatus, job.heartbeatAt, now, LEASE_STALE_MS, job.createdAt))
         continue;
       await dispatchNextBatch(request, job.id);
       despertados += 1;

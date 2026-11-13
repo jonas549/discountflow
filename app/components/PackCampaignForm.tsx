@@ -460,7 +460,7 @@ export function PackCampaignForm({
                       style={{ ...inputStyle, width: "80px" }}
                     />
                     <span style={{ fontSize: "13px", color: "#6d7175" }}>
-                      {es.nuevoPack.nivelProductos}
+                      {Number(tier.minProducts) === 1 ? "producto" : es.nuevoPack.nivelProductos}
                     </span>
                     <div style={{ display: "flex", alignItems: "stretch", marginLeft: "auto" }}>
                       <DecimalInput

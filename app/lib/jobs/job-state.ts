@@ -84,15 +84,30 @@ export function isClaimable(
   return now.getTime() - heartbeatAt.getTime() > staleMs;
 }
 
+/**
+ * Margen para un job recién creado: lo normal es que arranque en menos de un
+ * segundo. Despertarlo dos veces no hace daño (solo un worker gana el reclamo).
+ */
+export const QUEUED_GRACE_MS = 15_000;
+
 /** Un job no terminal que dejó de dar señales. Lo mira la UI para re-patearlo. */
 export function isStalled(
   status: JobStatus,
   heartbeatAt: Date | null,
   now: Date,
-  staleMs: number
+  staleMs: number,
+  /**
+   * Cuándo se creó el job. Con este dato, un job que sigue EN COLA sin haber
+   * latido nunca pasado el margen de gracia cuenta como colgado: se creó pero
+   * la llamada que debía arrancarlo se perdió (pasa con el paso 2 de una
+   * edición grande), y sin esto nadie lo despertaba jamás. Sin el dato se
+   * conserva el comportamiento anterior (no se toca un job recién creado).
+   */
+  createdAt?: Date | null
 ): boolean {
   if (isTerminal(status)) return false;
-  if (status === "QUEUED" && !heartbeatAt) return false;
+  if (status === "QUEUED" && !heartbeatAt)
+    return !!createdAt && now.getTime() - createdAt.getTime() > QUEUED_GRACE_MS;
   if (!heartbeatAt) return false;
   return now.getTime() - heartbeatAt.getTime() > staleMs;
 }

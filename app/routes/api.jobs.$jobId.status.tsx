@@ -162,7 +162,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     startedAt: job.startedAt,
     heartbeatAt: job.heartbeatAt,
     finishedAt: job.finishedAt,
-    stalled: isStalled(status, job.heartbeatAt, now, LEASE_STALE_MS),
+    stalled: isStalled(status, job.heartbeatAt, now, LEASE_STALE_MS, job.createdAt),
 
     errorCount: job.errorCount,
     // Salteadas: el producto o sus variantes ya no existen en la tienda. Van
@@ -209,7 +209,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     // job perfectamente vivo y duplicaría el consumo de invocaciones.
     if (isTerminal(job.status as JobStatus))
       return Response.json({ ok: false, reason: "terminal" });
-    if (!isStalled(job.status as JobStatus, job.heartbeatAt, new Date(), LEASE_STALE_MS))
+    if (!isStalled(job.status as JobStatus, job.heartbeatAt, new Date(), LEASE_STALE_MS, job.createdAt))
       return Response.json({ ok: false, reason: "alive" });
 
     await dispatchNextBatch(request, jobId);

@@ -269,7 +269,7 @@ async function despertarColgados(dispatch: Dispatch, now: Date, shopId?: string)
     const colgados = await findStalledJobs({ limit: 5, shopId });
     let n = 0;
     for (const job of colgados) {
-      if (!isStalled(job.status as JobStatus, job.heartbeatAt, now, LEASE_STALE_MS)) continue;
+      if (!isStalled(job.status as JobStatus, job.heartbeatAt, now, LEASE_STALE_MS, job.createdAt)) continue;
       await dispatch(job.id);
       n += 1;
     }
