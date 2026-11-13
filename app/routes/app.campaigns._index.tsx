@@ -79,7 +79,7 @@ import {
   type RangeCampaignConfig,
 } from "../lib/discounts/range";
 import { enqueueCampaignJob, sweepStalledJobs } from "../lib/jobs/enqueue.server";
-import { hasFeature } from "../lib/features.server";
+import { hasFeature, jobsEnabled } from "../lib/features.server";
 import { JOBS_FEATURE_FLAG } from "../lib/jobs/constants";
 import { JobProgress } from "../components/JobProgress";
 import { es, estadoLabel, tipoLabel, formatDate } from "../i18n";
@@ -216,7 +216,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       data: {
         features: {
           ...current,
-          [JOBS_FEATURE_FLAG]: !hasFeature(shop, JOBS_FEATURE_FLAG),
+          [JOBS_FEATURE_FLAG]: !jobsEnabled(shop),
         } as never,
       },
     });
@@ -600,7 +600,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const skipped = Number(new URL(request.url).searchParams.get("skipped") ?? 0);
   return {
     skipped,
-    jobsFlagOn: hasFeature(shop, JOBS_FEATURE_FLAG),
+    jobsFlagOn: jobsEnabled(shop),
     canToggleJobsFlag: !isProduction,
     // Cupones por tandas: feature de UNA tienda (flag `cupones:viaje`). Sin el
     // flag no hay tarjeta, no hay filas, y sus rutas responden 404. Con el flag

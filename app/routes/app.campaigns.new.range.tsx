@@ -32,7 +32,7 @@ import { type Plan, PLAN_LIMITS } from "../lib/billing/plan-limits";
 import { getActiveCampaignCount, getVariantCount } from "../lib/billing/plan-limits.server";
 import { isPlanLimitError } from "../lib/billing/plan-limit-error";
 import { enqueueCampaignJob } from "../lib/jobs/enqueue.server";
-import { hasFeature } from "../lib/features.server";
+import { hasFeature, jobsEnabled } from "../lib/features.server";
 import { JOBS_FEATURE_FLAG } from "../lib/jobs/constants";
 import { productIdsToSave } from "../lib/discounts/saved-selection";
 import { es } from "../i18n";
@@ -163,7 +163,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       // Con la barra activada nace como BORRADOR y pasa a ACTIVE en el `finalize`
       // del job, cuando los precios ya están puestos. Ver la nota equivalente en
       // la ruta de porcentaje.
-      status: shouldActivate && !hasFeature(shop, JOBS_FEATURE_FLAG) ? "ACTIVE" : "DRAFT",
+      status: shouldActivate && !jobsEnabled(shop) ? "ACTIVE" : "DRAFT",
       config: {
         mode,
         value,

@@ -22,7 +22,7 @@ import {
 } from "../lib/discounts/percentage";
 import { getCollections, getProductMetadata } from "../lib/shopify/admin-api";
 import { enqueueCampaignJob } from "../lib/jobs/enqueue.server";
-import { hasFeature } from "../lib/features.server";
+import { hasFeature, jobsEnabled } from "../lib/features.server";
 import { JOBS_FEATURE_FLAG } from "../lib/jobs/constants";
 import { productIdsToSave } from "../lib/discounts/saved-selection";
 import { type Plan, PLAN_LIMITS } from "../lib/billing/plan-limits";
@@ -172,7 +172,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   // pulsado "Crear y activar": pasa a ACTIVE en el `finalize` del job, cuando los
   // precios ya están puestos de verdad. Así una campaña que muere a mitad —o que
   // se pasa de la cuota del plan— no queda anunciada como activa sin serlo.
-  const conBarra = hasFeature(shop, JOBS_FEATURE_FLAG);
+  const conBarra = jobsEnabled(shop);
 
   const campaign = await prisma.campaign.create({
     data: {

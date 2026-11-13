@@ -41,3 +41,29 @@ export function activeFeatures(shop: ShopLike): string[] {
     return [];
   }
 }
+
+/**
+ * ¿Va esta tienda por el motor de jobs (la barra de progreso)?
+ *
+ * 🟢 ENCENDIDO DE FÁBRICA (decisión de Jonas, 2026-11-13). Una tienda que
+ * instala la app tiene la barra desde el primer momento, sin que nadie toque la
+ * base. Se apaga SOLO si la tienda tiene `"jobs:batched": false` explícito: ese
+ * es el interruptor de emergencia por tienda, y sigue siendo un UPDATE.
+ *
+ * Es la excepción deliberada a la regla de arriba ("falla cerrado"): aquí el
+ * camino estable ES el motor —lo usan todas las tiendas que pagan desde agosto—
+ * y el síncrono es el que revienta a los 300 s con campañas grandes. Ausencia,
+ * JSON raro o error de lectura → motor.
+ *
+ * ÚNICO punto de lectura: nadie más debe mirar `jobs:batched` por su cuenta (la
+ * lección del 2026-08-09, cuando se leía en tres sitios).
+ */
+export function jobsEnabled(shop: ShopLike): boolean {
+  try {
+    const raw = shop?.features;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return true;
+    return (raw as Record<string, unknown>)["jobs:batched"] !== false;
+  } catch {
+    return true;
+  }
+}

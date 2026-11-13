@@ -16,7 +16,7 @@ import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { prisma } from "../lib/db";
 import { getOrCreateShop } from "../lib/shopify/shop.server";
-import { hasFeature } from "../lib/features.server";
+import { hasFeature, jobsEnabled } from "../lib/features.server";
 import { JOBS_FEATURE_FLAG, DEADLINE_MS, CONCURRENCY } from "../lib/jobs/constants";
 import { createJob, findStalledJobs } from "../lib/jobs/jobs.server";
 import { dispatchNextBatch } from "../lib/jobs/chain.server";
@@ -52,7 +52,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const stalled = await findStalledJobs({ shopId: shop.id, limit: 5 });
 
   return {
-    flagOn: hasFeature(shop, JOBS_FEATURE_FLAG),
+    flagOn: jobsEnabled(shop),
     canToggleFlag: !isProduction,
     deadlineMs: DEADLINE_MS,
     concurrency: CONCURRENCY,
@@ -105,7 +105,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   if (intent === "start") {
     // 🔒 La puerta del flag. Fail-closed: si está apagado, no se crea nada.
-    if (!hasFeature(shop, JOBS_FEATURE_FLAG))
+    if (!jobsEnabled(shop))
       return Response.json(
         { error: `El flag ${JOBS_FEATURE_FLAG} está apagado para esta tienda.` },
         { status: 403 }

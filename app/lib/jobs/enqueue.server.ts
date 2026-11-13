@@ -9,7 +9,7 @@
 //    quien generase los estados a medias que todo esto viene a evitar.
 
 import prisma from "../../db.server.ts";
-import { hasFeature } from "../features.server.ts";
+import { hasFeature, jobsEnabled } from "../features.server.ts";
 import { dispatchNextBatch } from "./chain.server.ts";
 import { JOBS_FEATURE_FLAG } from "./constants.ts";
 import { isStalled, type JobOperation, type JobStatus } from "./job-state.ts";
@@ -32,7 +32,7 @@ export async function enqueueCampaignJob(input: {
   operation: JobOperation;
   payload?: Record<string, unknown>;
 }): Promise<EnqueueResult> {
-  if (!hasFeature(input.shop, JOBS_FEATURE_FLAG))
+  if (!jobsEnabled(input.shop))
     return { enqueued: false, reason: "flag-off" };
 
   const { job, created } = await createJob({
@@ -68,7 +68,7 @@ export async function enqueueCampaignEdit(input: {
   campaign: { id: string; status: string };
   next: EditNext;
 }): Promise<{ handled: boolean }> {
-  if (!hasFeature(input.shop, JOBS_FEATURE_FLAG)) return { handled: false };
+  if (!jobsEnabled(input.shop)) return { handled: false };
 
   if (input.campaign.status === "ACTIVE") {
     const { job, created } = await createJob({
