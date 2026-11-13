@@ -17,6 +17,7 @@
 // `campaign-forms.test.ts` lo comprueba sobre los siete formularios.
 // ═══════════════════════════════════════════════════════════════════════════
 
+import { HoraDeTiendaHint } from "./HoraDeTiendaHint";
 import { useState } from "react";
 import { Form, Link } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
@@ -977,6 +978,7 @@ export function OriginalPriceCampaignForm({
               helper={t.fechaInicioHelper}
               error={err("dates")}
             >
+              <HoraDeTiendaHint />
               <input
                 type="datetime-local"
                 value={startsAt}
@@ -988,6 +990,7 @@ export function OriginalPriceCampaignForm({
               />
             </FieldGroup>
             <FieldGroup label={t.fechaFinLabel} helper={t.fechaFinHelper}>
+              <HoraDeTiendaHint />
               <input
                 type="datetime-local"
                 value={endsAt}

@@ -23,6 +23,7 @@
 // Antes de tocar esto, abrí `PackCampaignForm.tsx` al lado y comparalos.
 // ═══════════════════════════════════════════════════════════════════════════
 
+import { HoraDeTiendaHint } from "./HoraDeTiendaHint";
 import { useState } from "react";
 import { Form, Link } from "react-router";
 import { Btn } from "./Btn";
@@ -420,6 +421,7 @@ export function CartValueCampaignForm({
               helper={t.fechaInicioHelper}
               error={err("dates")}
             >
+              <HoraDeTiendaHint />
               <input
                 type="datetime-local"
                 name="startsAt"
@@ -432,6 +434,7 @@ export function CartValueCampaignForm({
               />
             </FieldGroup>
             <FieldGroup label={t.fechaFinLabel} helper={t.fechaFinHelper}>
+              <HoraDeTiendaHint />
               <input
                 type="datetime-local"
                 name="endsAt"

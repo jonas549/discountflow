@@ -3,6 +3,7 @@ import type {
   HeadersFunction,
   LoaderFunctionArgs,
 } from "react-router";
+import { HoraDeTiendaHint } from "../components/HoraDeTiendaHint";
 import { redirect, useActionData, useLoaderData, useNavigation, Link } from "react-router";
 import { Form } from "react-router";
 import { useState } from "react";
@@ -55,6 +56,9 @@ import {
   loadProductsByIds,
   missingCount,
 } from "../lib/shopify/hydrate-selection.server";
+import { shopLocalToUtc, utcToShopLocal } from "../lib/schedule/shop-time";
+import { shopTimezone } from "../lib/schedule/shop-timezone.server";
+import { pendingApplyConfig, scheduleFlags } from "../lib/schedule/scheduling";
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
@@ -106,6 +110,8 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     missingCount(savedCollections, prefilledCollections) +
     missingCount(excludedProductIds, prefilledExcludedProducts);
 
+  const tz = await shopTimezone(admin, shop);
+
   return {
     campaign: {
       id: campaign.id,
@@ -122,8 +128,8 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       prefilledExcludedProducts,
       enableExclusions: config.enableExclusions ?? false,
       existingProductsCount: uniqueProducts.length,
-      startsAt: campaign.startsAt ? campaign.startsAt.toISOString().slice(0, 16) : "",
-      endsAt: campaign.endsAt ? campaign.endsAt.toISOString().slice(0, 16) : "",
+      startsAt: utcToShopLocal(campaign.startsAt, tz),
+      endsAt: utcToShopLocal(campaign.endsAt, tz),
     },
     collections,
     seleccionFaltante,
@@ -211,10 +217,21 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   if (Object.keys(errors).length > 0)
     return Response.json({ errors }, { status: 422 });
 
-  const campaignStartsAt = startsAt ? new Date(startsAt) : null;
-  const campaignEndsAt = endsAt ? new Date(endsAt) : null;
+  // Las fechas del formulario son hora de la TIENDA, no del servidor (UTC).
+
+  const tz = await shopTimezone(admin, shop);
+
+  const campaignStartsAt = shopLocalToUtc(startsAt, tz);
+
+  const campaignEndsAt = shopLocalToUtc(endsAt, tz);
   const isScheduled = campaignStartsAt !== null && campaignStartsAt > new Date();
   const shouldActivate = intent === "activate" && !isScheduled;
+  const sched = scheduleFlags({
+    intent: intent === "activate" ? "activate" : "draft",
+    startsAt: campaignStartsAt,
+    endsAt: campaignEndsAt,
+    now: new Date(),
+  });
 
   // CRÍTICO: este bloque debe quedar ANTES del revert de precios de más abajo.
   // Por debajo de ese punto los precios ya están revertidos en Shopify y los
@@ -287,9 +304,17 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
         selectedProductTypes,
         excludedProductIds: enableExclusions ? excluded.map((p) => p.id) : [],
         enableExclusions,
+        ...pendingApplyConfig(
+          sched.autoStart,
+          { selectionMode, selectedProducts, collectionIds, selectedTags, selectedVendors, selectedProductTypes },
+          excludedVariantIds
+        ),
       },
       startsAt: campaignStartsAt,
       endsAt: campaignEndsAt,
+      autoStart: sched.autoStart,
+      autoEnd: sched.autoEnd,
+      scheduleNote: null,
     },
   });
 
@@ -830,6 +855,7 @@ export default function EditRangeCampaign() {
                   label={es.nuevaRango.fechaInicioLabel}
                   helper={es.nuevaRango.fechaInicioHelper}
                 >
+                  <HoraDeTiendaHint />
                   <input
                     type="datetime-local"
                     name="startsAt"
@@ -843,6 +869,7 @@ export default function EditRangeCampaign() {
                   helper={es.nuevaRango.fechaFinHelper}
                   error={errors.dates}
                 >
+                  <HoraDeTiendaHint />
                   <input
                     type="datetime-local"
                     name="endsAt"

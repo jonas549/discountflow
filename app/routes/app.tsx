@@ -7,6 +7,7 @@ import { authenticate } from "../shopify.server";
 import { getOrCreateShop, syncShopPlanIfStale } from "../lib/shopify/shop.server";
 import { prisma } from "../lib/db";
 import { JobProgress } from "../components/JobProgress";
+import { shopTimezone } from "../lib/schedule/shop-timezone.server";
 import { SupportChat } from "../components/SupportChat";
 import { es } from "../i18n";
 
@@ -60,6 +61,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     // eslint-disable-next-line no-undef
     apiKey: process.env.SHOPIFY_API_KEY || "",
     runningJobId: enCurso?.activeJobId ?? null,
+    // Las fechas de campaña se escriben y se muestran en la hora de la tienda.
+    shopTimeZone: await shopTimezone(admin, shop),
     chatSoporte,
   };
 };

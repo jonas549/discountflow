@@ -26,6 +26,9 @@ import {
   comprobarTipoDeCampana,
 } from "../lib/billing/plan-limits.server";
 import { es } from "../i18n";
+import { shopLocalToUtc, utcToShopLocal } from "../lib/schedule/shop-time";
+import { shopTimezone } from "../lib/schedule/shop-timezone.server";
+import { scheduleFlags } from "../lib/schedule/scheduling";
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
@@ -50,10 +53,23 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     scopes: session.scope,
   });
 
-  const campaignStartsAt = f.startsAt ? new Date(f.startsAt) : null;
-  const campaignEndsAt = f.endsAt ? new Date(f.endsAt) : null;
+  // Las fechas del formulario son hora de la TIENDA, no del servidor (UTC).
+
+  const tz = await shopTimezone(admin, shop);
+
+  const campaignStartsAt = shopLocalToUtc(f.startsAt, tz);
+
+  const campaignEndsAt = shopLocalToUtc(f.endsAt, tz);
   const isScheduled = campaignStartsAt !== null && campaignStartsAt > new Date();
-  const shouldActivate = f.intent === "activate" && !isScheduled;
+  // Con inicio futuro el descuento se crea igual: Shopify lo deja "Programado"
+  // y lo enciende solo a su hora (verificado contra la API el 2026-11-13).
+  const shouldActivate = f.intent === "activate";
+  const sched = scheduleFlags({
+    intent: f.intent === "activate" ? "activate" : "draft",
+    startsAt: campaignStartsAt,
+    endsAt: campaignEndsAt,
+    now: new Date(),
+  });
 
   // Límites de plan — solo al activar. Un borrador siempre se puede guardar,
   // así el límite es un argumento de venta y no un muro.
@@ -106,6 +122,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       config: config as unknown as Record<string, unknown>,
       startsAt: campaignStartsAt,
       endsAt: campaignEndsAt,
+      autoStart: false,
+      autoEnd: sched.autoEnd,
+      scheduleNote: null,
     },
   });
 

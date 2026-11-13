@@ -1,4 +1,5 @@
 import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "react-router";
+import { HoraDeTiendaHint } from "../components/HoraDeTiendaHint";
 import { redirect, useActionData, useLoaderData, useNavigation, Link } from "react-router";
 import { Form } from "react-router";
 import { useState } from "react";
@@ -36,6 +37,9 @@ import {
   comprobarTipoDeCampana,
 } from "../lib/billing/plan-limits.server";
 import { es } from "../i18n";
+import { shopLocalToUtc, utcToShopLocal } from "../lib/schedule/shop-time";
+import { shopTimezone } from "../lib/schedule/shop-timezone.server";
+import { scheduleFlags } from "../lib/schedule/scheduling";
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
@@ -166,10 +170,23 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     scopes: session.scope,
   });
 
-  const campaignStartsAt = startsAt ? new Date(startsAt) : null;
-  const campaignEndsAt = endsAt ? new Date(endsAt) : null;
+  // Las fechas del formulario son hora de la TIENDA, no del servidor (UTC).
+
+  const tz = await shopTimezone(admin, shop);
+
+  const campaignStartsAt = shopLocalToUtc(startsAt, tz);
+
+  const campaignEndsAt = shopLocalToUtc(endsAt, tz);
   const isScheduled = campaignStartsAt !== null && campaignStartsAt > new Date();
-  const shouldActivate = intent === "activate" && !isScheduled;
+  // Con inicio futuro el descuento se crea igual: Shopify lo deja "Programado"
+  // y lo enciende solo a su hora (verificado contra la API el 2026-11-13).
+  const shouldActivate = intent === "activate";
+  const sched = scheduleFlags({
+    intent: intent === "activate" ? "activate" : "draft",
+    startsAt: campaignStartsAt,
+    endsAt: campaignEndsAt,
+    now: new Date(),
+  });
 
   // Plan enforcement — only when activating (drafts are always allowed)
   if (shouldActivate) {
@@ -222,6 +239,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       config: config as unknown as Record<string, unknown>,
       startsAt: campaignStartsAt,
       endsAt: campaignEndsAt,
+      autoStart: false,
+      autoEnd: sched.autoEnd,
+      scheduleNote: null,
     },
   });
 
@@ -1136,6 +1156,7 @@ export default function NewBxgyCampaign() {
                   label={es.nuevaBxgy.fechaInicioLabel}
                   helper={es.nuevaBxgy.fechaInicioHelper}
                 >
+                  <HoraDeTiendaHint />
                   <input
                     type="datetime-local"
                     name="startsAt"
@@ -1149,6 +1170,7 @@ export default function NewBxgyCampaign() {
                   helper={es.nuevaBxgy.fechaFinHelper}
                   error={errors.dates}
                 >
+                  <HoraDeTiendaHint />
                   <input
                     type="datetime-local"
                     name="endsAt"

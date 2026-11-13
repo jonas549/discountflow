@@ -1,4 +1,5 @@
 import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "react-router";
+import { HoraDeTiendaHint } from "../components/HoraDeTiendaHint";
 import { redirect, useActionData, useLoaderData, useNavigation, Link } from "react-router";
 import { Form } from "react-router";
 import { useState } from "react";
@@ -37,6 +38,9 @@ import {
   getActiveCampaignCount,
   comprobarTipoDeCampana,
 } from "../lib/billing/plan-limits.server";
+import { shopLocalToUtc, utcToShopLocal } from "../lib/schedule/shop-time";
+import { shopTimezone } from "../lib/schedule/shop-timezone.server";
+import { scheduleFlags } from "../lib/schedule/scheduling";
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
@@ -75,13 +79,15 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
         : Promise.resolve([]),
     ]);
 
+  const tz = await shopTimezone(admin, shop);
+
   return {
     campaign: {
       id: campaign.id,
       name: campaign.name,
       status: campaign.status,
-      startsAt: campaign.startsAt ? campaign.startsAt.toISOString().slice(0, 16) : "",
-      endsAt: campaign.endsAt ? campaign.endsAt.toISOString().slice(0, 16) : "",
+      startsAt: utcToShopLocal(campaign.startsAt, tz),
+      endsAt: utcToShopLocal(campaign.endsAt, tz),
       config,
     },
     prefilledXProducts,
@@ -210,10 +216,18 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   if (!existing) throw new Response("Not found", { status: 404 });
 
   const existingConfig = existing.config as BxgyCampaignConfig;
-  const campaignStartsAt = startsAt ? new Date(startsAt) : null;
-  const campaignEndsAt = endsAt ? new Date(endsAt) : null;
+  // Las fechas del formulario son hora de la TIENDA, no del servidor (UTC).
+  const tz = await shopTimezone(admin, shop);
+  const campaignStartsAt = shopLocalToUtc(startsAt, tz);
+  const campaignEndsAt = shopLocalToUtc(endsAt, tz);
   const isScheduled = campaignStartsAt !== null && campaignStartsAt > new Date();
   const shouldActivate = intent === "activate" && !isScheduled;
+  const sched = scheduleFlags({
+    intent: intent === "activate" ? "activate" : "draft",
+    startsAt: campaignStartsAt,
+    endsAt: campaignEndsAt,
+    now: new Date(),
+  });
 
   if (shouldActivate && existing.status !== "ACTIVE") {
     const plan = (shop.plan as Plan) || "FREE";
@@ -271,6 +285,9 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
       config: newConfig as unknown as Record<string, unknown>,
       startsAt: campaignStartsAt,
       endsAt: campaignEndsAt,
+      autoStart: false,
+      autoEnd: sched.autoEnd,
+      scheduleNote: null,
     },
   });
 
@@ -951,6 +968,7 @@ export default function EditBxgyCampaign() {
             <Section title={es.nuevaBxgy.secProgramacion} defaultOpen={false}>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginTop: "8px" }}>
                 <FieldGroup label={es.nuevaBxgy.fechaInicioLabel} helper={es.nuevaBxgy.fechaInicioHelper}>
+                  <HoraDeTiendaHint />
                   <input
                     type="datetime-local"
                     name="startsAt"
@@ -964,6 +982,7 @@ export default function EditBxgyCampaign() {
                   helper={es.nuevaBxgy.fechaFinHelper}
                   error={errors.dates}
                 >
+                  <HoraDeTiendaHint />
                   <input
                     type="datetime-local"
                     name="endsAt"

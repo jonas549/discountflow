@@ -2,6 +2,7 @@
 // Lo usan tanto la ruta de creación como la de edición: la única diferencia
 // entre ambas son los valores iniciales y las etiquetas de los botones.
 
+import { HoraDeTiendaHint } from "./HoraDeTiendaHint";
 import { useEffect, useState } from "react";
 import { Form, Link } from "react-router";
 import { useAppBridge } from "@shopify/app-bridge-react";
@@ -600,6 +601,7 @@ export function TieredCampaignForm({
                   label={es.nuevaTiered.fechaInicioLabel}
                   helper={es.nuevaTiered.fechaInicioHelper}
                 >
+                  <HoraDeTiendaHint />
                   <input
                     type="datetime-local"
                     name="startsAt"
@@ -613,6 +615,7 @@ export function TieredCampaignForm({
                   helper={es.nuevaTiered.fechaFinHelper}
                   error={errors.dates}
                 >
+                  <HoraDeTiendaHint />
                   <input
                     type="datetime-local"
                     name="endsAt"

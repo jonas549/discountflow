@@ -27,11 +27,14 @@ import {
   type PackFormProduct,
 } from "../lib/discounts/pack-form";
 import { es } from "../i18n";
+import { shopLocalToUtc, utcToShopLocal } from "../lib/schedule/shop-time";
+import { shopTimezone } from "../lib/schedule/shop-timezone.server";
+import { scheduleFlags } from "../lib/schedule/scheduling";
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
 export const loader = async ({ request, params }: LoaderFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
   const shop = await getOrCreateShop({
     domain: session.shop,
     accessToken: session.accessToken,
@@ -63,13 +66,15 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     campaign.id
   );
 
+  const tz = await shopTimezone(admin, shop);
+
   return {
     campaign: {
       id: campaign.id,
       name: campaign.name,
       status: campaign.status,
-      startsAt: campaign.startsAt ? campaign.startsAt.toISOString().slice(0, 16) : "",
-      endsAt: campaign.endsAt ? campaign.endsAt.toISOString().slice(0, 16) : "",
+      startsAt: utcToShopLocal(campaign.startsAt, tz),
+      endsAt: utcToShopLocal(campaign.endsAt, tz),
       config,
     },
     products,
@@ -108,8 +113,16 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   if (!existing) throw new Response("Not found", { status: 404 });
 
   const previous = existing.config as PackCampaignConfig;
-  const campaignStartsAt = f.startsAt ? new Date(f.startsAt) : null;
-  const campaignEndsAt = f.endsAt ? new Date(f.endsAt) : null;
+  // Las fechas del formulario son hora de la TIENDA, no del servidor (UTC).
+  const tz = await shopTimezone(admin, shop);
+  const campaignStartsAt = shopLocalToUtc(f.startsAt, tz);
+  const campaignEndsAt = shopLocalToUtc(f.endsAt, tz);
+  const sched = scheduleFlags({
+    intent: "draft",
+    startsAt: campaignStartsAt,
+    endsAt: campaignEndsAt,
+    now: new Date(),
+  });
 
   let items;
   try {
@@ -137,6 +150,9 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
       config: config as unknown as Record<string, unknown>,
       startsAt: campaignStartsAt,
       endsAt: campaignEndsAt,
+      autoStart: false,
+      autoEnd: sched.autoEnd,
+      scheduleNote: null,
     },
   });
 

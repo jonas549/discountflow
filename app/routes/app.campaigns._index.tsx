@@ -81,6 +81,9 @@ import {
 import { enqueueCampaignJob, sweepStalledJobs } from "../lib/jobs/enqueue.server";
 import { hasFeature, jobsEnabled } from "../lib/features.server";
 import { JOBS_FEATURE_FLAG } from "../lib/jobs/constants";
+import { scheduleLabel } from "../lib/schedule/scheduling";
+import { formatShopDateTime } from "../lib/schedule/shop-time";
+import { shopTimezone } from "../lib/schedule/shop-timezone.server";
 import { JobProgress } from "../components/JobProgress";
 import { es, estadoLabel, tipoLabel, formatDate } from "../i18n";
 import { Btn, LinkBtn } from "../components/Btn";
@@ -264,7 +267,14 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       if (operacion === "REACTIVATE") {
         const limite = await comprobarLimitesAlReactivar(shop, campaign);
         if (limite) return limite;
+        // Reactivar a mano una campaña cuyo fin programado ya pasó: esa fecha ya
+        // no manda, o el cron la volvería a pausar a los cinco minutos.
+        if (campaign.autoEnd && campaign.endsAt && campaign.endsAt <= new Date())
+          await prisma.campaign.update({ where: { id: campaign.id }, data: { autoEnd: false } });
       }
+      // Cualquier acción manual da por leído el aviso de programación.
+      if (campaign.scheduleNote)
+        await prisma.campaign.update({ where: { id: campaign.id }, data: { scheduleNote: null } });
       const enq = await enqueueCampaignJob({
         request,
         shop,
@@ -580,7 +590,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { session } = await authenticate.admin(request);
+  const { admin, session } = await authenticate.admin(request);
   const shop = await getOrCreateShop({
     domain: session.shop,
     accessToken: session.accessToken,
@@ -598,6 +608,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     include: { _count: { select: { products: true } } },
   });
   const skipped = Number(new URL(request.url).searchParams.get("skipped") ?? 0);
+  // Programación: las fechas se muestran en la hora de la tienda.
+  const tz = await shopTimezone(admin, shop);
+  const ahora = new Date();
   return {
     skipped,
     jobsFlagOn: jobsEnabled(shop),
@@ -632,6 +645,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       productsCount: c._count.products,
       startsAt: c.startsAt?.toISOString() ?? null,
       endsAt: c.endsAt?.toISOString() ?? null,
+      /** «Programada: empieza el …» / «Termina el …», en hora de la tienda. */
+      scheduleLabel: scheduleLabel(c, ahora, (d) => formatShopDateTime(d, tz)),
+      /** Aviso si la programación no pudo cumplirse (p. ej. límite del plan). */
+      scheduleNote: c.scheduleNote,
       /** jobId de la operación en curso, si la hay. Ancla de la barra. */
       activeJobId: c.activeJobId,
       /** Solo para intercalar las campañas por tandas en orden de creación. */
@@ -1725,6 +1742,22 @@ export default function Campaigns() {
                     <Fragment key={c.id}>
                     <tr style={{ borderBottom: jobId ? "none" : "1px solid #f1f2f3" }}>
                       <td style={{ padding: "12px", fontWeight: "500", color: "#202223" }}>
+                        {c.scheduleLabel && (
+                          <div
+                            data-testid="programacion"
+                            style={{ fontSize: 12, fontWeight: 500, color: "#005bd3", marginBottom: 2 }}
+                          >
+                            🗓 {c.scheduleLabel} (hora de la tienda)
+                          </div>
+                        )}
+                        {c.scheduleNote && (
+                          <div
+                            data-testid="programacion-aviso"
+                            style={{ fontSize: 12, fontWeight: 500, color: "#8b5e00", marginBottom: 2 }}
+                          >
+                            ⚠ {c.scheduleNote}
+                          </div>
+                        )}
                         <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
                           {c.name}
                           {c.type === "BXGY" && (

@@ -3,6 +3,7 @@ import type {
   HeadersFunction,
   LoaderFunctionArgs,
 } from "react-router";
+import { HoraDeTiendaHint } from "../components/HoraDeTiendaHint";
 import { redirect, useActionData, useLoaderData, useNavigation, Link } from "react-router";
 import { Form } from "react-router";
 import { useState } from "react";
@@ -36,6 +37,9 @@ import { hasFeature, jobsEnabled } from "../lib/features.server";
 import { JOBS_FEATURE_FLAG } from "../lib/jobs/constants";
 import { productIdsToSave } from "../lib/discounts/saved-selection";
 import { es } from "../i18n";
+import { shopLocalToUtc, utcToShopLocal } from "../lib/schedule/shop-time";
+import { shopTimezone } from "../lib/schedule/shop-timezone.server";
+import { pendingApplyConfig, scheduleFlags } from "../lib/schedule/scheduling";
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
@@ -120,10 +124,21 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     scopes: session.scope,
   });
 
-  const campaignStartsAt = startsAt ? new Date(startsAt) : null;
-  const campaignEndsAt = endsAt ? new Date(endsAt) : null;
+  // Las fechas del formulario son hora de la TIENDA, no del servidor (UTC).
+
+  const tz = await shopTimezone(admin, shop);
+
+  const campaignStartsAt = shopLocalToUtc(startsAt, tz);
+
+  const campaignEndsAt = shopLocalToUtc(endsAt, tz);
   const isScheduled = campaignStartsAt !== null && campaignStartsAt > new Date();
   const shouldActivate = intent === "activate" && !isScheduled;
+  const sched = scheduleFlags({
+    intent: intent === "activate" ? "activate" : "draft",
+    startsAt: campaignStartsAt,
+    endsAt: campaignEndsAt,
+    now: new Date(),
+  });
 
   // Plan enforcement — only when activating (drafts are always allowed)
   let usedVariants = 0;
@@ -175,9 +190,17 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         selectedProductTypes,
         excludedProductIds: enableExclusions ? excluded.map((p) => p.id) : [],
         enableExclusions,
+        ...pendingApplyConfig(
+          sched.autoStart,
+          { selectionMode, selectedProducts, collectionIds, selectedTags, selectedVendors, selectedProductTypes },
+          excludedVariantIds
+        ),
       },
       startsAt: campaignStartsAt,
       endsAt: campaignEndsAt,
+      autoStart: sched.autoStart,
+      autoEnd: sched.autoEnd,
+      scheduleNote: null,
     },
   });
 
@@ -703,6 +726,7 @@ export default function NewRangeCampaign() {
                   label={es.nuevaRango.fechaInicioLabel}
                   helper={es.nuevaRango.fechaInicioHelper}
                 >
+                  <HoraDeTiendaHint />
                   <input
                     type="datetime-local"
                     name="startsAt"
@@ -716,6 +740,7 @@ export default function NewRangeCampaign() {
                   helper={es.nuevaRango.fechaFinHelper}
                   error={errors.dates}
                 >
+                  <HoraDeTiendaHint />
                   <input
                     type="datetime-local"
                     name="endsAt"

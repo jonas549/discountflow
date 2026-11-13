@@ -3,6 +3,7 @@ import type {
   HeadersFunction,
   LoaderFunctionArgs,
 } from "react-router";
+import { HoraDeTiendaHint } from "../components/HoraDeTiendaHint";
 import { redirect, useActionData, useLoaderData, useNavigation, Link } from "react-router";
 import { Form } from "react-router";
 import { useEffect, useState } from "react";
@@ -31,6 +32,9 @@ import { isPlanLimitError } from "../lib/billing/plan-limit-error";
 import { parseExcludedCollectionIds } from "../lib/discounts/percentage-exclusions";
 import { resolverVariantesExcluidas } from "../lib/discounts/percentage-exclusions.server";
 import { es } from "../i18n";
+import { shopLocalToUtc, utcToShopLocal } from "../lib/schedule/shop-time";
+import { shopTimezone } from "../lib/schedule/shop-timezone.server";
+import { pendingApplyConfig, scheduleFlags } from "../lib/schedule/scheduling";
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
@@ -119,10 +123,21 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     scopes: session.scope,
   });
 
-  const campaignStartsAt = startsAt ? new Date(startsAt) : null;
-  const campaignEndsAt = endsAt ? new Date(endsAt) : null;
+  // Las fechas del formulario son hora de la TIENDA, no del servidor (UTC).
+
+  const tz = await shopTimezone(admin, shop);
+
+  const campaignStartsAt = shopLocalToUtc(startsAt, tz);
+
+  const campaignEndsAt = shopLocalToUtc(endsAt, tz);
   const isScheduled = campaignStartsAt !== null && campaignStartsAt > new Date();
   const shouldActivate = intent === "activate" && !isScheduled;
+  const sched = scheduleFlags({
+    intent: intent === "activate" ? "activate" : "draft",
+    startsAt: campaignStartsAt,
+    endsAt: campaignEndsAt,
+    now: new Date(),
+  });
 
   let excluded: SelectedProductInput[] = [];
   try { excluded = JSON.parse(excludedProductsJson); } catch { /* noop */ }
@@ -131,7 +146,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   // de crear la campaña: si una colección no se puede leer, no queda nada escrito.
   let excludedVariantIds: Set<string> | undefined;
   if (
-    shouldActivate &&
+    (shouldActivate || sched.autoStart) &&
     enableExclusions &&
     (excluded.length > 0 || excludedCollectionIds.length > 0)
   ) {
@@ -192,9 +207,17 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         excludedProductIds: enableExclusions ? excluded.map((p) => p.id) : [],
         excludedCollectionIds: enableExclusions ? excludedCollectionIds : [],
         enableExclusions,
+        ...pendingApplyConfig(
+          sched.autoStart,
+          { selectionMode, selectedProducts, collectionIds, selectedTags, selectedVendors, selectedProductTypes },
+          excludedVariantIds
+        ),
       },
       startsAt: campaignStartsAt,
       endsAt: campaignEndsAt,
+      autoStart: sched.autoStart,
+      autoEnd: sched.autoEnd,
+      scheduleNote: null,
     },
   });
 
@@ -1134,6 +1157,7 @@ export default function NewPercentageCampaign() {
               label={es.nuevaPorcentaje.fechaInicioLabel}
               helper={es.nuevaPorcentaje.fechaInicioHelper}
             >
+              <HoraDeTiendaHint />
               <input
                 type="datetime-local"
                 name="startsAt"
@@ -1147,6 +1171,7 @@ export default function NewPercentageCampaign() {
               helper={es.nuevaPorcentaje.fechaFinHelper}
               error={errors.dates}
             >
+              <HoraDeTiendaHint />
               <input
                 type="datetime-local"
                 name="endsAt"

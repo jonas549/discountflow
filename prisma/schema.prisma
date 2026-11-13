@@ -48,6 +48,10 @@ model Shop {
   /// que falla CERRADO: ausencia, error o JSON corrupto = flag apagado = camino
   /// estable. Permite encender/apagar sin desplegar: UPDATE "Shop" SET features = ...
   features              Json                   @default("{}")
+  /// Zona horaria de la tienda (IANA, p. ej. "America/Santiago"), tal como la da
+  /// Shopify. Las fechas de campaña se interpretan y se muestran en esta zona.
+  /// null = todavía no se leyó; se trata como UTC. Ver app/lib/schedule.
+  ianaTimezone          String?
   campaigns             Campaign[]
   /// Cupones de viaje. SOLO existen en las tiendas con el flag `cupones:viaje`
   /// (ver app/lib/cupones-viaje/acceso.server.ts). Hoy: GeoTerraViajes.
@@ -103,6 +107,17 @@ model Campaign {
   endsAt   DateTime?
   config   Json
 
+  /// Programación (2026-11-13). El cron SOLO actúa sobre campañas con estas marcas
+  /// en true, que pone la app al guardar con fechas. Las campañas anteriores las
+  /// tienen en false: sus fechas viejas —aunque estén vencidas— NO disparan nada.
+  /// autoStart: activar sola cuando llegue `startsAt`. Se apaga al dispararse.
+  /// autoEnd:   pausar sola cuando llegue `endsAt`.    Se apaga al dispararse.
+  autoStart Boolean @default(false)
+  autoEnd   Boolean @default(false)
+  /// Último aviso de la programación para el merchant (p. ej. no pudo arrancar
+  /// por el límite del plan). null = sin aviso.
+  scheduleNote String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -123,6 +138,8 @@ model Campaign {
   jobs              CampaignJob[]
 
   @@index([shopId])
+  @@index([autoStart, startsAt])
+  @@index([autoEnd, endsAt])
   @@index([status])
   @@index([startsAt, endsAt])
 }

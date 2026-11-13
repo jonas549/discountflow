@@ -519,6 +519,9 @@ export type EditNext = {
   mode: "apply" | "reactivate";
   /** Payload del APPLY: selección, exclusiones ya resueltas y cuota del plan. */
   applyPayload?: Record<string, unknown>;
+  /** Programación: activar sola al llegar startsAt / pausar sola al llegar endsAt. */
+  autoStart?: boolean;
+  autoEnd?: boolean;
 };
 
 export function readEditNext(payload: unknown): EditNext | null {
@@ -535,6 +538,8 @@ export function readEditNext(payload: unknown): EditNext | null {
     startsAt: typeof next.startsAt === "string" ? next.startsAt : null,
     endsAt: typeof next.endsAt === "string" ? next.endsAt : null,
     activate: next.activate === true,
+    autoStart: next.autoStart === true,
+    autoEnd: next.autoEnd === true,
     mode: next.mode,
     applyPayload: (next.applyPayload ?? {}) as Record<string, unknown>,
   };
@@ -625,6 +630,9 @@ export async function commitCampaignEdit(input: {
           config: next.config as never,
           startsAt: next.startsAt ? new Date(next.startsAt) : null,
           endsAt: next.endsAt ? new Date(next.endsAt) : null,
+          autoStart: next.autoStart === true,
+          autoEnd: next.autoEnd === true,
+          scheduleNote: null,
         },
       });
       return jobId;
