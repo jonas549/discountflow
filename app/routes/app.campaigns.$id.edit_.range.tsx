@@ -48,6 +48,13 @@ import {
   getCampaignVariantCount,
 } from "../lib/billing/plan-limits.server";
 import { isPlanLimitError } from "../lib/billing/plan-limit-error";
+import { SeleccionFaltanteBanner } from "../components/SeleccionFaltanteBanner";
+import { productIdsToSave, savedCollectionIds, savedProductIds } from "../lib/discounts/saved-selection";
+import {
+  loadCollectionsByIds,
+  loadProductsByIds,
+  missingCount,
+} from "../lib/shopify/hydrate-selection.server";
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
@@ -71,22 +78,33 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     by: ["shopifyProductId"],
     where: { campaignId: campaign.id },
   });
-  const productIdsToHydrate = uniqueProducts.map((p) => p.shopifyProductId);
+  // Mismo arreglo que en Porcentaje: la config manda, las filas son el respaldo,
+  // y lo guardado que no vuelve de Shopify se avisa en vez de quedar vacío.
+  const savedCfg = config as unknown as {
+    selectionMode?: string;
+    selectedProductIds?: string[];
+    collectionIds?: string[];
+  };
+  const productIdsToHydrate = savedProductIds(
+    savedCfg,
+    uniqueProducts.map((p) => p.shopifyProductId)
+  );
+  const savedCollections = savedCollectionIds(savedCfg);
+  const excludedProductIds = config.excludedProductIds ?? [];
 
   const [collections, productMeta, prefilledProducts, prefilledExcludedProducts, prefilledCollections] =
     await Promise.all([
       getCollections(admin),
       getProductMetadata(admin),
-      config.selectionMode === "products" || !config.selectionMode
-        ? getProductsByIds(admin, productIdsToHydrate)
-        : Promise.resolve([]),
-      (config.excludedProductIds ?? []).length > 0
-        ? getProductsByIds(admin, config.excludedProductIds!)
-        : Promise.resolve([]),
-      (config.collectionIds ?? []).length > 0
-        ? getCollectionsByIds(admin, config.collectionIds!)
-        : Promise.resolve([]),
+      loadProductsByIds(admin, productIdsToHydrate),
+      loadProductsByIds(admin, excludedProductIds),
+      loadCollectionsByIds(admin, savedCollections),
     ]);
+
+  const seleccionFaltante =
+    missingCount(productIdsToHydrate, prefilledProducts) +
+    missingCount(savedCollections, prefilledCollections) +
+    missingCount(excludedProductIds, prefilledExcludedProducts);
 
   return {
     campaign: {
@@ -108,6 +126,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       endsAt: campaign.endsAt ? campaign.endsAt.toISOString().slice(0, 16) : "",
     },
     collections,
+    seleccionFaltante,
     availableTags: productMeta.tags,
     availableVendors: productMeta.vendors,
     availableProductTypes: productMeta.productTypes,
@@ -258,6 +277,11 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
         value,
         selectionMode,
         collectionIds,
+        selectedProductIds: productIdsToSave(
+          selectionMode,
+          selectedProducts,
+          (existing.config as { selectedProductIds?: string[] } | null)?.selectedProductIds
+        ),
         selectedTags,
         selectedVendors,
         selectedProductTypes,
@@ -331,7 +355,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function EditRangeCampaign() {
-  const { campaign, collections, availableTags, availableVendors, availableProductTypes } =
+  const { campaign, collections, seleccionFaltante, availableTags, availableVendors, availableProductTypes } =
     useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>() as
     | { errors?: ActionErrors; limitExceeded?: boolean }
@@ -440,6 +464,8 @@ export default function EditRangeCampaign() {
           {es.nuevaRango.volver}
         </Link>
       </div>
+
+      <SeleccionFaltanteBanner count={seleccionFaltante} />
 
       {errors.general && <GeneralErrorBanner message={errors.general} limitExceeded={actionData?.limitExceeded} />}
 

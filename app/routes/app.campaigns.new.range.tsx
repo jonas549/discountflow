@@ -34,6 +34,7 @@ import { isPlanLimitError } from "../lib/billing/plan-limit-error";
 import { enqueueCampaignJob } from "../lib/jobs/enqueue.server";
 import { hasFeature } from "../lib/features.server";
 import { JOBS_FEATURE_FLAG } from "../lib/jobs/constants";
+import { productIdsToSave } from "../lib/discounts/saved-selection";
 import { es } from "../i18n";
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
@@ -168,6 +169,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         value,
         selectionMode,
         collectionIds,
+        selectedProductIds: productIdsToSave(selectionMode, selectedProducts, undefined),
         selectedTags,
         selectedVendors,
         selectedProductTypes,

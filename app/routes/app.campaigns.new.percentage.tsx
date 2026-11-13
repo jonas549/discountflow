@@ -24,6 +24,7 @@ import { getCollections, getProductMetadata } from "../lib/shopify/admin-api";
 import { enqueueCampaignJob } from "../lib/jobs/enqueue.server";
 import { hasFeature } from "../lib/features.server";
 import { JOBS_FEATURE_FLAG } from "../lib/jobs/constants";
+import { productIdsToSave } from "../lib/discounts/saved-selection";
 import { type Plan, PLAN_LIMITS } from "../lib/billing/plan-limits";
 import { getActiveCampaignCount, getVariantCount } from "../lib/billing/plan-limits.server";
 import { isPlanLimitError } from "../lib/billing/plan-limit-error";
@@ -184,6 +185,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         showCompareAtPrice: useCompareAtPriceAsBase,
         selectionMode,
         collectionIds,
+        selectedProductIds: productIdsToSave(selectionMode, selectedProducts, undefined),
         selectedTags,
         selectedVendors,
         selectedProductTypes,

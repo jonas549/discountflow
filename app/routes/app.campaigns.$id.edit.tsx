@@ -39,6 +39,13 @@ import {
 } from "../lib/billing/plan-limits.server";
 import { isPlanLimitError } from "../lib/billing/plan-limit-error";
 import { es } from "../i18n";
+import { SeleccionFaltanteBanner } from "../components/SeleccionFaltanteBanner";
+import { productIdsToSave, savedCollectionIds, savedProductIds } from "../lib/discounts/saved-selection";
+import {
+  loadCollectionsByIds,
+  loadProductsByIds,
+  missingCount,
+} from "../lib/shopify/hydrate-selection.server";
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
@@ -61,6 +68,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     selectionMode?: string;
     collectionId?: string;     // legacy
     collectionIds?: string[];  // new
+    selectedProductIds?: string[];
     selectedTags?: string[];
     selectedVendors?: string[];
     selectedProductTypes?: string[];
@@ -74,34 +82,40 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     where: { campaignId: campaign.id },
   });
 
-  const productIdsToHydrate = uniqueProducts.map((p) => p.shopifyProductId);
+  // La config manda; las filas de precios son el respaldo de las campañas viejas.
+  const productIdsToHydrate = savedProductIds(
+    config,
+    uniqueProducts.map((p) => p.shopifyProductId)
+  );
+  // 🔴 Las colecciones guardadas se piden POR ID. Antes se buscaban dentro de
+  //    las primeras 50 de la tienda por orden alfabético y «Rebajas» no aparecía.
+  const prefilledCollectionIds = savedCollectionIds(config);
 
-  const [collections, productMeta, prefilledProducts, prefilledExcludedProducts, prefilledExcludedCollections] = await Promise.all([
+  const excludedProductIds = config.excludedProductIds ?? [];
+  const excludedCollectionIds = config.excludedCollectionIds ?? [];
+  const [
+    collections,
+    productMeta,
+    prefilledProducts,
+    prefilledExcludedProducts,
+    prefilledExcludedCollections,
+    prefilledCollections,
+  ] = await Promise.all([
     getCollections(admin),
     getProductMetadata(admin),
-    config.selectionMode === "products" || !config.selectionMode
-      ? getProductsByIds(admin, productIdsToHydrate)
-      : Promise.resolve([]),
-    (config.excludedProductIds ?? []).length > 0
-      ? getProductsByIds(admin, config.excludedProductIds!)
-      : Promise.resolve([]),
-    (config.excludedCollectionIds ?? []).length > 0
-      ? getCollectionsByIds(admin, config.excludedCollectionIds!)
-      : Promise.resolve([]),
+    loadProductsByIds(admin, productIdsToHydrate),
+    loadProductsByIds(admin, excludedProductIds),
+    loadCollectionsByIds(admin, excludedCollectionIds),
+    loadCollectionsByIds(admin, prefilledCollectionIds),
   ]);
 
-  // Resolve prefilledCollections from IDs stored in config
-  const prefilledCollectionIds =
-    config.collectionIds?.length
-      ? config.collectionIds
-      : config.collectionId
-      ? [config.collectionId]
-      : [];
-  const collectionsById = new Map(collections.map((c) => [c.id, c]));
-  const prefilledCollections = prefilledCollectionIds
-    .map((id) => collectionsById.get(id))
-    .filter(Boolean)
-    .map((c) => ({ id: c!.id, title: c!.title }));
+  // Lo guardado que NO volvió de Shopify (fallo momentáneo o recurso borrado).
+  // Antes la lista quedaba vacía sin avisar y el merchant creía que no había nada.
+  const seleccionFaltante =
+    missingCount(productIdsToHydrate, prefilledProducts) +
+    missingCount(prefilledCollectionIds, prefilledCollections) +
+    missingCount(excludedProductIds, prefilledExcludedProducts) +
+    missingCount(excludedCollectionIds, prefilledExcludedCollections);
 
   return {
     campaign: {
@@ -128,6 +142,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
         : "",
     },
     collections,
+    seleccionFaltante,
     availableTags: productMeta.tags,
     availableVendors: productMeta.vendors,
     availableProductTypes: productMeta.productTypes,
@@ -315,6 +330,11 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
           showCompareAtPrice: useCompareAtPriceAsBase,
           selectionMode,
           collectionIds,
+          selectedProductIds: productIdsToSave(
+            selectionMode,
+            selectedProducts,
+            (existing.config as { selectedProductIds?: string[] } | null)?.selectedProductIds
+          ),
           selectedTags,
           selectedVendors,
           selectedProductTypes,
@@ -360,6 +380,11 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
         showCompareAtPrice: useCompareAtPriceAsBase,
         selectionMode,
         collectionIds,
+        selectedProductIds: productIdsToSave(
+          selectionMode,
+          selectedProducts,
+          (existing.config as { selectedProductIds?: string[] } | null)?.selectedProductIds
+        ),
         selectedTags,
         selectedVendors,
         selectedProductTypes,
@@ -626,7 +651,7 @@ const chipRemoveStyle: React.CSSProperties = {
 };
 
 export default function EditPercentageCampaign() {
-  const { campaign, collections, availableTags, availableVendors, availableProductTypes } =
+  const { campaign, collections, seleccionFaltante, availableTags, availableVendors, availableProductTypes } =
     useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>() as
     | { errors?: ActionErrors; limitExceeded?: boolean }
@@ -780,6 +805,8 @@ export default function EditPercentageCampaign() {
           {es.nuevaPorcentaje.volver}
         </Link>
       </div>
+
+      <SeleccionFaltanteBanner count={seleccionFaltante} />
 
       {errors.general && (
         <div
