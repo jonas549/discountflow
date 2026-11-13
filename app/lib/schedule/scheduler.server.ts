@@ -122,7 +122,10 @@ export async function runScheduleTick(deps: {
           operation: "REVERT",
           payload: { scheduled: "end" },
         });
-        await prisma.campaign.update({ where: { id: c.id }, data: { autoEnd: false } });
+        await prisma.campaign.update({
+          where: { id: c.id },
+          data: { autoEnd: false, scheduleNote: "Se pausó sola al llegar su fecha de fin." },
+        });
         if (created) await deps.dispatch(job.id);
         out.terminadas.push(c.id);
         continue;

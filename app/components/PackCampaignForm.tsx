@@ -636,7 +636,7 @@ export function PackCampaignForm({
                     esPorTamano ? es.nuevoPack.modoPorTamano : es.nuevoPack.modoPorProducto,
                   ],
                   [es.nuevoPack.resumenProductos, String(products.length)],
-                  [es.nuevoPack.resumenMinimo, `${minimo} productos`],
+                  [es.nuevoPack.resumenMinimo, minimo === 1 ? "1 producto" : `${minimo} productos`],
                   [es.nuevoPack.resumenMaximo, maximoDescuento > 0 ? `${maximoDescuento}%` : "—"],
                   [es.nuevoPack.resumenInicio, startsAt || es.nuevoPack.resumenInmediato],
                   [es.nuevoPack.resumenFin, endsAt || es.nuevoPack.resumenSinFin],

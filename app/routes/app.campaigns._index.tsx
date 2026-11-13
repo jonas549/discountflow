@@ -1741,67 +1741,20 @@ export default function Campaigns() {
                       ? `/app/campaigns/${c.id}/edit/original-price`
                       : `/app/campaigns/${c.id}/edit`;
                   const jobId = jobIdFor(c);
+                  // Programada = con inicio futuro, sea porque la activará el cron
+                  // (Porcentaje, Rango) o porque Shopify la encenderá sola (el resto).
+                  const programada = c.scheduleLabel?.startsWith("Programada") ?? false;
                   return (
                     <Fragment key={c.id}>
-                    <tr style={{ borderBottom: jobId ? "none" : "1px solid #f1f2f3" }}>
+                    <tr
+                      style={{
+                        borderBottom:
+                          jobId || c.scheduleLabel || c.scheduleNote || c.skipReport
+                            ? "none"
+                            : "1px solid #f1f2f3",
+                      }}
+                    >
                       <td style={{ padding: "12px", fontWeight: "500", color: "#202223" }}>
-                        {c.scheduleLabel && (
-                          <div
-                            data-testid="programacion"
-                            style={{ fontSize: 12, fontWeight: 500, color: "#005bd3", marginBottom: 2 }}
-                          >
-                            🗓 {c.scheduleLabel} (hora de la tienda)
-                          </div>
-                        )}
-                        {c.skipReport && (
-                          <details
-                            data-testid="reporte-salteados"
-                            style={{
-                              fontSize: 12,
-                              fontWeight: 400,
-                              color: "#42474c",
-                              background: "#f6f6f7",
-                              border: "1px solid #e1e3e5",
-                              borderRadius: 6,
-                              padding: "6px 10px",
-                              marginBottom: 6,
-                              maxWidth: 520,
-                            }}
-                          >
-                            <summary style={{ cursor: "pointer", fontWeight: 600 }}>
-                              {c.skipReport.total === 1
-                                ? "1 producto salteado: ya tenía descuento"
-                                : `${c.skipReport.total} productos salteados: ya tenían descuento`}{" "}
-                              — ver detalle
-                            </summary>
-                            <div style={{ marginTop: 6 }}>
-                              No se tocaron porque ya tenían un precio comparativo puesto a mano. Sus precios
-                              quedaron como estaban.
-                            </div>
-                            <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
-                              {c.skipReport.products.map((p) => (
-                                <li key={p.id}>
-                                  <strong>{p.title ?? `Producto ${productNumericId(p.id)}`}</strong> — precio{" "}
-                                  {p.price}, comparativo {p.compareAtPrice}
-                                  {p.variants > 1 ? ` · ${p.variants} variantes` : ""}
-                                </li>
-                              ))}
-                            </ul>
-                            {c.skipReport.truncated && (
-                              <div style={{ marginTop: 4 }}>
-                                …y {c.skipReport.total - c.skipReport.products.length} más.
-                              </div>
-                            )}
-                          </details>
-                        )}
-                        {c.scheduleNote && (
-                          <div
-                            data-testid="programacion-aviso"
-                            style={{ fontSize: 12, fontWeight: 500, color: "#8b5e00", marginBottom: 2 }}
-                          >
-                            ⚠ {c.scheduleNote}
-                          </div>
-                        )}
                         <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
                           {c.name}
                           {c.type === "BXGY" && (
@@ -1833,8 +1786,8 @@ export default function Campaigns() {
                       <td style={{ padding: "12px" }}>
                         <span
                           style={{
-                            background: st.bg,
-                            color: st.text,
+                            background: programada ? "#eaf4ff" : st.bg,
+                            color: programada ? "#005bd3" : st.text,
                             padding: "2px 9px",
                             borderRadius: "20px",
                             fontSize: "12px",
@@ -1842,7 +1795,7 @@ export default function Campaigns() {
                             whiteSpace: "nowrap",
                           }}
                         >
-                          {estadoLabel(c.status)}
+                          {programada ? "Programada" : estadoLabel(c.status)}
                         </span>
                       </td>
                       <td style={{ padding: "12px", color: "#6d7175" }}>
@@ -1978,6 +1931,70 @@ export default function Campaigns() {
                       </td>
                     </tr>
 
+                    {/* Programación y productos salteados: fila propia a todo el ancho,
+                        para no estrechar la columna del nombre. */}
+                    {(c.scheduleLabel || c.scheduleNote || c.skipReport) && (
+                      <tr style={{ borderBottom: jobId ? "none" : "1px solid #f1f2f3" }}>
+                        <td colSpan={8} style={{ padding: "0 12px 10px" }}>
+                          {c.scheduleLabel && (
+                            <div
+                              data-testid="programacion"
+                              style={{ fontSize: 12, fontWeight: 500, color: "#005bd3", marginBottom: 2 }}
+                            >
+                              {c.scheduleLabel} (hora de la tienda)
+                            </div>
+                          )}
+                          {c.skipReport && (
+                            <details
+                              data-testid="reporte-salteados"
+                              style={{
+                                fontSize: 12,
+                                fontWeight: 400,
+                                color: "#42474c",
+                                background: "#f6f6f7",
+                                border: "1px solid #e1e3e5",
+                                borderRadius: 6,
+                                padding: "6px 10px",
+                                marginBottom: 6,
+                              }}
+                            >
+                              <summary style={{ cursor: "pointer", fontWeight: 600 }}>
+                                {c.skipReport.total === 1
+                                  ? "1 producto salteado: ya tenía descuento"
+                                  : `${c.skipReport.total} productos salteados: ya tenían descuento`}{" "}
+                                — ver detalle
+                              </summary>
+                              <div style={{ marginTop: 6 }}>
+                                No se tocaron porque ya tenían un precio comparativo puesto a mano. Sus precios
+                                quedaron como estaban.
+                              </div>
+                              <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+                                {c.skipReport.products.map((p) => (
+                                  <li key={p.id}>
+                                    <strong>{p.title ?? `Producto ${productNumericId(p.id)}`}</strong> — precio{" "}
+                                    {p.price}, comparativo {p.compareAtPrice}
+                                    {p.variants > 1 ? ` · ${p.variants} variantes` : ""}
+                                  </li>
+                                ))}
+                              </ul>
+                              {c.skipReport.truncated && (
+                                <div style={{ marginTop: 4 }}>
+                                  …y {c.skipReport.total - c.skipReport.products.length} más.
+                                </div>
+                              )}
+                            </details>
+                          )}
+                          {c.scheduleNote && (
+                            <div
+                              data-testid="programacion-aviso"
+                              style={{ fontSize: 12, fontWeight: 500, color: "#8b5e00", marginBottom: 2 }}
+                            >
+                              {c.scheduleNote}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )}
                     {/* Barra de progreso de la operación en curso */}
                     {jobId && (
                       <tr style={{ borderBottom: "1px solid #f1f2f3" }}>
