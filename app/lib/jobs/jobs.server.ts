@@ -562,8 +562,15 @@ export async function commitCampaignEdit(input: {
   campaignId: string;
   shopId: string;
   next: EditNext;
+  /**
+   * true = este job es el paso 2 de una edición (viene de un REVERT). Solo deja
+   * una marca en el payload para que la barra diga «Paso 2 de 2»; el motor no
+   * la lee.
+   */
+  secondStep?: boolean;
 }): Promise<string | null> {
   const { campaignId, shopId, next } = input;
+  const marca = input.secondStep ? { editStep: 2 } : {};
   return prisma.$transaction(
     async (tx) => {
       const campaign = await tx.campaign.findFirst({
@@ -582,7 +589,10 @@ export async function commitCampaignEdit(input: {
             campaignName: next.name,
             shopId,
             operation: next.mode === "reactivate" ? "REACTIVATE" : "APPLY",
-            payload: (next.mode === "apply" ? next.applyPayload ?? {} : {}) as never,
+            payload: {
+              ...(next.mode === "apply" ? next.applyPayload ?? {} : {}),
+              ...marca,
+            } as never,
           },
         });
         jobId = created.id;
@@ -649,7 +659,12 @@ export async function continueCampaignEdit(finishedJobId: string): Promise<strin
     //    perder la única forma de devolverlos.
     if (job.status !== "COMPLETED") return null;
 
-    return await commitCampaignEdit({ campaignId: job.campaignId, shopId: job.shopId, next });
+    return await commitCampaignEdit({
+      campaignId: job.campaignId,
+      shopId: job.shopId,
+      next,
+      secondStep: true,
+    });
   } catch (err) {
     console.error("[jobs] no se pudo continuar la edición tras el revert:", err);
     await prisma.campaignJob

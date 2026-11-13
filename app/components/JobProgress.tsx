@@ -29,6 +29,8 @@ export type JobStatusPayload = {
   processedVariants: number;
   totalVariants: number;
   message: string;
+  /** Paso de una edición en dos pasos (revertir y volver a aplicar), o null. */
+  step?: { current: number; total: number } | null;
   etaSeconds: number | null;
   stalled: boolean;
   errorCount: number;
@@ -173,6 +175,14 @@ export function JobProgress({
   useEffect(() => {
     let cancelled = false;
 
+    // 🔴 Job NUEVO en la misma barra = aviso nuevo. Al editar, el listado le
+    // cambia el `jobId` a esta misma instancia (del REVERT al APPLY). Sin este
+    // reinicio el aviso del primer job dejaba el ref en true para siempre: el
+    // segundo terminaba, nadie avisaba al padre, la lista no se revalidaba y la
+    // barra se quedaba pegada en «Listo» hasta recargar.
+    finishedNotified.current = false;
+    errorRetries.current = 0;
+
     // Un solo sitio por el que se sale del sondeo: así no hay forma de terminar
     // sin avisar al padre, que es lo que dejaba la lista sin refrescar.
     const finish = (reason: string) => {
@@ -307,6 +317,7 @@ export function JobProgress({
         </div>
         <span>
           <strong>{data.campaignName ?? "Campaña"}</strong>
+          {data.step ? ` — Paso ${data.step.current} de ${data.step.total}` : ""}
           {data.percent !== null ? ` — ${data.percent}%` : " — preparando…"}
         </span>
       </div>
@@ -376,6 +387,14 @@ export function JobProgress({
           {data.processedProducts.toLocaleString("es-CL")} de{" "}
           {data.totalProducts.toLocaleString("es-CL")} productos
           {eta && !TERMINAL.has(data.status) ? ` · quedan ${eta}` : ""}
+        </div>
+      )}
+
+      {data.step && (
+        <div style={{ marginTop: 8, fontSize: 12, color: "#6d7175" }}>
+          Guardar una edición tiene dos pasos: primero se devuelven los precios
+          originales y después se aplica el descuento nuevo. Es normal que la
+          barra llegue al 100% y vuelva a empezar una vez.
         </div>
       )}
 

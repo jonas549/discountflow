@@ -23,7 +23,7 @@ import assert from "node:assert/strict";
 
 import prisma from "../../db.server.ts";
 import { LEASE_STALE_MS, MAX_ATTEMPTS } from "./constants.ts";
-import { isTerminal, type JobStatus } from "./job-state.ts";
+import { editStepOf, isTerminal, type JobStatus } from "./job-state.ts";
 import {
   claimJob,
   commitCampaignEdit,
@@ -1019,6 +1019,9 @@ test("🔴 EDITAR una campaña activa: REVERT limpio → config nueva + APPLY, s
   const applyId = medio!.activeJobId!;
   const apply = await getJob(applyId, SHOP_ID);
   assert.equal(apply?.operation, "APPLY");
+  // La barra: el REVERT es el paso 1 de 2 y el APPLY que encola el motor, el 2.
+  assert.deepEqual(editStepOf("REVERT", (await getJob(revert.id, SHOP_ID))?.payload), { current: 1, total: 2 });
+  assert.deepEqual(editStepOf(apply!.operation, apply!.payload), { current: 2, total: 2 });
   const antes = admin.mutationCalls.length;
   await drive(applyId, { admin });
 

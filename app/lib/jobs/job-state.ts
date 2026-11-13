@@ -113,3 +113,55 @@ export function percentOf(
   if (total <= 0) return null;
   return Math.min(100, Math.max(0, Math.floor((processed / total) * 100)));
 }
+
+// ---------------------------------------------------------------------------
+// Edición en dos pasos (solo para la barra)
+// ---------------------------------------------------------------------------
+
+/**
+ * En qué paso de una EDICIÓN va un job, o null si el job no forma parte de una
+ * edición en dos pasos (crear, pausar, activar, eliminar: un paso solo).
+ *
+ * Editar una campaña activa son dos jobs seguidos sobre la misma campaña:
+ *   1) un REVERT que lleva la edición en `payload.editNext` (con `activate`);
+ *   2) el APPLY/REACTIVATE que el motor encola al terminar, marcado `editStep: 2`.
+ *
+ * Es solo información para la pantalla: el motor no decide nada con esto.
+ */
+export type EditStep = { current: 1 | 2; total: 2 };
+
+export function editStepOf(operation: string, payload: unknown): EditStep | null {
+  const p = (payload ?? {}) as { editNext?: { activate?: unknown }; editStep?: unknown };
+  if (operation === "REVERT" && p.editNext?.activate === true)
+    return { current: 1, total: 2 };
+  if ((operation === "APPLY" || operation === "REACTIVATE") && p.editStep === 2)
+    return { current: 2, total: 2 };
+  return null;
+}
+
+/**
+ * Texto de la barra para un job que es un paso de una edición. Devuelve null
+ * cuando el texto de siempre ya sirve (cancelado, fallido, con incidencias…).
+ */
+export function editStepMessage(
+  step: EditStep,
+  status: JobStatus,
+  phase: string,
+  processedVariants: number,
+  totalVariants: number
+): string | null {
+  const n = (v: number) => v.toLocaleString("es-CL");
+  const paso = `Paso ${step.current} de ${step.total}`;
+  const tarea =
+    step.current === 1 ? "devolviendo los precios originales" : "aplicando el descuento nuevo";
+
+  if (status === "QUEUED" || status === "RESOLVING" || (status === "RUNNING" && phase === "RESOLVING"))
+    return `${paso}: ${tarea}…`;
+  if (status === "RUNNING")
+    return `${paso}: ${tarea} — ${n(processedVariants)} de ${n(totalVariants)} variantes`;
+  if (status === "COMPLETED")
+    return step.current === 1
+      ? "Paso 1 de 2 listo: precios originales devueltos. Ahora empieza el paso 2…"
+      : `Paso 2 de 2 listo: descuento nuevo aplicado a ${n(totalVariants)} variantes`;
+  return null;
+}

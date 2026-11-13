@@ -20,6 +20,8 @@ import {
   POLL_SLOW_MS,
 } from "../lib/jobs/constants";
 import {
+  editStepMessage,
+  editStepOf,
   isStalled,
   isTerminal,
   percentOf,
@@ -113,6 +115,10 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       })
     : null;
 
+  // Editar una campaña activa son dos jobs seguidos (revertir y volver a
+  // aplicar). La barra lo dice para que el reinicio a 0 % no parezca un fallo.
+  const step = editStepOf(job.operation, job.payload);
+
   const etaSeconds =
     job.startedAt && job.totalProducts > 0 && job.processedProducts > 0
       ? Math.max(
@@ -139,7 +145,12 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     processedVariants: job.processedVariants,
     totalVariants: job.totalVariants,
 
-    message: humanMessage(status, job.phase, job.processedVariants, job.totalVariants),
+    message:
+      (step &&
+        editStepMessage(step, status, job.phase, job.processedVariants, job.totalVariants)) ||
+      humanMessage(status, job.phase, job.processedVariants, job.totalVariants),
+    /** { current, total } si el job es un paso de una edición; null si no. */
+    step,
     // Solo tras un 10 % de avance: antes la muestra es tan pequeña que la
     // estimación salta de "2 min" a "11 min" y destruye la confianza más de lo
     // que la ausencia de estimación resta.

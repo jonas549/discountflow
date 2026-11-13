@@ -169,3 +169,47 @@ test("un host de túnel cualquiera pasa el guardia en desarrollo", () => {
     process.env.NODE_ENV = previo;
   }
 });
+
+// ---------------------------------------------------------------------------
+// Edición en dos pasos: lo que la barra le dice al merchant
+// ---------------------------------------------------------------------------
+
+import { editStepMessage, editStepOf } from "./job-state.ts";
+
+test("paso de edición: el REVERT que lleva una edición que se activa es el paso 1 de 2", () => {
+  assert.deepEqual(editStepOf("REVERT", { editNext: { activate: true } }), { current: 1, total: 2 });
+});
+
+test("paso de edición: el APPLY/REACTIVATE marcado por el motor es el paso 2 de 2", () => {
+  assert.deepEqual(editStepOf("APPLY", { editStep: 2, selection: {} }), { current: 2, total: 2 });
+  assert.deepEqual(editStepOf("REACTIVATE", { editStep: 2 }), { current: 2, total: 2 });
+});
+
+test("paso de edición: crear, pausar, activar, eliminar y guardar como borrador son un paso solo", () => {
+  assert.equal(editStepOf("APPLY", { selection: {} }), null); // crear
+  assert.equal(editStepOf("APPLY", {}), null);
+  assert.equal(editStepOf("REACTIVATE", {}), null); // activar
+  assert.equal(editStepOf("REVERT", {}), null); // pausar
+  assert.equal(editStepOf("REVERT", null), null);
+  assert.equal(editStepOf("REVERT", { onlyStampedBy: "x" }), null); // compensatorio
+  assert.equal(editStepOf("REVERT", { editNext: { activate: false } }), null); // borrador
+  assert.equal(editStepOf("DELETE", { editStep: 2 }), null);
+});
+
+test("paso de edición: los textos nombran el paso y lo que hace", () => {
+  const p1 = { current: 1, total: 2 } as const;
+  const p2 = { current: 2, total: 2 } as const;
+  assert.match(editStepMessage(p1, "RUNNING", "APPLYING", 120, 1518)!, /^Paso 1 de 2: devolviendo los precios originales — 120 de 1\.518 variantes$/);
+  assert.match(editStepMessage(p2, "RUNNING", "APPLYING", 5, 10)!, /^Paso 2 de 2: aplicando el descuento nuevo — 5 de 10 variantes$/);
+  assert.match(editStepMessage(p1, "QUEUED", "RESOLVING", 0, 0)!, /^Paso 1 de 2: /);
+  assert.match(editStepMessage(p2, "RUNNING", "RESOLVING", 0, 0)!, /^Paso 2 de 2: aplicando el descuento nuevo…$/);
+  // El 100 % del paso 1 NO dice «Listo» a secas: avisa de que sigue el paso 2.
+  assert.match(editStepMessage(p1, "COMPLETED", "FINALIZING", 10, 10)!, /Paso 1 de 2 listo.*paso 2/);
+  assert.match(editStepMessage(p2, "COMPLETED", "FINALIZING", 10, 10)!, /^Paso 2 de 2 listo/);
+});
+
+test("paso de edición: con incidencias, cancelado o fallido manda el texto de siempre", () => {
+  const p1 = { current: 1, total: 2 } as const;
+  for (const s of ["COMPLETED_WITH_ERRORS", "CANCELLED", "FAILED", "CANCELLING"] as const)
+    assert.equal(editStepMessage(p1, s, "APPLYING", 1, 2), null);
+});
