@@ -118,6 +118,11 @@ model Campaign {
   /// por el límite del plan). null = sin aviso.
   scheduleNote String?
 
+  /// Productos que el último APPLY saltó por tener ya un descuento puesto a mano
+  /// (opción `skipManualDiscounts` de Porcentaje). Forma: SkipReport en
+  /// app/lib/discounts/manual-discounts.ts. null = no saltó ninguno.
+  skipReport Json?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

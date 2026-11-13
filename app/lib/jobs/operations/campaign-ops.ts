@@ -26,6 +26,13 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { Prisma } from "@prisma/client";
+import {
+  appendSkipped,
+  describeSkipped,
+  hasManualDiscount,
+  looksDiscounted,
+  readSkipReport,
+} from "../../discounts/manual-discounts.ts";
 import prisma from "../../../db.server.ts";
 import {
   bulkUpdateVariantPrices,
@@ -100,6 +107,8 @@ const isPriceType = (t: string) => t === "PERCENTAGE" || t === "RANGE";
 type PercentageConfig = {
   discountPercent: number;
   showCompareAtPrice?: boolean;
+  /** No tocar productos que ya tienen un descuento puesto a mano. */
+  skipManualDiscounts?: boolean;
 };
 type RangeConfig = { mode: "fixedPrice" | "fixedAmount"; value: number };
 
@@ -470,8 +479,59 @@ export const applyHandler: JobHandler = {
     const cursor = parseCursor(ctx.job.resolveCursor);
     const page = await resolveNextPage(ctx.admin, selection, cursor);
 
+    // ── Productos que ya tienen un descuento puesto a mano ────────────────────
+    // Con la opción encendida se salta el PRODUCTO ENTERO si alguna variante
+    // tiene precio comparativo mayor que su precio y esa rebaja no es de otra
+    // campaña activa de la app. Lo salteado queda en `Campaign.skipReport` para
+    // mostrarlo fijo en el listado (la barra se cierra sola al terminar).
+    const saltarManuales =
+      ctx.campaign.type === "PERCENTAGE" &&
+      (ctx.campaign.config as PercentageConfig | null)?.skipManualDiscounts === true;
+    // Primera página de esta resolución: el reporte de una aplicación anterior
+    // deja de valer, tenga o no la opción encendida ahora.
+    if (!ctx.job.resolveCursor)
+      await prisma.campaign.update({
+        where: { id: ctx.campaign.id },
+        data: { skipReport: Prisma.DbNull },
+      });
+
+    let batch = page.batch;
+    if (saltarManuales && batch.length > 0) {
+      const candidatas = batch.flatMap((p) => p.variants.filter(looksDiscounted).map((v) => v.id));
+      const nuestras = new Set<string>();
+      if (candidatas.length > 0) {
+        const filas = await prisma.campaignProduct.findMany({
+          where: {
+            shopifyVariantId: { in: candidatas },
+            campaignId: { not: ctx.campaign.id },
+            campaign: { shopId: ctx.job.shopId, status: "ACTIVE" },
+          },
+          select: { shopifyVariantId: true },
+        });
+        for (const f of filas) if (f.shopifyVariantId) nuestras.add(f.shopifyVariantId);
+      }
+      const salteados = batch.filter((p) => hasManualDiscount(p.variants, nuestras));
+      if (salteados.length > 0) {
+        const ids = new Set(salteados.map((p) => p.productId));
+        batch = batch.filter((p) => !ids.has(p.productId));
+        const actual = await prisma.campaign.findUnique({
+          where: { id: ctx.campaign.id },
+          select: { skipReport: true },
+        });
+        const reporte = appendSkipped(
+          readSkipReport(actual?.skipReport),
+          salteados.map((p) => describeSkipped(p, nuestras)),
+          new Date()
+        );
+        await prisma.campaign.update({
+          where: { id: ctx.campaign.id },
+          data: { skipReport: reporte as unknown as Prisma.InputJsonValue },
+        });
+      }
+    }
+
     const rows: Prisma.CampaignProductCreateManyInput[] = [];
-    for (const { productId, variants } of page.batch) {
+    for (const { productId, variants } of batch) {
       for (const v of variants) {
         if (excluded.has(v.id)) continue;
         const orig = parseFloat(v.price);

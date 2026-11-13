@@ -4,6 +4,7 @@ import type {
   LoaderFunctionArgs,
 } from "react-router";
 import { HoraDeTiendaHint } from "../components/HoraDeTiendaHint";
+import { SkipManualDiscountsField } from "../components/SkipManualDiscountsField";
 import { redirect, useActionData, useLoaderData, useNavigation, Link } from "react-router";
 import { Form } from "react-router";
 import { useState } from "react";
@@ -69,6 +70,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const config = campaign.config as {
     discountPercent: number;
     showCompareAtPrice?: boolean;
+    skipManualDiscounts?: boolean;
     selectionMode?: string;
     collectionId?: string;     // legacy
     collectionIds?: string[];  // new
@@ -130,6 +132,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
       status: campaign.status,
       discountPercent: config.discountPercent,
       useCompareAtPriceAsBase: config.showCompareAtPrice ?? false,
+      skipManualDiscounts: config.skipManualDiscounts ?? false,
       selectionMode: (config.selectionMode ?? "products") as SelectionMode,
       prefilledCollections,
       prefilledTags: config.selectedTags ?? [],
@@ -174,6 +177,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   const name = (formData.get("name") as string | null) ?? "";
   const discountPercent = Number(formData.get("discountPercent"));
   const useCompareAtPriceAsBase = formData.get("useCompareAtPriceAsBase") === "on";
+  const skipManualDiscounts = formData.get("skipManualDiscounts") === "on";
   const selectionMode = (formData.get("selectionMode") as string) || "products";
   const selectedProductsJson = (formData.get("selectedProductsJson") as string) || "[]";
   const collectionIdsJson = (formData.get("collectionIdsJson") as string) || "[]";
@@ -343,6 +347,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
         config: {
           discountPercent,
           showCompareAtPrice: useCompareAtPriceAsBase,
+        skipManualDiscounts,
           selectionMode,
           collectionIds,
           selectedProductIds: productIdsToSave(
@@ -400,6 +405,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
       config: {
         discountPercent,
         showCompareAtPrice: useCompareAtPriceAsBase,
+        skipManualDiscounts,
         selectionMode,
         collectionIds,
         selectedProductIds: productIdsToSave(
@@ -698,6 +704,7 @@ export default function EditPercentageCampaign() {
     campaign.useCompareAtPriceAsBase
   );
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [skipManualDiscounts, setSkipManualDiscounts] = useState(campaign.skipManualDiscounts);
   const [selectionMode, setSelectionMode] = useState<SelectionMode>(campaign.selectionMode);
   const [selectedProducts, setSelectedProducts] = useState<
     Array<{ id: string; title: string; variants: Array<{ id: string }> }>
@@ -985,6 +992,11 @@ export default function EditPercentageCampaign() {
               {showAdvanced ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
               {es.nuevaPorcentaje.opAvanzadas}
             </button>
+            <SkipManualDiscountsField checked={skipManualDiscounts} onChange={setSkipManualDiscounts} />
+            {/* Campo oculto fuera de cualquier sección plegable: una casilla que se
+                desmonta al plegar su sección no viaja en el formulario. */}
+            <input type="hidden" name="skipManualDiscounts" value={skipManualDiscounts ? "on" : ""} />
+
             {showAdvanced && (
               <label
                 style={{

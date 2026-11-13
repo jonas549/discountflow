@@ -82,6 +82,7 @@ import { enqueueCampaignJob, sweepStalledJobs } from "../lib/jobs/enqueue.server
 import { hasFeature, jobsEnabled } from "../lib/features.server";
 import { JOBS_FEATURE_FLAG } from "../lib/jobs/constants";
 import { scheduleLabel } from "../lib/schedule/scheduling";
+import { productNumericId, readSkipReport } from "../lib/discounts/manual-discounts";
 import { formatShopDateTime } from "../lib/schedule/shop-time";
 import { shopTimezone } from "../lib/schedule/shop-timezone.server";
 import { JobProgress } from "../components/JobProgress";
@@ -649,6 +650,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       scheduleLabel: scheduleLabel(c, ahora, (d) => formatShopDateTime(d, tz)),
       /** Aviso si la programación no pudo cumplirse (p. ej. límite del plan). */
       scheduleNote: c.scheduleNote,
+      /** Productos que la última aplicación saltó por tener ya descuento manual. */
+      skipReport: readSkipReport(c.skipReport),
       /** jobId de la operación en curso, si la hay. Ancla de la barra. */
       activeJobId: c.activeJobId,
       /** Solo para intercalar las campañas por tandas en orden de creación. */
@@ -1749,6 +1752,47 @@ export default function Campaigns() {
                           >
                             🗓 {c.scheduleLabel} (hora de la tienda)
                           </div>
+                        )}
+                        {c.skipReport && (
+                          <details
+                            data-testid="reporte-salteados"
+                            style={{
+                              fontSize: 12,
+                              fontWeight: 400,
+                              color: "#42474c",
+                              background: "#f6f6f7",
+                              border: "1px solid #e1e3e5",
+                              borderRadius: 6,
+                              padding: "6px 10px",
+                              marginBottom: 6,
+                              maxWidth: 520,
+                            }}
+                          >
+                            <summary style={{ cursor: "pointer", fontWeight: 600 }}>
+                              {c.skipReport.total === 1
+                                ? "1 producto salteado: ya tenía descuento"
+                                : `${c.skipReport.total} productos salteados: ya tenían descuento`}{" "}
+                              — ver detalle
+                            </summary>
+                            <div style={{ marginTop: 6 }}>
+                              No se tocaron porque ya tenían un precio comparativo puesto a mano. Sus precios
+                              quedaron como estaban.
+                            </div>
+                            <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+                              {c.skipReport.products.map((p) => (
+                                <li key={p.id}>
+                                  <strong>{p.title ?? `Producto ${productNumericId(p.id)}`}</strong> — precio{" "}
+                                  {p.price}, comparativo {p.compareAtPrice}
+                                  {p.variants > 1 ? ` · ${p.variants} variantes` : ""}
+                                </li>
+                              ))}
+                            </ul>
+                            {c.skipReport.truncated && (
+                              <div style={{ marginTop: 4 }}>
+                                …y {c.skipReport.total - c.skipReport.products.length} más.
+                              </div>
+                            )}
+                          </details>
                         )}
                         {c.scheduleNote && (
                           <div

@@ -44,6 +44,8 @@ export type VariantPrice = {
 
 export type ProductVariants = {
   productId: string;
+  /** Título del producto. Solo lo trae la resolución paginada del motor. */
+  title?: string | null;
   variants: VariantPrice[];
 };
 

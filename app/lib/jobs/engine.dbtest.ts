@@ -1136,6 +1136,115 @@ test("🔴 commitCampaignEdit con el cerrojo ocupado: lanza y no escribe NADA", 
 
 // ─── 8. Invariante final ──────────────────────────────────────────────────────
 
+// ─── 7c. Saltar productos con descuento puesto a mano (2026-11-13) ────────────
+
+// Catálogo chico: aquí el tamaño no aporta evidencia y el grande tarda minutos.
+const M2_PRODUCTOS = 12;
+const M2_VARIANTES = 3;
+const catalogoM2 = (manualDiscountIndexes: number[]) =>
+  createFakeAdmin(
+    { products: M2_PRODUCTOS, variantsPerProduct: M2_VARIANTES, basePrice: 100 },
+    { manualDiscountIndexes }
+  );
+/** Las campañas ACTIVAS que dejaron las pruebas anteriores comparten los ids del
+ *  catálogo falso: sin pausarlas, sus rebajas contarían como "de la app". */
+const pausarLasDemas = () =>
+  prisma.campaign.updateMany({ where: { shopId: SHOP_ID, status: "ACTIVE" }, data: { status: "PAUSED" } });
+
+test("🔴 con la opción encendida se salta el PRODUCTO ENTERO que ya tiene descuento manual y queda el reporte", async () => {
+  await pausarLasDemas();
+  const campaign = await prisma.campaign.create({
+    data: {
+      shopId: SHOP_ID,
+      name: `[test] saltar manuales #${++seq}`,
+      type: "PERCENTAGE",
+      status: "DRAFT",
+      config: { discountPercent: PCT, showCompareAtPrice: false, skipManualDiscounts: true },
+    },
+  });
+  // Tres productos del catálogo ya tienen precio comparativo puesto a mano.
+  const manuales = [1, 4, 7];
+  const admin = catalogoM2(manuales);
+  const { job } = await createJob({
+    campaignId: campaign.id, shopId: SHOP_ID, operation: "APPLY", payload: applyPayload(),
+  });
+  await drive(job.id, { admin });
+  assert.equal((await getJob(job.id, SHOP_ID))?.status, "COMPLETED");
+
+  // Ni una fila ni una mutación para esos tres productos, con TODAS sus variantes.
+  const filas = await prisma.campaignProduct.findMany({ where: { campaignId: campaign.id } });
+  const tocados = new Set(filas.map((f) => f.shopifyProductId));
+  for (const i of manuales) {
+    assert.equal(tocados.has(`gid://shopify/Product/${i}`), false, `el producto ${i} no debe tener filas`);
+    assert.equal(
+      admin.mutationCalls.some((m) => m.productId === `gid://shopify/Product/${i}`),
+      false,
+      `el producto ${i} no debe recibir ninguna mutación`
+    );
+  }
+  assert.equal(tocados.size, M2_PRODUCTOS - manuales.length, "el resto sí se aplica");
+  assert.equal(filas.length, (M2_PRODUCTOS - manuales.length) * M2_VARIANTES);
+
+  // El reporte queda guardado en la campaña, con nombre y precios.
+  const fin = await prisma.campaign.findUnique({ where: { id: campaign.id } });
+  assert.equal(fin?.status, "ACTIVE");
+  const reporte = fin?.skipReport as { reason: string; total: number; products: Array<{ id: string; title: string; price: string; compareAtPrice: string; variants: number }> };
+  assert.equal(reporte.reason, "manual-discount");
+  assert.equal(reporte.total, manuales.length);
+  assert.deepEqual(reporte.products.map((p) => p.id).sort(), manuales.map((i) => `gid://shopify/Product/${i}`).sort());
+  const p1 = reporte.products.find((p) => p.id === "gid://shopify/Product/1")!;
+  assert.equal(p1.title, "Producto 1");
+  assert.equal(p1.price, "101.00");
+  assert.equal(p1.compareAtPrice, "121.00");
+  assert.equal(p1.variants, M2_VARIANTES);
+});
+
+test("con la opción APAGADA todo sigue como antes: esos productos también se rebajan y no hay reporte", async () => {
+  await pausarLasDemas();
+  const campaign = await campañaPorcentaje("sin saltar manuales");
+  const admin = catalogoM2([1, 4, 7]);
+  const { job } = await createJob({
+    campaignId: campaign.id, shopId: SHOP_ID, operation: "APPLY", payload: applyPayload(),
+  });
+  await drive(job.id, { admin });
+  assert.equal((await getJob(job.id, SHOP_ID))?.status, "COMPLETED");
+  const productos = await prisma.campaignProduct.groupBy({ by: ["shopifyProductId"], where: { campaignId: campaign.id } });
+  assert.equal(productos.length, M2_PRODUCTOS);
+  assert.equal((await prisma.campaign.findUnique({ where: { id: campaign.id } }))?.skipReport, null);
+});
+
+test("una rebaja puesta por OTRA campaña activa de la app no cuenta como descuento manual", async () => {
+  await pausarLasDemas();
+  // Otra campaña ACTIVA de la misma tienda ya tiene la variante 1-0.
+  const otra = await campañaPorcentaje("dueña de la variante", "ACTIVE");
+  await prisma.campaignProduct.create({
+    data: {
+      campaignId: otra.id,
+      shopifyProductId: "gid://shopify/Product/1",
+      shopifyVariantId: "gid://shopify/ProductVariant/1-0",
+      originalPrice: "121.00",
+    } as never,
+  });
+  const campaign = await prisma.campaign.create({
+    data: {
+      shopId: SHOP_ID,
+      name: `[test] manual vs propia #${++seq}`,
+      type: "PERCENTAGE",
+      status: "DRAFT",
+      config: { discountPercent: PCT, showCompareAtPrice: false, skipManualDiscounts: true },
+    },
+  });
+  const admin = catalogoM2([1, 4]);
+  const { job } = await createJob({
+    campaignId: campaign.id, shopId: SHOP_ID, operation: "APPLY", payload: applyPayload(),
+  });
+  await drive(job.id, { admin });
+  const reporte = (await prisma.campaign.findUnique({ where: { id: campaign.id } }))?.skipReport as { total: number; products: Array<{ id: string }> };
+  assert.equal(reporte.total, 1, "solo el 4 es manual; el 1 lo rebajó la otra campaña");
+  assert.equal(reporte.products[0].id, "gid://shopify/Product/4");
+  await prisma.campaign.delete({ where: { id: otra.id } });
+});
+
 test("al terminar la batería: cero campañas con el cerrojo puesto", async () => {
   const bloqueadas = await prisma.campaign.findMany({
     where: { shopId: SHOP_ID, activeJobId: { not: null } },

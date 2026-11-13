@@ -60,7 +60,7 @@ export function parseCursor(raw: string | null | undefined): ResolveCursor {
 
 export const serializeCursor = (c: ResolveCursor): string => JSON.stringify(c);
 
-type PageNode = { id: string; variants: { nodes: VariantPrice[] } };
+type PageNode = { id: string; title?: string | null; variants: { nodes: VariantPrice[] } };
 type PageResult = {
   nodes?: PageNode[];
   pageInfo?: { hasNextPage: boolean; endCursor: string };
@@ -68,13 +68,18 @@ type PageResult = {
 
 const PRODUCT_FIELDS = `
   id
+  title
   variants(first: ${VARIANTS_PER_PRODUCT}) {
     nodes { id price compareAtPrice }
   }
 `;
 
 const toBatch = (page: PageResult | null): ProductVariants[] =>
-  (page?.nodes ?? []).map((p) => ({ productId: p.id, variants: p.variants.nodes }));
+  (page?.nodes ?? []).map((p) => ({
+    productId: p.id,
+    title: p.title ?? null,
+    variants: p.variants.nodes,
+  }));
 
 /** Una página de la selección del merchant. */
 export async function resolveNextPage(
@@ -212,7 +217,7 @@ export async function resolveNextPage(
       only && only.size > 0
         ? n.variants.nodes.filter((v) => only.has(v.id))
         : n.variants.nodes;
-    batch.push({ productId: n.id, variants });
+    batch.push({ productId: n.id, title: n.title ?? null, variants });
   }
 
   return {

@@ -47,6 +47,11 @@ export type FakeBehaviour = {
    */
   missingVariantIds?: string[];
   /**
+   * Productos (por índice) que ya tienen un descuento puesto a mano: su PRIMERA
+   * variante lleva un precio comparativo mayor que el precio.
+   */
+  manualDiscountIndexes?: number[];
+  /**
    * La consulta que comprueba qué variantes siguen vivas falla.
    *
    * Sirve para probar la salvaguarda: ante una comprobación que no se puede
@@ -97,13 +102,16 @@ export function createFakeAdmin(
   const productoBorrado = (gid: string) =>
     productosBorrados.has(Number(gid.split("/").pop()));
 
+  const conDescuentoManual = new Set(behaviour.manualDiscountIndexes ?? []);
   const productNode = (i: number) => ({
     id: `gid://shopify/Product/${i}`,
+    title: `Producto ${i}`,
     variants: {
       nodes: Array.from({ length: variantsPer }, (_, v) => ({
         id: `gid://shopify/ProductVariant/${i}-${v}`,
         price: (basePrice + i).toFixed(2),
-        compareAtPrice: null,
+        compareAtPrice:
+          conDescuentoManual.has(i) && v === 0 ? (basePrice + i + 20).toFixed(2) : null,
       })),
     },
   });
