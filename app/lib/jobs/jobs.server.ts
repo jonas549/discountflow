@@ -498,6 +498,174 @@ export async function createCompensatingRevert(
   }
 }
 
+// ─── Edición encadenada: REVERT → (config nueva) → APPLY ──────────────────────
+
+/**
+ * Lo que hay que hacer con una campaña de PORCENTAJE después de devolver sus
+ * precios al original: es la segunda mitad de «editar y guardar».
+ *
+ * Viaja en `payload.editNext` del REVERT que encola la pantalla de edición. Un
+ * REVERT sin esta clave (pausar, compensar una cancelación) no cambia en nada.
+ */
+export type EditNext = {
+  name: string;
+  /** La config NUEVA completa, tal como la guardaría la ruta. */
+  config: Record<string, unknown>;
+  startsAt: string | null;
+  endsAt: string | null;
+  /** false = «guardar como borrador»: queda en DRAFT y no se aplica nada. */
+  activate: boolean;
+  /** apply = selección nueva (se rehacen las filas) · reactivate = mismas filas. */
+  mode: "apply" | "reactivate";
+  /** Payload del APPLY: selección, exclusiones ya resueltas y cuota del plan. */
+  applyPayload?: Record<string, unknown>;
+};
+
+export function readEditNext(payload: unknown): EditNext | null {
+  const next = (payload as { editNext?: unknown } | null)?.editNext as
+    | Partial<EditNext>
+    | undefined;
+  if (!next || typeof next !== "object") return null;
+  if (typeof next.name !== "string" || !next.config || typeof next.config !== "object")
+    return null;
+  if (next.mode !== "apply" && next.mode !== "reactivate") return null;
+  return {
+    name: next.name,
+    config: next.config as Record<string, unknown>,
+    startsAt: typeof next.startsAt === "string" ? next.startsAt : null,
+    endsAt: typeof next.endsAt === "string" ? next.endsAt : null,
+    activate: next.activate === true,
+    mode: next.mode,
+    applyPayload: (next.applyPayload ?? {}) as Record<string, unknown>,
+  };
+}
+
+/**
+ * Escribe la edición y, si toca activar, deja encolado el job que aplica los
+ * precios nuevos. TODO en una transacción: o pasa entero o no pasa nada.
+ *
+ * 🔒 Solo se puede llamar con los precios de la campaña en su valor ORIGINAL
+ *    (campaña que no estaba activa, o REVERT terminado sin un solo fallo). Es lo
+ *    que hace imposible el estado «config nueva + precios viejos a medias»:
+ *    la config nueva y el borrado de las filas viejas ocurren juntos, y solo
+ *    cuando ya no queda ningún precio rebajado que dependa de esas filas.
+ *
+ * La campaña queda en DRAFT, igual que al crear: pasa a ACTIVE en el `finalize`
+ * del APPLY, cuando los precios están puestos de verdad.
+ *
+ * Exige el cerrojo libre (`activeJobId IS NULL`). Si otra operación lo tomó,
+ * lanza y no se escribe nada: la campaña sigue como estaba.
+ *
+ * Devuelve el id del job encolado (sin despachar), o null si no hacía falta.
+ */
+export async function commitCampaignEdit(input: {
+  campaignId: string;
+  shopId: string;
+  next: EditNext;
+}): Promise<string | null> {
+  const { campaignId, shopId, next } = input;
+  return prisma.$transaction(
+    async (tx) => {
+      const campaign = await tx.campaign.findFirst({
+        where: { id: campaignId, shopId },
+        select: { id: true, type: true },
+      });
+      if (!campaign) throw new Error("Campaña no encontrada o de otra tienda.");
+      if (campaign.type !== "PERCENTAGE")
+        throw new Error("La edición encadenada solo existe para campañas de Porcentaje.");
+
+      let jobId: string | null = null;
+      if (next.activate) {
+        const created = await tx.campaignJob.create({
+          data: {
+            campaignId,
+            campaignName: next.name,
+            shopId,
+            operation: next.mode === "reactivate" ? "REACTIVATE" : "APPLY",
+            payload: (next.mode === "apply" ? next.applyPayload ?? {} : {}) as never,
+          },
+        });
+        jobId = created.id;
+        const locked = await tx.$executeRaw`
+          UPDATE "Campaign"
+             SET "activeJobId" = ${created.id}
+           WHERE "id" = ${campaignId}
+             AND "activeJobId" IS NULL
+        `;
+        if (locked !== 1) throw new Error(LOCK_TAKEN);
+        // Selección nueva: las filas viejas (con sus originales ya restaurados
+        // en Shopify) dejan de valer. El APPLY las vuelve a crear al resolver.
+        if (next.mode === "apply")
+          await tx.campaignProduct.deleteMany({ where: { campaignId } });
+      } else {
+        const libre = await tx.$executeRaw`
+          UPDATE "Campaign"
+             SET "updatedAt" = NOW()
+           WHERE "id" = ${campaignId}
+             AND "activeJobId" IS NULL
+        `;
+        if (libre !== 1) throw new Error(LOCK_TAKEN);
+      }
+
+      await tx.campaign.update({
+        where: { id: campaignId },
+        data: {
+          name: next.name,
+          status: "DRAFT",
+          config: next.config as never,
+          startsAt: next.startsAt ? new Date(next.startsAt) : null,
+          endsAt: next.endsAt ? new Date(next.endsAt) : null,
+        },
+      });
+      return jobId;
+    },
+    { timeout: 30_000, maxWait: 10_000 }
+  );
+}
+
+/**
+ * Segunda mitad de una edición, tras un REVERT que terminó LIMPIO.
+ *
+ * La llama el runner justo después de cerrar el REVERT. Devuelve el id del job
+ * siguiente (para despacharlo) o null.
+ *
+ * Nunca lanza. Si algo falla —o si otra operación tomó el cerrojo en el hueco—
+ * la campaña se queda como la dejó el REVERT: PAUSADA, con su config anterior y
+ * todos los precios en su valor original. La edición se pierde, pero no queda
+ * ningún estado a medias, y el motivo se anota en el job.
+ */
+export async function continueCampaignEdit(finishedJobId: string): Promise<string | null> {
+  let job: { campaignId: string | null; shopId: string; operation: string; status: string; payload: unknown } | null = null;
+  try {
+    job = await prisma.campaignJob.findUnique({
+      where: { id: finishedJobId },
+      select: { campaignId: true, shopId: true, operation: true, status: true, payload: true },
+    });
+    if (!job || job.operation !== "REVERT" || job.campaignId === null) return null;
+    const next = readEditNext(job.payload);
+    if (!next) return null;
+    // 🔴 Solo tras un REVERT sin fallos. Con incidencias quedan productos
+    //    rebajados cuyas filas guardan el precio original: borrarlas ahora sería
+    //    perder la única forma de devolverlos.
+    if (job.status !== "COMPLETED") return null;
+
+    return await commitCampaignEdit({ campaignId: job.campaignId, shopId: job.shopId, next });
+  } catch (err) {
+    console.error("[jobs] no se pudo continuar la edición tras el revert:", err);
+    await prisma.campaignJob
+      .update({
+        where: { id: finishedJobId },
+        data: {
+          lastError:
+            "Los precios volvieron a su valor original, pero no se pudo guardar la edición. " +
+            "La campaña quedó pausada con su configuración anterior: vuelve a editarla.",
+        },
+      })
+      .catch(() => {});
+    return null;
+  }
+}
+
 // ─── Zombis ───────────────────────────────────────────────────────────────────
 
 /**

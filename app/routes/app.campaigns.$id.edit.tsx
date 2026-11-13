@@ -15,7 +15,7 @@ import { ItemPicker, type PickerItem } from "../components/ItemPicker";
 import { authenticate } from "../shopify.server";
 import { prisma } from "../lib/db";
 import { getOrCreateShop } from "../lib/shopify/shop.server";
-import { rejectIfCampaignBusy } from "../lib/jobs/enqueue.server";
+import { enqueueCampaignEdit, rejectIfCampaignBusy } from "../lib/jobs/enqueue.server";
 import {
   applyPercentageDiscount,
   revertPercentageDiscount,
@@ -240,7 +240,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
       excludedVariantIds = await resolverVariantesExcluidas(admin, excluded, excludedCollectionIds);
     } catch (err) {
       return Response.json(
-        { errors: { general: `No se pudieron leer las colecciones excluidas: ${String(err)}` } },
+        { errors: { general: `No se pudieron leer los productos o colecciones excluidos: ${String(err)}` } },
         { status: 422 }
       );
     }
@@ -285,6 +285,63 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
         );
       }
     }
+  }
+
+  // ── Camino con barra (motor de jobs) ────────────────────────────────────────
+  // Editar una campaña grande en una sola petición revienta a los 300 s de
+  // Vercel (medido en producción el 2026-11-13) y puede dejar precios a medias.
+  // Con el flag encendido la edición se trocea igual que la creación: REVERT →
+  // config nueva → APPLY, cada tramo reanudable, y la config nueva solo se
+  // escribe cuando todos los precios volvieron a su original.
+  // Todo lo de arriba (validación, exclusiones, cuota del plan) ya corrió; a
+  // partir de aquí el camino síncrono de abajo queda intacto para flag apagado.
+  {
+    const seleccionNueva =
+      selectedProducts.length > 0 ||
+      selectionMode === "all" ||
+      (selectionMode === "collections" && collectionIds.length > 0) ||
+      (selectionMode === "tags" && selectedTags.length > 0) ||
+      (selectionMode === "vendors" && selectedVendors.length > 0) ||
+      (selectionMode === "productTypes" && selectedProductTypes.length > 0);
+
+    const edicion = await enqueueCampaignEdit({
+      request,
+      shop,
+      campaign: { id: campaignId, status: existing.status },
+      next: {
+        name: name.trim(),
+        config: {
+          discountPercent,
+          showCompareAtPrice: useCompareAtPriceAsBase,
+          selectionMode,
+          collectionIds,
+          selectedTags,
+          selectedVendors,
+          selectedProductTypes,
+          excludedProductIds: enableExclusions ? excluded.map((p) => p.id) : [],
+          excludedCollectionIds: enableExclusions ? excludedCollectionIds : [],
+          enableExclusions,
+        },
+        startsAt: campaignStartsAt ? campaignStartsAt.toISOString() : null,
+        endsAt: campaignEndsAt ? campaignEndsAt.toISOString() : null,
+        activate: shouldActivate,
+        mode: seleccionNueva ? "apply" : "reactivate",
+        applyPayload: {
+          maxVariants: remainingVariants,
+          excludedVariantIds: excludedVariantIds ? [...excludedVariantIds] : [],
+          selection: {
+            selectionMode,
+            selectedProducts: selectionMode === "products" ? selectedProducts : undefined,
+            collectionIds: selectionMode === "collections" ? collectionIds : undefined,
+            selectedTags: selectionMode === "tags" ? selectedTags : undefined,
+            selectedVendors: selectionMode === "vendors" ? selectedVendors : undefined,
+            selectedProductTypes:
+              selectionMode === "productTypes" ? selectedProductTypes : undefined,
+          },
+        },
+      },
+    });
+    if (edicion.handled) return redirect("/app/campaigns");
   }
 
   // Revert prices if currently active

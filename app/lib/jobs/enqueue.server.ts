@@ -14,7 +14,12 @@ import { dispatchNextBatch } from "./chain.server.ts";
 import { JOBS_FEATURE_FLAG } from "./constants.ts";
 import { isStalled, type JobOperation, type JobStatus } from "./job-state.ts";
 import { LEASE_STALE_MS } from "./constants.ts";
-import { createJob, findStalledJobs } from "./jobs.server.ts";
+import {
+  commitCampaignEdit,
+  createJob,
+  findStalledJobs,
+  type EditNext,
+} from "./jobs.server.ts";
 
 export type EnqueueResult =
   | { enqueued: true; jobId: string; alreadyRunning: boolean }
@@ -42,6 +47,49 @@ export async function enqueueCampaignJob(input: {
   if (created) await dispatchNextBatch(input.request, job.id);
 
   return { enqueued: true, jobId: job.id, alreadyRunning: !created };
+}
+
+/**
+ * Guardar la EDICIÓN de una campaña de Porcentaje por el motor de jobs.
+ *
+ * - Campaña ACTIVA: se encola un REVERT que lleva la edición en `editNext`. La
+ *   config nueva NO se escribe todavía: la escribe el motor cuando el REVERT
+ *   termina limpio, en la misma transacción que encola el APPLY.
+ * - Campaña NO activa que se quiere activar: sus precios ya están en el original,
+ *   así que la edición se escribe ya y se encola el APPLY.
+ * - Campaña NO activa guardada como borrador: no hay nada que hacer en Shopify →
+ *   `handled: false` y la ruta sigue por su camino de siempre (un UPDATE).
+ *
+ * Con el flag apagado devuelve `handled: false` siempre: camino síncrono intacto.
+ */
+export async function enqueueCampaignEdit(input: {
+  request: Request;
+  shop: { id: string; features?: unknown };
+  campaign: { id: string; status: string };
+  next: EditNext;
+}): Promise<{ handled: boolean }> {
+  if (!hasFeature(input.shop, JOBS_FEATURE_FLAG)) return { handled: false };
+
+  if (input.campaign.status === "ACTIVE") {
+    const { job, created } = await createJob({
+      campaignId: input.campaign.id,
+      shopId: input.shop.id,
+      operation: "REVERT",
+      payload: { editNext: input.next },
+    });
+    if (created) await dispatchNextBatch(input.request, job.id);
+    return { handled: true };
+  }
+
+  if (!input.next.activate) return { handled: false };
+
+  const jobId = await commitCampaignEdit({
+    campaignId: input.campaign.id,
+    shopId: input.shop.id,
+    next: input.next,
+  });
+  if (jobId) await dispatchNextBatch(input.request, jobId);
+  return { handled: true };
 }
 
 /**

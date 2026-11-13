@@ -138,7 +138,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       excludedVariantIds = await resolverVariantesExcluidas(admin, excluded, excludedCollectionIds);
     } catch (err) {
       return Response.json(
-        { errors: { general: `No se pudieron leer las colecciones excluidas: ${String(err)}` } },
+        { errors: { general: `No se pudieron leer los productos o colecciones excluidos: ${String(err)}` } },
         { status: 422 }
       );
     }

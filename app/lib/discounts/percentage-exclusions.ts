@@ -10,7 +10,14 @@
 
 export type ExcludedProductInput = {
   id: string;
-  /** Variantes elegidas en el picker. Vacío = el producto entero. */
+  /**
+   * Variantes elegidas en el picker. Vacío o ausente = el producto ENTERO.
+   *
+   * 🔴 Eso lo cumple `resolverExclusiones`, no `unirExclusiones`: para excluir el
+   * producto entero hay que leer sus variantes de Shopify. Hasta el 2026-11-13
+   * un producto que llegaba sin variantes NO excluía nada, en silencio (7 de 17
+   * productos de una campaña real se rebajaron estando marcados como excluidos).
+   */
   variants?: Array<{ id: string }>;
 };
 
@@ -36,6 +43,47 @@ export function unirExclusiones(
   for (const p of productos) for (const v of p.variants ?? []) ids.add(v.id);
   for (const p of productosDeColecciones) for (const v of p.variants) ids.add(v.id);
   return ids;
+}
+
+/** Un producto que llegó del formulario sin variantes elegidas. */
+export const sinVariantesElegidas = (p: ExcludedProductInput) =>
+  !Array.isArray(p.variants) || p.variants.length === 0;
+
+/**
+ * Arma el conjunto completo de variantes a excluir, leyendo de Shopify lo que
+ * haga falta. Los lectores llegan por parámetro para poder probarlo sin red.
+ *
+ * - Colección: todas las variantes de sus productos.
+ * - Producto con variantes elegidas: esas variantes (como siempre).
+ * - Producto SIN variantes: se leen todas las suyas → se excluye entero.
+ *
+ * 🔴 Falla CERRADO: si un lector lanza, o si un producto sin variantes elegidas
+ * vuelve de Shopify sin ninguna, esto LANZA. Quien llama lo invoca antes de
+ * tocar precios, así que el merchant ve el error en vez de una campaña que
+ * rebaja justo lo que quiso dejar afuera.
+ */
+export async function resolverExclusiones(input: {
+  productos: ExcludedProductInput[];
+  collectionIds: string[];
+  leerColeccion: (collectionId: string) => Promise<ResolvedProduct[]>;
+  leerProducto: (productId: string) => Promise<Array<{ id: string }>>;
+}): Promise<Set<string>> {
+  const enteros: ResolvedProduct[] = [];
+  for (const id of input.collectionIds) {
+    for (const p of await input.leerColeccion(id)) {
+      enteros.push({ productId: p.productId, variants: p.variants });
+    }
+  }
+  for (const p of input.productos) {
+    if (!sinVariantesElegidas(p)) continue;
+    const variants = await input.leerProducto(p.id);
+    if (variants.length === 0)
+      throw new Error(
+        `El producto excluido ${p.id} no devolvió ninguna variante: no se puede excluir.`
+      );
+    enteros.push({ productId: p.id, variants });
+  }
+  return unirExclusiones(input.productos, enteros);
 }
 
 /** Lee el JSON de colecciones excluidas del formulario. Cualquier cosa rara = ninguna. */

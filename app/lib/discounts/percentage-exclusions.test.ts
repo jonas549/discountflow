@@ -1,7 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { unirExclusiones, parseExcludedCollectionIds } from "./percentage-exclusions.ts";
+import {
+  unirExclusiones,
+  parseExcludedCollectionIds,
+  resolverExclusiones,
+} from "./percentage-exclusions.ts";
 
 test("producto suelto: excluye solo las variantes elegidas en el picker", () => {
   const ids = unirExclusiones([{ id: "P1", variants: [{ id: "V1" }] }], []);
@@ -100,3 +104,117 @@ for (const ruta of [
     assert.doesNotMatch(src, /excluded\.flatMap\(/);
   });
 }
+
+// ─── Producto excluido SIN variantes = producto ENTERO (2026-11-13) ───────────
+//
+// En producción, 7 de 17 productos marcados como excluidos llegaron del
+// formulario sin variantes y se rebajaron igual, sin un aviso. La regla ahora:
+// sin variantes elegidas se excluye el producto entero, y si no se puede leer,
+// se aborta antes de tocar precios.
+
+const lectores = (
+  catalogo: Record<string, string[]>,
+  colecciones: Record<string, string[]> = {}
+) => {
+  const leidos: string[] = [];
+  return {
+    leidos,
+    leerProducto: async (id: string) => {
+      leidos.push(id);
+      if (!(id in catalogo)) throw new Error(`no existe ${id}`);
+      return catalogo[id].map((v) => ({ id: v }));
+    },
+    leerColeccion: async (id: string) => {
+      if (!(id in colecciones)) throw new Error(`no existe ${id}`);
+      return colecciones[id].map((p) => ({
+        productId: p,
+        variants: (catalogo[p] ?? []).map((v) => ({ id: v })),
+      }));
+    },
+  };
+};
+
+test("producto SIN variantes (vacío o ausente) se excluye ENTERO", async () => {
+  const l = lectores({ P1: ["V1", "V2", "V3"], P2: ["V4"] });
+  const ids = await resolverExclusiones({
+    productos: [{ id: "P1", variants: [] }, { id: "P2" }],
+    collectionIds: [],
+    leerProducto: l.leerProducto,
+    leerColeccion: l.leerColeccion,
+  });
+  assert.deepEqual([...ids].sort(), ["V1", "V2", "V3", "V4"]);
+});
+
+test("producto CON variantes elegidas: solo ésas, y no se lee de Shopify", async () => {
+  const l = lectores({ P1: ["V1", "V2", "V3"] });
+  const ids = await resolverExclusiones({
+    productos: [{ id: "P1", variants: [{ id: "V2" }] }],
+    collectionIds: [],
+    leerProducto: l.leerProducto,
+    leerColeccion: l.leerColeccion,
+  });
+  assert.deepEqual([...ids], ["V2"]);
+  assert.deepEqual(l.leidos, []);
+});
+
+test("el caso real: productos con y sin variantes + colección", async () => {
+  const l = lectores({ P1: ["V1", "V2"], P2: ["V3", "V4"], P3: ["V5"] }, { C1: ["P3"] });
+  const ids = await resolverExclusiones({
+    productos: [
+      { id: "P1", variants: [{ id: "V1" }, { id: "V2" }] },
+      { id: "P2", variants: [] },
+    ],
+    collectionIds: ["C1"],
+    leerProducto: l.leerProducto,
+    leerColeccion: l.leerColeccion,
+  });
+  assert.deepEqual([...ids].sort(), ["V1", "V2", "V3", "V4", "V5"]);
+});
+
+test("producto sin variantes que NO se puede leer: lanza (falla cerrado)", async () => {
+  const l = lectores({});
+  await assert.rejects(
+    resolverExclusiones({
+      productos: [{ id: "PX", variants: [] }],
+      collectionIds: [],
+      leerProducto: l.leerProducto,
+      leerColeccion: l.leerColeccion,
+    }),
+    /no existe PX/
+  );
+});
+
+test("producto sin variantes que vuelve VACÍO de Shopify: lanza, no excluye nada en silencio", async () => {
+  const l = lectores({ P1: [] });
+  await assert.rejects(
+    resolverExclusiones({
+      productos: [{ id: "P1" }],
+      collectionIds: [],
+      leerProducto: l.leerProducto,
+      leerColeccion: l.leerColeccion,
+    }),
+    /no devolvió ninguna variante/
+  );
+});
+
+test("colección ilegible sigue lanzando", async () => {
+  const l = lectores({});
+  await assert.rejects(
+    resolverExclusiones({
+      productos: [],
+      collectionIds: ["CX"],
+      leerProducto: l.leerProducto,
+      leerColeccion: l.leerColeccion,
+    }),
+    /no existe CX/
+  );
+});
+
+test("el lector de producto del servidor es estricto y pasa por resolverExclusiones", () => {
+  const src = sinComentarios(
+    readFileSync("app/lib/discounts/percentage-exclusions.server.ts", "utf8").replace(/\r\n/g, "\n")
+  );
+  assert.match(src, /readQueryData</);
+  assert.match(src, /resolverExclusiones\(/);
+  assert.doesNotMatch(src, /getProductVariants\(/);
+});

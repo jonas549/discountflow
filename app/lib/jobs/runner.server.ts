@@ -20,6 +20,7 @@ import { isJobFatal } from "./errors.ts";
 import type { JobStatus } from "./job-state.ts";
 import {
   claimJob,
+  continueCampaignEdit,
   createCompensatingRevert,
   finishJob,
   flushProgress,
@@ -297,6 +298,11 @@ export async function runJobBatch(
       // aviso de qué no se encontró.
       const status: JobStatus = errorCount > 0 ? "COMPLETED_WITH_ERRORS" : "COMPLETED";
       await finishJob(jobId, nonce, status);
+      // Edición encadenada: un REVERT que trae `editNext` y terminó LIMPIO deja
+      // escrita la config nueva y encolado el APPLY. Sin esa clave (pausar,
+      // compensar) `continueCampaignEdit` devuelve null y aquí no pasa nada.
+      if (job.operation === "REVERT" && status === "COMPLETED")
+        await dispatchEditContinuation(jobId, deps);
       return finish(base, status, done.products, job, unitsThisBatch, startedAt, now, false);
     }
 
@@ -383,6 +389,18 @@ async function enqueueCompensatingRevert(
   } catch (err) {
     // Creado pero sin arrancar: lo recogerá el vigilante o el barrido.
     console.error("[jobs] revert compensatorio creado pero no despachado:", err);
+  }
+}
+
+/** Segunda mitad de una edición. Nunca lanza: el REVERT ya terminó bien. */
+async function dispatchEditContinuation(jobId: string, deps: BatchDeps): Promise<void> {
+  const nextId = await continueCampaignEdit(jobId);
+  if (!nextId) return;
+  try {
+    await deps.dispatchNext(nextId);
+  } catch (err) {
+    // Creado pero sin arrancar: lo recogerá el vigilante o el barrido.
+    console.error("[jobs] APPLY de la edición creado pero no despachado:", err);
   }
 }
 

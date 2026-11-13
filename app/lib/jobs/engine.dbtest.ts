@@ -26,7 +26,9 @@ import { LEASE_STALE_MS, MAX_ATTEMPTS } from "./constants.ts";
 import { isTerminal, type JobStatus } from "./job-state.ts";
 import {
   claimJob,
+  commitCampaignEdit,
   createJob,
+  readEditNext,
   findStalledJobs,
   finishJob,
   getJob,
@@ -945,6 +947,188 @@ test("🔴 si la comprobación de existencia falla, NO se saltea: es una inciden
   console.log(
     `[salvaguarda] comprobación fallida -> incidencia (2 intentos, no 310), nunca salteo`
   );
+});
+
+// ─── 7b. Edición encadenada: REVERT → config nueva → APPLY (2026-11-13) ───────
+//
+//  Editar una campaña grande iba por el camino síncrono y reventaba a los 300 s
+//  de Vercel, con el riesgo de dejar la campaña ACTIVE y los precios a medias.
+//  Ahora la edición viaja en `payload.editNext` del REVERT. Lo que estas pruebas
+//  fijan es el invariante: la config nueva y el borrado de filas viejas solo
+//  ocurren con TODOS los precios en su original, y en una sola transacción.
+
+const PCT_NUEVO = 30;
+const configNueva = { discountPercent: PCT_NUEVO, showCompareAtPrice: false, selectionMode: "all" };
+
+const editNext = (over: Record<string, unknown> = {}) => ({
+  editNext: {
+    name: "[test] editada",
+    config: configNueva,
+    startsAt: null,
+    endsAt: null,
+    activate: true,
+    mode: "apply",
+    applyPayload: applyPayload(),
+    ...over,
+  },
+});
+
+async function campañaActivaChica(nombre: string, admin: ReturnType<typeof catalogoChico>) {
+  const campaign = await campañaPorcentaje(nombre);
+  const { job } = await createJob({
+    campaignId: campaign.id, shopId: SHOP_ID, operation: "APPLY", payload: applyPayload(),
+  });
+  await drive(job.id, { admin });
+  const c = await prisma.campaign.findUnique({ where: { id: campaign.id } });
+  assert.equal(c?.status, "ACTIVE", "precondición: campaña activa");
+  return campaign;
+}
+
+test("🔴 EDITAR una campaña activa: REVERT limpio → config nueva + APPLY, sin estado a medias", async () => {
+  const admin = catalogoChico();
+  const campaign = await campañaActivaChica("editar-activa", admin);
+  const excluida = "gid://shopify/ProductVariant/0-0";
+
+  const { job: revert } = await createJob({
+    campaignId: campaign.id, shopId: SHOP_ID, operation: "REVERT",
+    payload: editNext({
+      applyPayload: { ...applyPayload(), excludedVariantIds: [excluida] },
+    }),
+  });
+
+  // Mientras el REVERT no termina, la config sigue siendo la VIEJA.
+  const durante = await prisma.campaign.findUnique({ where: { id: campaign.id } });
+  assert.equal((durante?.config as { discountPercent: number }).discountPercent, PCT);
+
+  await drive(revert.id, { admin });
+  assert.equal((await getJob(revert.id, SHOP_ID))?.status, "COMPLETED");
+
+  // Punto intermedio: precios en original, config NUEVA, filas viejas fuera,
+  // campaña en DRAFT y bloqueada por el APPLY recién encolado.
+  const medio = await prisma.campaign.findUnique({ where: { id: campaign.id } });
+  assert.equal(medio?.status, "DRAFT", "no se anuncia ACTIVE antes de aplicar");
+  assert.equal((medio?.config as { discountPercent: number }).discountPercent, PCT_NUEVO);
+  assert.equal(medio?.name, "[test] editada");
+  assert.ok(medio?.activeJobId && medio.activeJobId !== revert.id, "cerrojo en el APPLY nuevo");
+  assert.equal(
+    await prisma.campaignProduct.count({ where: { campaignId: campaign.id } }),
+    0,
+    "las filas viejas se borraron junto con el cambio de config"
+  );
+
+  const applyId = medio!.activeJobId!;
+  const apply = await getJob(applyId, SHOP_ID);
+  assert.equal(apply?.operation, "APPLY");
+  const antes = admin.mutationCalls.length;
+  await drive(applyId, { admin });
+
+  assert.equal((await getJob(applyId, SHOP_ID))?.status, "COMPLETED");
+  const fin = await prisma.campaign.findUnique({ where: { id: campaign.id } });
+  assert.equal(fin?.status, "ACTIVE");
+  assert.equal(fin?.activeJobId, null, "cerrojo suelto al terminar");
+  assert.equal(admin.mutationCalls.length - antes, CHICO_PRODUCTOS, "una mutación por producto");
+
+  // Precio nuevo al 30 %, y la variante excluida sin fila ni mutación.
+  const p1 = [...admin.mutationCalls].reverse().find((m) => m.productId === "gid://shopify/Product/1");
+  // El catálogo falso pone al producto i el precio base + i → el 1 vale 101.
+  assert.equal(p1?.prices[0].price, "70.70", "30 % sobre 101");
+  assert.equal(p1?.prices[0].compareAtPrice, "101.00", "tachado = precio original, no el rebajado");
+  assert.equal(
+    await prisma.campaignProduct.count({ where: { campaignId: campaign.id, shopifyVariantId: excluida } }),
+    0,
+    "la variante excluida no entra"
+  );
+  assert.equal(
+    await prisma.campaignProduct.count({ where: { campaignId: campaign.id } }),
+    CHICO_PRODUCTOS * CAT_VARIANTES - 1
+  );
+  console.log(`[editar] REVERT → config nueva → APPLY: ${CHICO_PRODUCTOS} productos al ${PCT_NUEVO} %`);
+});
+
+test("🔴 EDITAR con un REVERT que falla en un producto: NO continúa y no pierde los originales", async () => {
+  const campaign = await campañaActivaChica("editar-revert-con-fallos", catalogoChico());
+  // Cliente nuevo para el revert: su segunda mutación la rechaza Shopify.
+  const adminQueFalla = catalogoChico({ userErrorAtCalls: [2] });
+
+  const { job: revert } = await createJob({
+    campaignId: campaign.id, shopId: SHOP_ID, operation: "REVERT", payload: editNext(),
+  });
+  await drive(revert.id, { admin: adminQueFalla });
+
+  const final = await getJob(revert.id, SHOP_ID);
+  assert.equal(final?.status, "COMPLETED_WITH_ERRORS", `estado: ${final?.status}`);
+
+  const c = await prisma.campaign.findUnique({ where: { id: campaign.id } });
+  assert.equal((c?.config as { discountPercent: number }).discountPercent, PCT, "config VIEJA intacta");
+  assert.equal(c?.activeJobId, null, "no se encoló ningún APPLY");
+  assert.equal(
+    await prisma.campaignProduct.count({ where: { campaignId: campaign.id } }),
+    CHICO_PRODUCTOS * CAT_VARIANTES,
+    "las filas con los precios originales siguen todas ahí"
+  );
+  console.log(`[editar] revert con incidencias → la edición NO se aplica, originales a salvo`);
+});
+
+test("EDITAR y guardar como BORRADOR una campaña activa: revierte y queda en DRAFT, sin APPLY", async () => {
+  const admin = catalogoChico();
+  const campaign = await campañaActivaChica("editar-a-borrador", admin);
+
+  const { job: revert } = await createJob({
+    campaignId: campaign.id, shopId: SHOP_ID, operation: "REVERT",
+    payload: editNext({ activate: false }),
+  });
+  const antes = admin.mutationCalls.length;
+  await drive(revert.id, { admin });
+
+  const c = await prisma.campaign.findUnique({ where: { id: campaign.id } });
+  assert.equal(c?.status, "DRAFT");
+  assert.equal((c?.config as { discountPercent: number }).discountPercent, PCT_NUEVO);
+  assert.equal(c?.activeJobId, null, "sin job nuevo");
+  assert.equal(admin.mutationCalls.length - antes, CHICO_PRODUCTOS, "solo las mutaciones del revert");
+});
+
+test("un REVERT sin `editNext` (pausar) sigue dejando PAUSED y no toca la config", async () => {
+  const admin = catalogoChico();
+  const campaign = await campañaActivaChica("pausar-sin-edicion", admin);
+  const { job: revert } = await createJob({
+    campaignId: campaign.id, shopId: SHOP_ID, operation: "REVERT",
+  });
+  await drive(revert.id, { admin });
+
+  const c = await prisma.campaign.findUnique({ where: { id: campaign.id } });
+  assert.equal(c?.status, "PAUSED");
+  assert.equal((c?.config as { discountPercent: number }).discountPercent, PCT);
+  assert.equal(c?.activeJobId, null);
+  assert.equal(
+    await prisma.campaignProduct.count({ where: { campaignId: campaign.id } }),
+    CHICO_PRODUCTOS * CAT_VARIANTES
+  );
+});
+
+test("🔴 commitCampaignEdit con el cerrojo ocupado: lanza y no escribe NADA", async () => {
+  const campaign = await campañaPorcentaje("editar-cerrojo-ocupado", "PAUSED");
+  const { job: ocupante } = await createJob({
+    campaignId: campaign.id, shopId: SHOP_ID, operation: "NOOP", payload: { units: 1 },
+  });
+
+  await assert.rejects(
+    commitCampaignEdit({
+      campaignId: campaign.id,
+      shopId: SHOP_ID,
+      next: readEditNext(editNext())!,
+    })
+  );
+
+  const c = await prisma.campaign.findUnique({ where: { id: campaign.id } });
+  assert.equal((c?.config as { discountPercent: number }).discountPercent, PCT, "config intacta");
+  assert.equal(c?.status, "PAUSED");
+  assert.equal(c?.activeJobId, ocupante.id, "el cerrojo sigue siendo del otro job");
+  assert.equal(
+    await prisma.campaignJob.count({ where: { campaignId: campaign.id, operation: "APPLY" } }),
+    0,
+    "el APPLY creado dentro de la transacción se deshizo"
+  );
+  await finishJob(ocupante.id, null, "CANCELLED", { force: true });
 });
 
 // ─── 8. Invariante final ──────────────────────────────────────────────────────
