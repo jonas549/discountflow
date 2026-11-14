@@ -1,7 +1,7 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 
-import { getExistingVariantIds, isMissingInShopify } from "./admin-api.ts";
+import { bulkUpdateVariantPrices, getExistingVariantIds, isMissingInShopify } from "./admin-api.ts";
 
 // ─── isMissingInShopify ───────────────────────────────────────────────────────
 //
@@ -111,5 +111,40 @@ test("🔴 una respuesta sin data LANZA", async () => {
   await assert.rejects(
     () => getExistingVariantIds(adminQueDevuelve({}), "gid://shopify/Product/1"),
     /no devolvió datos/
+  );
+});
+
+test("un throttling LANZADO por el cliente también se reintenta (no es incidencia)", async () => {
+  let llamadas = 0;
+  const admin = {
+    graphql: async () => {
+      llamadas += 1;
+      if (llamadas === 1) throw new Error("Throttled");
+      return new Response(
+        JSON.stringify({
+          data: {
+            productVariantsBulkUpdate: {
+              productVariants: [{ id: "v1", price: "10.00", compareAtPrice: null }],
+              userErrors: [],
+            },
+          },
+        })
+      );
+    },
+  };
+  const out = await bulkUpdateVariantPrices(admin, "gid://shopify/Product/1", [
+    { id: "v1", price: "10.00", compareAtPrice: null },
+  ]);
+  assert.equal(llamadas, 2);
+  assert.equal(out.length, 1);
+  // Un error lanzado que NO es throttling sigue saliendo tal cual.
+  await assert.rejects(
+    () =>
+      bulkUpdateVariantPrices(
+        { graphql: async () => { throw new Error("boom"); } },
+        "gid://shopify/Product/1",
+        [{ id: "v1", price: "10.00", compareAtPrice: null }]
+      ),
+    /boom/
   );
 });

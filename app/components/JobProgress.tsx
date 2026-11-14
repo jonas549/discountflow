@@ -386,7 +386,7 @@ export function JobProgress({
         <div style={{ marginTop: 2, fontSize: 12, color: "#6d7175" }}>
           {data.processedProducts.toLocaleString("es-CL")} de{" "}
           {data.totalProducts.toLocaleString("es-CL")} productos
-          {eta && !TERMINAL.has(data.status) ? ` · ${/^1 /.test(eta) ? "queda" : "quedan"} ${eta}` : ""}
+          {eta && !TERMINAL.has(data.status) ? ` · ${/^(1 |menos)/.test(eta) ? "queda" : "quedan"} ${eta}` : ""}
         </div>
       )}
 

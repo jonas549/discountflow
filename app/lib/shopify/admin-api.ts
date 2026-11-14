@@ -287,11 +287,21 @@ export async function bulkUpdateVariantPrices(
   };
 
   for (let attempt = 0; ; attempt++) {
-    const res = await admin.graphql(query, { variables: graphqlVariables });
-    const json = await res.json();
+    // El cliente de Shopify a veces no DEVUELVE el throttling en `errors`: lo
+    // LANZA (mensaje «Throttled»). Sin capturarlo aquí se saltaba los
+    // reintentos y cada producto quedaba anotado como incidencia.
+    let json: { errors?: GraphqlError[]; data?: any } = {};
+    let lanzadoPorLimite = false;
+    try {
+      const res = await admin.graphql(query, { variables: graphqlVariables });
+      json = await res.json();
+    } catch (err) {
+      if (!/throttl/i.test(err instanceof Error ? err.message : String(err))) throw err;
+      lanzadoPorLimite = true;
+    }
     const errors: GraphqlError[] | undefined = json.errors;
 
-    if (isThrottled(errors)) {
+    if (lanzadoPorLimite || isThrottled(errors)) {
       if (attempt >= THROTTLE_MAX_RETRIES)
         throw new Error(
           `Shopify sigue limitando la petición (THROTTLED) tras ${

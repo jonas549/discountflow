@@ -93,6 +93,15 @@ export async function extendLifetime(promise: Promise<unknown>): Promise<void> {
   }
 }
 
+async function marcarDespachoPerdido(jobId: string): Promise<void> {
+  try {
+    const { markDispatchLost } = await import("./jobs.server.ts");
+    await markDispatchLost(jobId);
+  } catch (err) {
+    console.error("[jobs] no se pudo marcar el despacho perdido:", err);
+  }
+}
+
 /**
  * Dispara el siguiente lote y devuelve el control de inmediato.
  *
@@ -114,11 +123,17 @@ export async function dispatchNextBatch(
       "x-discountflow-job-secret": secret,
     },
     body: JSON.stringify({ jobId }),
-  }).then((res) => {
+  }).then(async (res) => {
     // Un fetch que responde 4xx/5xx NO lanza: sin esto, un lote rechazado por
     // la plataforma se perdía sin dejar rastro y el job se quedaba en cola.
-    if (!res.ok)
+    if (!res.ok) {
       console.error(`[jobs] el worker respondió ${res.status} al despachar el job ${jobId}`);
+      // 508 = la plataforma cortó la cadena por profundidad (un lote que llama
+      // al siguiente, que llama al siguiente…). El job está sano, solo hay que
+      // arrancarlo desde una petición nueva: se marca como «sin latido» para
+      // que la barra, el listado o el cron lo despierten ya, sin esperar.
+      if (res.status === 508) await marcarDespachoPerdido(jobId);
+    }
     return res;
   });
 

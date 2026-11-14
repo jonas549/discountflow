@@ -352,6 +352,19 @@ export async function handOffToNextBatch(
   return res.count === 1;
 }
 
+/**
+ * El despacho de este job se perdió (la plataforma lo rechazó). Se le pone un
+ * latido antiguo para que cuente como colgado de inmediato y lo despierte la
+ * primera capa de recuperación que pase. Solo toca jobs EN COLA: uno que ya
+ * está corriendo tiene dueño y no se le pisa el latido.
+ */
+export async function markDispatchLost(jobId: string): Promise<void> {
+  await prisma.campaignJob.updateMany({
+    where: { id: jobId, status: "QUEUED" },
+    data: { heartbeatAt: new Date(0) },
+  });
+}
+
 /** Lectura barata para que el worker sepa si le han pedido cancelar. */
 export async function readControl(
   jobId: string
