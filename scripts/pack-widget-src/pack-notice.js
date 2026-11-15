@@ -63,7 +63,56 @@
     }
   }
 
+  /**
+   * Las dos funciones que siguen están repetidas de `pack-builder.js` a
+   * propósito: cada fuente es un bloque cerrado y este archivo también se
+   * ejecuta solo (en los tests y si el tema no tiene el armador en la página).
+   */
+  function rutaDelProxy(cruda) {
+    var r = String(cruda || "").replace(/\s+/g, "");
+    if (!r) return "/apps/discountflow/pack";
+    return ("/" + r).replace(/\/{2,}/g, "/");
+  }
+
+  function enEditorDeTemas() {
+    try {
+      return !!(window.Shopify && window.Shopify.designMode);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /**
+   * Aviso para el COMERCIANTE cuando el app proxy no responde (defecto H5).
+   *
+   * Antes este bloque fallaba mudo: con la ruta mal, el aviso del carrito no
+   * aparecía nunca y nada lo explicaba. Ahora queda rastro en la consola
+   * siempre, y en pantalla solo dentro del editor de temas, que es donde el
+   * comerciante puede corregir el ajuste. El comprador no ve nada.
+   */
+  var avisoEditor = null;
+
+  function anotarFalloDeProxy(proxy, detalle) {
+    try {
+      console.warn(
+        "[DiscountFlow] el app proxy no respondió en «" + proxy + "» (" + detalle + "). " +
+          "Revisá el ajuste «Ruta del app proxy» del bloque en el editor de temas."
+      );
+    } catch (e) {}
+    if (!enEditorDeTemas()) return;
+    avisoEditor =
+      "DiscountFlow: la ruta del app proxy «" + proxy + "» no respondió (" + detalle + "). " +
+      "Revisá el ajuste «Ruta del app proxy» de este bloque. " +
+      "Este aviso solo se ve acá, en el editor de temas: tus compradores no lo ven.";
+  }
+
   function render(root, texto, tono) {
+    // Sin nada que decirle al comprador, en el editor se muestra el aviso del
+    // comerciante si lo hay. Fuera del editor `avisoEditor` es siempre null.
+    if (!texto && avisoEditor) {
+      texto = avisoEditor;
+      tono = "warn";
+    }
     if (!texto) {
       root.hidden = true;
       root.textContent = "";
@@ -79,7 +128,7 @@
     // el re-render de la sección lo sustituye por otro.
     var root = document.querySelector("[data-df-pack-notice]");
     if (!root || !Calc) return;
-    var proxy = root.dataset.proxy || "/apps/discountflow/pack";
+    var proxy = rutaDelProxy(root.dataset.proxy);
 
     fetch("/cart.js", { headers: { Accept: "application/json" } })
       .then(function (r) {
@@ -107,9 +156,19 @@
         return fetch(proxy + "?campaign=" + encodeURIComponent(campaignId), {
           headers: { Accept: "application/json" },
         })
-          .then(function (r) {
-            return r.ok ? r.json() : null;
-          })
+          .then(
+            function (r) {
+              if (!r.ok) {
+                anotarFalloDeProxy(proxy, "proxy " + r.status);
+                return null;
+              }
+              return r.json();
+            },
+            function () {
+              anotarFalloDeProxy(proxy, "sin respuesta");
+              return null;
+            }
+          )
           .then(function (data) {
             if (!data || !data.pack) return render(root, null);
             var pack = data.pack;
@@ -302,9 +361,39 @@
     }
   }
 
+  /**
+   * En el editor de temas se prueba la ruta del proxy AUNQUE el carrito esté
+   * vacío. En la tienda este bloque solo llama al proxy si hay un pack en el
+   * carrito, y el comerciante que lo está colocando casi nunca lo tiene: sin
+   * esta comprobación, una ruta mal puesta no se notaría hasta que un comprador
+   * se quedara sin aviso. Fuera del editor no hace ninguna petición.
+   */
+  function comprobarProxyEnEditor() {
+    if (!enEditorDeTemas()) return;
+    try {
+      var root = document.querySelector("[data-df-pack-notice]");
+      if (!root) return;
+      var proxy = rutaDelProxy(root.dataset.proxy);
+      fetch(proxy, { headers: { Accept: "application/json" } }).then(
+        function (r) {
+          if (r.ok) return;
+          anotarFalloDeProxy(proxy, "proxy " + r.status);
+          run();
+        },
+        function () {
+          anotarFalloDeProxy(proxy, "sin respuesta");
+          run();
+        }
+      );
+    } catch (e) {
+      /* una comprobación de cortesía no puede romper el bloque */
+    }
+  }
+
   function arrancar() {
     observarCarrito();
     run();
+    comprobarProxyEnEditor();
   }
 
   if (document.readyState === "loading")

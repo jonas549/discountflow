@@ -26,6 +26,30 @@
   var widgets = [];
 
   /**
+   * La ruta del app proxy, tal como la dejó el ajuste «Ruta del app proxy» del
+   * bloque (defecto H5: hay tiendas donde la app no responde en
+   * `/apps/discountflow`, por ejemplo `/apps/discountflow-2`).
+   *
+   * Se normaliza acá y no en Liquid: el comerciante puede escribirla sin la
+   * barra inicial o con una de más al final. Siempre queda una ruta del mismo
+   * dominio.
+   */
+  function rutaDelProxy(cruda) {
+    var r = String(cruda || "").replace(/\s+/g, "");
+    if (!r) return "/apps/discountflow/pack";
+    return ("/" + r).replace(/\/{2,}/g, "/");
+  }
+
+  /** ¿Estamos en el editor de temas? Solo ahí se le habla al comerciante. */
+  function enEditorDeTemas() {
+    try {
+      return !!(window.Shopify && window.Shopify.designMode);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /**
    * Diagnóstico de un comando: `dfPack()` en la consola.
    *
    * Existe porque el 2026-09-05 el widget no arrancó dos veces seguidas y no
@@ -174,7 +198,10 @@
   function PackWidget(root) {
     this.root = root;
     this.campaignId = root.dataset.campaign || "";
-    this.proxy = root.dataset.proxy || "/apps/discountflow/pack";
+    this.proxy = rutaDelProxy(root.dataset.proxy);
+    /** Aviso para el comerciante si el proxy no responde. Ver `anotarFalloDeProxy`. */
+    this.avisoEditor = null;
+    this.avisoNodo = null;
     this.ctaLabel = root.dataset.cta || "Agregar pack al carrito";
     this.headingOverride = root.dataset.heading || "";
     this.columns = parseInt(root.dataset.columns, 10) || 2;
@@ -277,15 +304,18 @@
           self.enCarrito = previaEnCarrito;
           self.selected = previaSeleccion;
         }
-        return self.pedirAlProxy().catch(function () {
-          // Si el proxy no contesta no pasa nada: lo pintado sigue siendo
-          // válido. Es una comprobación, no una dependencia.
+        return self.pedirAlProxy().catch(function (err) {
+          // Si el proxy no contesta no pasa nada para el comprador: lo pintado
+          // sigue siendo válido. Es una comprobación, no una dependencia. Pero
+          // se deja rastro: antes de H5 esto fallaba sin que nadie se enterara.
+          self.anotarFalloDeProxy(err);
           return null;
         });
       })
       .then(function (fresco) {
         if (fresco) self.adoptar(fresco);
         if (self.huella() !== antes) self.render();
+        self.pintarAvisoEditor();
       })
       .catch(function (err) {
         console.error("[DiscountFlow] la revalidación del pack falló.", err);
@@ -386,9 +416,16 @@
     //
     // Esto lo cubre por construcción, sea cual sea la causa del cuelgue:
     // un proxy que no responde, una red caída o un fallo que no previmos.
+    // ¿Llegó a contestar el proxy? Distingue «la ruta no responde» de un fallo
+    // nuestro al pintar, para no culpar a la ruta de lo que no es suyo.
+    var contestoElProxy = false;
     var vigilante = setTimeout(function () {
       if (!self.pack) {
         self.fallar("El pack tardó demasiado en cargar.", null);
+        if (!contestoElProxy) {
+          self.anotarFalloDeProxy(new Error("sin respuesta en " + TIEMPO_MAXIMO_MS / 1000 + " s"));
+          self.pintarAvisoEditor();
+        }
       }
     }, TIEMPO_MAXIMO_MS);
     var listo = function () {
@@ -406,6 +443,8 @@
         return r.json();
       })
       .then(function (data) {
+        contestoElProxy = true;
+        self.avisoEditor = null;
         listo();
         if (!data || !data.pack) {
           // Sin campaña activa el bloque desaparece en vez de mostrar un cascarón
@@ -426,7 +465,44 @@
             "correcta (Partner Dashboard → App setup → App proxy).",
           err
         );
+        if (!contestoElProxy) {
+          self.anotarFalloDeProxy(err);
+          self.pintarAvisoEditor();
+        }
       });
+  };
+
+  /**
+   * Deja rastro de que el app proxy no respondió (defecto H5).
+   *
+   * Dos rastros, para dos lectores:
+   *   · En la consola, SIEMPRE. No molesta al comprador y es lo primero que
+   *     mira quien depura.
+   *   · En pantalla, SOLO dentro del editor de temas. Es donde el comerciante
+   *     coloca el bloque y donde puede corregir el ajuste; el comprador nunca
+   *     ve un mensaje técnico.
+   */
+  PackWidget.prototype.anotarFalloDeProxy = function (err) {
+    var detalle = err && err.message ? err.message : "sin respuesta";
+    try {
+      console.warn(
+        "[DiscountFlow] el app proxy no respondió en «" + this.proxy + "» (" + detalle + "). " +
+          "Revisá el ajuste «Ruta del app proxy» del bloque en el editor de temas."
+      );
+    } catch (e) {}
+    if (!enEditorDeTemas()) return;
+    this.avisoEditor =
+      "DiscountFlow: la ruta del app proxy «" + this.proxy + "» no respondió (" + detalle + "). " +
+      "Revisá el ajuste «Ruta del app proxy» de este bloque. " +
+      "Este aviso solo se ve acá, en el editor de temas: tus compradores no lo ven.";
+  };
+
+  /** Pinta el aviso del comerciante, una sola vez por pintado. */
+  PackWidget.prototype.pintarAvisoEditor = function () {
+    if (!this.avisoEditor || this.avisoNodo) return;
+    this.root.hidden = false;
+    this.avisoNodo = el("p", "df-pack__aviso-editor", this.avisoEditor);
+    this.root.appendChild(this.avisoNodo);
   };
 
   /**
@@ -490,6 +566,7 @@
   /** Deja el bloque sin rastro: ni contenido ni caja. */
   PackWidget.prototype.ocultar = function () {
     this.root.innerHTML = "";
+    this.avisoNodo = null;
     this.root.hidden = true;
   };
 
@@ -934,6 +1011,11 @@
     aside.appendChild(panel);
     aside.appendChild(ctaWrap);
     root.appendChild(aside);
+
+    // El `innerHTML = ""` de arriba se llevó el aviso del comerciante, si lo
+    // había: se repone. Fuera del editor de temas no hay aviso y esto no hace nada.
+    this.avisoNodo = null;
+    this.pintarAvisoEditor();
   };
 
   /**

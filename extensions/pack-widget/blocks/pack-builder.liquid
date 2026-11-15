@@ -25,7 +25,7 @@
      LISTA de productos; el precio no. Y un widget viejo no puede cobrar mal: el
      dinero lo decide la Function con el metafield del DESCUENTO, en el checkout.
 
-  2. EL NÚMERO DE BUILD VA EN EL NOMBRE DEL ARCHIVO (`pack-13.js`).
+  2. EL NÚMERO DE BUILD VA EN EL NOMBRE DEL ARCHIVO (`pack-14.js`).
 
      Durante tres rondas el widget se quedó en «Cargando tu pack…» porque el
      navegador recibía un JavaScript viejo. La causa de fondo era el nombre:
@@ -83,6 +83,13 @@
   if df_cfg != nil and df_id != blank
     assign df_pack = df_cfg.packs[df_id]
   endif
+
+  comment
+    La ruta del app proxy es un ajuste (defecto H5): hay tiendas donde la app no
+    responde en `/apps/discountflow` sino en otra, por ejemplo
+    `/apps/discountflow-2`. El JavaScript la normaliza (barras de más o de menos).
+  endcomment
+  assign df_ruta = block.settings.proxy_path | strip | default: '/apps/discountflow'
 -%}
 
 {%- liquid
@@ -110,15 +117,16 @@
   ver el build que sirve el tema y de dónde salió la configuración. Si el JS no
   arranca, ESTA línea sigue estando.
 {%- endcomment -%}
-<!-- DiscountFlow · widget de packs · BUILD 13
-     js        = {{ 'pack-13.js' | asset_url }}
-     css       = {{ 'pack-13.css' | asset_url }}
+<!-- DiscountFlow · widget de packs · BUILD 14
+     js        = {{ 'pack-14.js' | asset_url }}
+     css       = {{ 'pack-14.css' | asset_url }}
+     proxy     = {{ df_ruta | escape }}/pack
      metafield = {{ df_fuente }}
      campana   = {{ df_id | default: '(ninguna)' }}
      Si el build de acá no es el que esperás, el tema sirve una versión vieja
      del bloque. Si metafield dice "ninguna", el widget cae al app proxy. -->
 
-{{ 'pack-13.css' | asset_url | stylesheet_tag }}
+{{ 'pack-14.css' | asset_url | stylesheet_tag }}
 
 {%- if df_pack == nil -%}
   {%- comment -%}
@@ -130,10 +138,10 @@
   <div
     class="df-pack"
     data-df-pack
-    data-df-build="13"
-    data-df-js="{{ 'pack-13.js' | asset_url }}"
+    data-df-build="14"
+    data-df-js="{{ 'pack-14.js' | asset_url }}"
     data-campaign="{{ block.settings.campaign_id | escape }}"
-    data-proxy="/apps/discountflow/pack"
+    data-proxy="{{ df_ruta | escape }}/pack"
     data-heading="{{ block.settings.heading | escape }}"
     data-cta="{{ block.settings.cta_label | escape }}"
     data-columns="{{ block.settings.columns }}"
@@ -212,10 +220,10 @@
   <div
     class="df-pack"
     data-df-pack
-    data-df-build="13"
-    data-df-js="{{ 'pack-13.js' | asset_url }}"
+    data-df-build="14"
+    data-df-js="{{ 'pack-14.js' | asset_url }}"
     data-campaign="{{ df_id | escape }}"
-    data-proxy="/apps/discountflow/pack"
+    data-proxy="{{ df_ruta | escape }}/pack"
     data-heading="{{ block.settings.heading | escape }}"
     data-cta="{{ block.settings.cta_label | escape }}"
     data-columns="{{ block.settings.columns }}"
@@ -451,7 +459,7 @@
 {%- endif -%}
 
 {% comment %} Un solo archivo, y el mismo en los DOS bloques. Ver arriba. {% endcomment %}
-<script src="{{ 'pack-13.js' | asset_url }}" defer></script>
+<script src="{{ 'pack-14.js' | asset_url }}" defer></script>
 
 {% schema %}
 {
@@ -484,6 +492,13 @@
       "max": 3,
       "step": 1,
       "default": 2
+    },
+    {
+      "type": "text",
+      "id": "proxy_path",
+      "label": "Ruta del app proxy",
+      "default": "/apps/discountflow",
+      "info": "Dejala como está salvo que el editor te avise que no responde. Si en tu tienda la app responde en otra ruta (por ejemplo /apps/discountflow-2), escribila acá."
     }
   ]
 }

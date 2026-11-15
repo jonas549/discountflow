@@ -1022,3 +1022,16 @@ test("🔴 el cambio de método no puede dejar un id muerto", () => {
   // Y el merchant tiene que enterarse de cómo recuperarla.
   assert.match(catchDelCreate, /activala de nuevo/i);
 });
+
+test("H6: el formulario avisa que no se pruebe el código antes de activar, y lo dice como medición", () => {
+  const src = fs.readFileSync(
+    path.join(import.meta.dirname, "../../components/OriginalPriceCampaignForm.tsx"),
+    "utf8"
+  );
+  assert.match(src, /t\.codigoAvisoPrueba/);
+  const texto = es.nuevoCupon.codigoAvisoPrueba;
+  assert.match(texto, /antes de activar/);
+  assert.match(texto, /11 minutos/);
+  // No se afirma como regla de Shopify: la documentación no lo confirma.
+  assert.match(texto, /medición nuestra/);
+});

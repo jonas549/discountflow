@@ -561,6 +561,10 @@ export const es = {
     codigoPlaceholder: "MARIA10",
     codigoUno:
       "Un código por campaña. Si querés medir a cada influencer por separado, creá una campaña para cada uno: la analítica es por campaña.",
+    // Defecto H6 (QA 2026-11-14, caso C16). La documentación de Shopify no
+    // describe esta demora: por eso el texto lo cuenta como MEDICIÓN nuestra.
+    codigoAvisoPrueba:
+      "No pruebes el código en el checkout antes de activar la campaña. En nuestras pruebas, un código que alguien intentó usar con la campaña todavía en borrador siguió rechazado unos 11 minutos después de activarla; un código que nadie había probado funcionó a los pocos segundos. Es una medición nuestra, no un plazo que Shopify documente.",
 
     secDescuento: "El descuento",
     porcentajeLabel: "Porcentaje sobre el precio original",

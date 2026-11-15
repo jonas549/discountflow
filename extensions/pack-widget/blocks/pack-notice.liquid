@@ -12,29 +12,45 @@
   tres rondas. NO separarlos y NO volver a un nombre sin versión.
 {% endcomment %}
 
-<!-- DiscountFlow · aviso de pack · BUILD 13
-     js  = {{ 'pack-13.js' | asset_url }}
-     css = {{ 'pack-13.css' | asset_url }} -->
+{%- comment -%}
+  La ruta del app proxy es un ajuste (defecto H5): hay tiendas donde la app no
+  responde en `/apps/discountflow` sino en otra, por ejemplo
+  `/apps/discountflow-2`. El JavaScript la normaliza (barras de más o de menos).
+{%- endcomment -%}
+{%- assign df_ruta = block.settings.proxy_path | strip | default: '/apps/discountflow' -%}
 
-{{ 'pack-13.css' | asset_url | stylesheet_tag }}
+<!-- DiscountFlow · aviso de pack · BUILD 14
+     js    = {{ 'pack-14.js' | asset_url }}
+     css   = {{ 'pack-14.css' | asset_url }}
+     proxy = {{ df_ruta | escape }}/pack -->
+
+{{ 'pack-14.css' | asset_url | stylesheet_tag }}
 
 <div
   class="df-pack-notice"
   data-df-pack-notice
-  data-df-build="13"
-  data-df-js="{{ 'pack-13.js' | asset_url }}"
-  data-proxy="/apps/discountflow/pack"
+  data-df-build="14"
+  data-df-js="{{ 'pack-14.js' | asset_url }}"
+  data-proxy="{{ df_ruta | escape }}/pack"
   hidden
   {{ block.shopify_attributes }}
 ></div>
 
 {% comment %} Un solo archivo, y el mismo en los DOS bloques. {% endcomment %}
-<script src="{{ 'pack-13.js' | asset_url }}" defer></script>
+<script src="{{ 'pack-14.js' | asset_url }}" defer></script>
 
 {% schema %}
 {
   "name": "Aviso de pack (carrito)",
   "target": "section",
-  "settings": []
+  "settings": [
+    {
+      "type": "text",
+      "id": "proxy_path",
+      "label": "Ruta del app proxy",
+      "default": "/apps/discountflow",
+      "info": "Dejala como está salvo que el aviso no aparezca. Si en tu tienda la app responde en otra ruta (por ejemplo /apps/discountflow-2), escribila acá."
+    }
+  ]
 }
 {% endschema %}

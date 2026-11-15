@@ -552,3 +552,88 @@ test("🔴 el dinero se escribe con el formato del TEMA, no con el nuestro", asy
   // Dos productos al 10%: 14.000 − 1.400 = 12.600.
   assert.match(t, /\$12\.600/);
 });
+
+// ─── Defecto H5: la ruta del app proxy es un ajuste, y su fallo deja rastro ──
+
+/** Red donde el proxy SOLO existe en `rutaBuena`; en cualquier otra da 404. */
+function redConProxyEn(rutaBuena: string, pedidas: string[]) {
+  return (url: string) => {
+    const u = String(url);
+    if (u === "/cart.js")
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [] }) });
+    if (u.indexOf("/apps/") === 0) {
+      pedidas.push(u);
+      if (u.indexOf(rutaBuena) === 0)
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ pack: PACK }) });
+      return Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve(null) });
+    }
+    return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
+  };
+}
+
+test("🔴 H5: el widget pide al proxy en la ruta del ajuste, no en una fija", async () => {
+  const pedidas: string[] = [];
+  const { raiz, win } = entorno(DATOS_INCRUSTADOS, redConProxyEn("/apps/discountflow-2/pack", pedidas));
+  // Tal como la escribiría un comerciante: sin barra inicial y con una de más.
+  raiz.dataset.proxy = "apps/discountflow-2//pack";
+  await correr(win);
+
+  assert.deepEqual(
+    pedidas.map((u) => u.split("?")[0]),
+    ["/apps/discountflow-2/pack"],
+    "la ruta sale del ajuste, normalizada"
+  );
+  assert.equal(buscar(raiz, "df-pack__aviso-editor"), null, "con el proxy bien no hay aviso");
+});
+
+test("🔴 H5: si el proxy no responde, el COMERCIANTE lo ve en el editor de temas", async () => {
+  const pedidas: string[] = [];
+  const { raiz, win } = entorno(DATOS_INCRUSTADOS, redConProxyEn("/apps/discountflow-2/pack", pedidas));
+  win.Shopify = { designMode: true };
+  await correr(win);
+
+  const aviso = buscar(raiz, "df-pack__aviso-editor");
+  assert.ok(aviso, "en el editor tiene que quedar un aviso visible");
+  assert.match(aviso!.textContent, /\/apps\/discountflow\/pack/, "nombra la ruta que falló");
+  assert.match(aviso!.textContent, /proxy 404/, "y dice con qué respondió");
+  assert.match(aviso!.textContent, /Ruta del app proxy/, "y qué ajuste revisar");
+  // El pack sigue pintado: el aviso se suma, no reemplaza.
+  assert.equal(buscarTodos(raiz, "df-pack__card").length, 5);
+  assert.equal(buscarTodos(raiz, "df-pack__aviso-editor").length, 1, "una sola vez");
+});
+
+test("🔴 H5: fuera del editor el comprador NO ve ningún aviso técnico", async () => {
+  const pedidas: string[] = [];
+  const { raiz, win } = entorno(DATOS_INCRUSTADOS, redConProxyEn("/apps/discountflow-2/pack", pedidas));
+  await correr(win);
+
+  assert.equal(buscar(raiz, "df-pack__aviso-editor"), null);
+  assert.equal(buscarTodos(raiz, "df-pack__card").length, 5, "el pack se ve igual que siempre");
+});
+
+test("H5: sin datos de Liquid y con el proxy caído, en el editor queda el aviso y no una caja vacía", async () => {
+  const pedidas: string[] = [];
+  const { raiz, win } = entorno(null, redConProxyEn("/apps/discountflow-2/pack", pedidas));
+  win.Shopify = { designMode: true };
+  await correr(win);
+
+  assert.equal(raiz.hidden, false, "en el editor el bloque no puede desaparecer sin explicación");
+  assert.ok(buscar(raiz, "df-pack__aviso-editor"));
+});
+
+test("H5: los dos bloques sacan la ruta del ajuste y lo declaran en su schema", () => {
+  for (const bloque of ["pack-builder.liquid", "pack-notice.liquid"]) {
+    const src = fs.readFileSync(
+      path.join(RAIZ, "extensions/pack-widget/blocks", bloque),
+      "utf8"
+    );
+    assert.doesNotMatch(src, /data-proxy="\/apps/, `${bloque}: la ruta no puede estar fija`);
+    assert.match(src, /data-proxy="\{\{ df_ruta \| escape \}\}\/pack"/);
+    assert.match(src, /block\.settings\.proxy_path \| strip \| default: '\/apps\/discountflow'/);
+    const schema = JSON.parse(src.split("{% schema %}")[1].split("{% endschema %}")[0]);
+    const ajuste = schema.settings.find((s: { id: string }) => s.id === "proxy_path");
+    assert.ok(ajuste, `${bloque}: falta el ajuste proxy_path`);
+    // El valor por defecto es la ruta de siempre: un bloque ya colocado no cambia.
+    assert.equal(ajuste.default, "/apps/discountflow");
+  }
+});

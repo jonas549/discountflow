@@ -1,4 +1,4 @@
-/* DiscountFlow · widget de packs · BUILD 13 · GENERADO, no editar.
+/* DiscountFlow · widget de packs · BUILD 14 · GENERADO, no editar.
    Fuente: scripts/pack-widget-src/pack-styles.css */
 
 /* DiscountFlow — estilos del armador de packs.
@@ -525,6 +525,18 @@
   grid-column: 1 / -1;
   font-size: 1em;
   color: var(--df-dim);
+}
+
+/* ── Aviso para el comerciante (solo en el editor de temas; defecto H5) ── */
+
+.df-pack__aviso-editor {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 0.8em 1em;
+  font-size: 0.9em;
+  line-height: 1.5;
+  border: 1px dashed currentColor;
+  border-radius: 0.35em;
 }
 
 /* ── Aviso del carrito ── */

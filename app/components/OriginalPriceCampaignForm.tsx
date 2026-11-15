@@ -523,6 +523,21 @@ export function OriginalPriceCampaignForm({
             <p style={{ fontSize: "12px", color: "#8c9196", marginTop: "10px" }}>
               {t.codigoUno}
             </p>
+            <p
+              data-df-aviso-prueba-codigo
+              style={{
+                fontSize: "12px",
+                color: "#6d7175",
+                marginTop: "10px",
+                padding: "10px 12px",
+                background: "#f6f6f7",
+                border: "1px solid #e1e3e5",
+                borderRadius: "8px",
+                lineHeight: 1.5,
+              }}
+            >
+              {t.codigoAvisoPrueba}
+            </p>
           </Section>
           )}
 
