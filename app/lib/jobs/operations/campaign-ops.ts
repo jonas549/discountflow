@@ -589,6 +589,7 @@ export const applyHandler: JobHandler = {
     const tomadas = await claimRows(ctx.job.shopId, ctx.campaign.id, rows);
     if (tomadas.size > 0)
       await recordOverlap(
+        ctx.admin,
         ctx.campaign.id,
         overlapByProduct(
           batch.flatMap((p) =>
@@ -654,7 +655,7 @@ export const reactivateHandler: JobHandler = {
     // pisaría el precio de la otra, y la próxima pausa devolvería un «original»
     // que ya no es el de nadie.
     const sueltos = await releaseHeldRows(ctx.job.shopId, ctx.campaign.id);
-    await recordOverlap(ctx.campaign.id, sueltos);
+    await recordOverlap(ctx.admin, ctx.campaign.id, sueltos);
     return noResolveWithTotals(ctx);
   },
   pendingUnits: (ctx, limit) =>

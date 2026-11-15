@@ -97,6 +97,7 @@ export async function applyRangeDiscount(
       data: { skipReport: Prisma.DbNull },
     });
   await recordOverlap(
+    admin,
     campaignId,
     overlapByProduct(
       variantBatches.flatMap((b) =>
@@ -209,7 +210,7 @@ export async function reactivateRangeDiscount(
     where: { id: campaignId },
     select: { shopId: true },
   });
-  await recordOverlap(campaignId, await releaseHeldRows(dueña.shopId, campaignId));
+  await recordOverlap(admin, campaignId, await releaseHeldRows(dueña.shopId, campaignId));
 
   const campaign = await prisma.campaign.findUniqueOrThrow({
     where: { id: campaignId },

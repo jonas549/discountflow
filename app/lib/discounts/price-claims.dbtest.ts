@@ -24,7 +24,12 @@ import { createJob, getJob } from "../jobs/jobs.server.ts";
 import { runJobBatch } from "../jobs/runner.server.ts";
 import { readSkipReport } from "./manual-discounts.ts";
 import { readOverlapReport } from "./price-claims.ts";
-import { buildRevertPlanFor, findHolders, releaseHeldRows } from "./price-claims.server.ts";
+import {
+  buildRevertPlanFor,
+  findHolders,
+  recordOverlap,
+  releaseHeldRows,
+} from "./price-claims.server.ts";
 
 const TEST_DOMAIN = "claims-test.myshopify.test";
 let SHOP_ID = "";
@@ -97,6 +102,12 @@ function crearTienda(productos: number, precio = "100.00") {
         for (const x of variants) precios.set(x.id, { price: x.price, compareAtPrice: x.compareAtPrice ?? null });
         return json({
           data: { productVariantsBulkUpdate: { productVariants: variants.map((x) => ({ id: x.id })), userErrors: [] } },
+        });
+      }
+      if (query.includes("DfOverlapProductTitles")) {
+        const ids = (vars.ids ?? []) as string[];
+        return json({
+          data: { nodes: ids.map((id) => ({ id, title: `Producto ${id.split("/").pop()}` })) },
         });
       }
       const pagina = {
@@ -307,6 +318,9 @@ test("🔴 REACTIVAR una campaña cuyo producto tomó otra mientras estaba pausa
   assert.equal(reporte?.total, 1);
   assert.equal(reporte?.products[0].id, pid(1));
   assert.equal(reporte?.products[0].campaignName, b.name);
+  // QA H1 (F1): al reactivar se parte de las filas guardadas, que no llevan
+  // nombre; el aviso lo tiene que mostrar igual, no un número interno.
+  assert.equal(reporte?.products[0].title, "Producto 1", "🔴 el aviso nombra el producto");
 
   // Pausar A ya no puede devolver el 1 a su original por encima de B.
   await correr(a.id, "REVERT", tienda.vista([0, 1]));
@@ -468,6 +482,17 @@ test("releaseHeldRows y buildRevertPlanFor: lo que usa el camino síncrono al re
   assert.deepEqual(sueltos, [{ id: pid(1), title: null, variants: 1, campaignName: b.name }]);
   assert.deepEqual(await productosDe(a.id), [pid(0)]);
   assert.equal((await prisma.campaignProduct.count({ where: { campaignId: b.id } })), 1, "las filas de B no se tocan");
+
+  // Al anotarlo en el aviso se le pone el nombre (QA H1, F1)…
+  await recordOverlap(crearTienda(2).vista([]), a.id, sueltos);
+  assert.equal((await solapes(a.id))?.products[0].title, "Producto 1");
+
+  // …y si Shopify falla al pedirlo, el aviso sale sin nombre pero la operación sigue.
+  const c = await pct("C", 5);
+  const roto = { graphql: async (): Promise<Response> => { throw new Error("Shopify caído"); } };
+  await recordOverlap(roto, c.id, sueltos);
+  assert.equal((await solapes(c.id))?.total, 1);
+  assert.equal((await solapes(c.id))?.products[0].title, null);
 });
 
 test("el reporte de solapes no borra el de descuentos manuales (y al revés)", async () => {

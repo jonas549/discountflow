@@ -2003,14 +2003,15 @@ export default function Campaigns() {
                             >
                               <summary style={{ cursor: "pointer", fontWeight: 600 }}>
                                 {c.overlapReport.total === 1
-                                  ? "1 producto quedó fuera: ya está en otra campaña de precio"
-                                  : `${c.overlapReport.total} productos quedaron fuera: ya están en otra campaña de precio`}{" "}
+                                  ? "1 producto quedó fuera: ya estaba en otra campaña de precio"
+                                  : `${c.overlapReport.total} productos quedaron fuera: ya estaban en otra campaña de precio`}{" "}
                                 — ver detalle
                               </summary>
                               <div style={{ marginTop: 6 }}>
-                                Un producto solo puede tener una campaña de Porcentaje o Rango a la vez. Estos
-                                no se tocaron: siguen con el precio de la campaña que ya los tiene. Para
-                                incluirlos aquí, pausa esa campaña y vuelve a guardar ésta.
+                                Un producto solo puede tener una campaña de Porcentaje o Rango a la vez. Cuando
+                                esta campaña se aplicó, estos ya estaban en otra y no se tocaron. Para
+                                incluirlos aquí: si esa otra campaña sigue activa, pásala a pausa; después abre
+                                ésta en Editar y guarda.
                               </div>
                               <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
                                 {c.overlapReport.products.map((p) => (

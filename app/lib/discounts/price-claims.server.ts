@@ -20,6 +20,7 @@ import {
   appendOverlap,
   composeSkipReport,
   decideRevert,
+  OVERLAP_REPORT_CAP,
   readOverlapReport,
   type Holder,
   type OverlapProduct,
@@ -188,9 +189,54 @@ export function overlapByProduct(
   return [...porProducto.values()];
 }
 
+type AdminClient = {
+  graphql: (q: string, o?: { variables: unknown }) => Promise<Response>;
+};
+
+/**
+ * Pone el nombre a los productos que llegan sin él.
+ *
+ * Solo la resolución paginada del motor trae el título; al reactivar (se parte
+ * de las filas guardadas) y en el camino síncrono no lo hay, y el aviso del
+ * listado mostraría «Producto 15487635751048» (QA H1, 2026-11-15). Se piden
+ * aquí, en el único sitio por el que pasa todo aviso.
+ *
+ * Es un adorno del aviso: si Shopify falla, el producto queda sin nombre y la
+ * operación sigue.
+ */
+async function conTitulos(admin: AdminClient, items: OverlapProduct[]): Promise<OverlapProduct[]> {
+  const faltan = items.filter((p) => !p.title).slice(0, OVERLAP_REPORT_CAP).map((p) => p.id);
+  if (faltan.length === 0) return items;
+  const titulos = new Map<string, string>();
+  try {
+    const res = await admin.graphql(
+      `#graphql
+      query DfOverlapProductTitles($ids: [ID!]!) {
+        nodes(ids: $ids) {
+          ... on Product { id title }
+        }
+      }`,
+      { variables: { ids: faltan } }
+    );
+    const json = (await res.json()) as {
+      data?: { nodes?: Array<{ id?: string; title?: string } | null> };
+    };
+    for (const n of json.data?.nodes ?? [])
+      if (n?.id && typeof n.title === "string") titulos.set(n.id, n.title);
+  } catch {
+    return items;
+  }
+  return items.map((p) => (p.title ? p : { ...p, title: titulos.get(p.id) ?? null }));
+}
+
 /** Suma productos al reporte de solapes de la campaña, sin tocar el de manuales. */
-export async function recordOverlap(campaignId: string, items: OverlapProduct[]): Promise<void> {
+export async function recordOverlap(
+  admin: AdminClient,
+  campaignId: string,
+  items: OverlapProduct[]
+): Promise<void> {
   if (items.length === 0) return;
+  items = await conTitulos(admin, items);
   const actual = await prisma.campaign.findUnique({
     where: { id: campaignId },
     select: { skipReport: true },
