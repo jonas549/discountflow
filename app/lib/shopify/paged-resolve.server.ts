@@ -14,7 +14,12 @@
 // resolve-variants.ts NO se toca: sigue siendo el camino del flujo síncrono
 // antiguo, que es el que queda vivo cuando el flag está apagado.
 
-import { readQueryData, type ProductVariants, type VariantPrice } from "./admin-api.ts";
+import {
+  readQueryData,
+  tieneEtiquetaExacta,
+  type ProductVariants,
+  type VariantPrice,
+} from "./admin-api.ts";
 
 type AdminClient = {
   graphql: (q: string, o?: { variables: unknown }) => Promise<Response>;
@@ -60,7 +65,7 @@ export function parseCursor(raw: string | null | undefined): ResolveCursor {
 
 export const serializeCursor = (c: ResolveCursor): string => JSON.stringify(c);
 
-type PageNode = { id: string; title?: string | null; variants: { nodes: VariantPrice[] } };
+type PageNode = { id: string; title?: string | null; tags?: string[]; variants: { nodes: VariantPrice[] } };
 type PageResult = {
   nodes?: PageNode[];
   pageInfo?: { hasNextPage: boolean; endCursor: string };
@@ -170,15 +175,21 @@ export async function resolveNextPage(
       `#graphql
       query GetFilteredProducts($q: String!, $cursor: String) {
         products(first: ${PRODUCTS_PER_PAGE}, query: $q, after: $cursor) {
-          nodes { ${PRODUCT_FIELDS} }
+          nodes { ${PRODUCT_FIELDS} tags }
           pageInfo { hasNextPage endCursor }
         }
       }`,
       { variables: { q, cursor: cursor.after ?? null } }
     );
     const page = readQueryData<PageResult>(await res.json(), "products", `filtro ${q}`);
+    // Defecto H9: `tag:"x"` de Shopify no es exacta; ver `tieneEtiquetaExacta`.
+    // Una página puede quedar vacía tras filtrar y aun así haber más páginas.
+    const exacta: PageResult | null =
+      page && field === "tag"
+        ? { ...page, nodes: (page.nodes ?? []).filter((n) => tieneEtiquetaExacta(n.tags, values)) }
+        : page;
     return {
-      batch: toBatch(page),
+      batch: toBatch(exacta),
       next: page?.pageInfo?.hasNextPage ? { after: page.pageInfo.endCursor } : null,
     };
   }

@@ -435,11 +435,48 @@ async function getProductMetadataDesdeProductos(admin: MetadataAdmin): Promise<P
   };
 }
 
+/**
+ * ¿El producto lleva EXACTAMENTE alguna de las etiquetas elegidas?
+ *
+ * QA 2026-11-15 (defecto H9): la búsqueda `tag:"qa"` de Shopify no es exacta,
+ * también devuelve productos cuya etiqueta contiene «qa» como palabra
+ * (`qa-test`, `discountflow-qa`). Una campaña por la etiqueta «sale» rebajaba
+ * además los productos con «summer-sale». La búsqueda se sigue usando para
+ * acotar, y este filtro descarta lo que sobra.
+ *
+ * Shopify no distingue mayúsculas en las etiquetas, así que aquí tampoco.
+ */
+export function tieneEtiquetaExacta(
+  etiquetasDelProducto: readonly string[] | null | undefined,
+  elegidas: readonly string[]
+): boolean {
+  const norm = (t: string) => t.trim().toLowerCase();
+  const buscadas = new Set(elegidas.map(norm));
+  return (etiquetasDelProducto ?? []).some((t) => buscadas.has(norm(t)));
+}
+
+/** Consulta de búsqueda para una lista de etiquetas. Va con `tieneEtiquetaExacta`. */
+export function consultaDeEtiquetas(etiquetas: readonly string[]): string {
+  return etiquetas.map((t) => `tag:"${t}"`).join(" OR ");
+}
+
+/** Productos que llevan exactamente alguna de las etiquetas dadas. */
+export async function getProductsByTags(
+  admin: { graphql: (q: string, o?: { variables: unknown }) => Promise<Response> },
+  etiquetas: readonly string[]
+): Promise<ProductVariants[]> {
+  return getProductsByFilter(admin, consultaDeEtiquetas(etiquetas), {
+    etiquetasExactas: etiquetas,
+  });
+}
+
 // Fetch all products matching a Shopify filter query (paginates automatically).
-// Examples: "tag:\"summer\" OR tag:\"sale\"", "vendor:\"Nike\"", "product_type:\"Shirts\""
+// Examples: "vendor:\"Nike\"", "product_type:\"Shirts\"". Para etiquetas usar
+// `getProductsByTags`, que además descarta las coincidencias no exactas.
 export async function getProductsByFilter(
   admin: { graphql: (q: string, o?: { variables: unknown }) => Promise<Response> },
-  filterQuery: string
+  filterQuery: string,
+  opts: { etiquetasExactas?: readonly string[] } = {}
 ): Promise<ProductVariants[]> {
   const results: ProductVariants[] = [];
   let cursor: string | null = null;
@@ -450,6 +487,7 @@ export async function getProductsByFilter(
         products(first: 50, query: $q, after: $cursor) {
           nodes {
             id
+            tags
             variants(first: 100) {
               nodes { id price compareAtPrice }
             }
@@ -461,11 +499,12 @@ export async function getProductsByFilter(
     );
     const json = await res.json();
     const products = readQueryData<{
-      nodes?: Array<{ id: string; variants: { nodes: VariantPrice[] } }>;
+      nodes?: Array<{ id: string; tags?: string[]; variants: { nodes: VariantPrice[] } }>;
       pageInfo?: { hasNextPage: boolean; endCursor: string };
     }>(json, "products", `filtro ${filterQuery}`);
 
     for (const p of products?.nodes ?? []) {
+      if (opts.etiquetasExactas && !tieneEtiquetaExacta(p.tags, opts.etiquetasExactas)) continue;
       results.push({ productId: p.id, variants: p.variants.nodes });
     }
     cursor = products?.pageInfo?.hasNextPage ? products.pageInfo.endCursor : null;

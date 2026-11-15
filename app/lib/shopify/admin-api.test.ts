@@ -1,7 +1,14 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 
-import { bulkUpdateVariantPrices, getExistingVariantIds, getProductMetadata, isMissingInShopify } from "./admin-api.ts";
+import {
+  bulkUpdateVariantPrices,
+  getExistingVariantIds,
+  getProductMetadata,
+  getProductsByTags,
+  isMissingInShopify,
+  tieneEtiquetaExacta,
+} from "./admin-api.ts";
 
 // ─── isMissingInShopify ───────────────────────────────────────────────────────
 //
@@ -212,4 +219,52 @@ test("getProductMetadata cae al método anterior si las listas fallan", async ()
   const { admin } = adminDeMetadata({}, { romperListas: true });
   const m = await getProductMetadata(admin);
   assert.deepEqual(m, { tags: ["a", "b"], vendors: ["Viejo"], productTypes: ["Tipo"] });
+});
+
+// ─── Etiqueta exacta (QA 2026-11-15, defecto H9) ─────────────────────────────
+//
+// `tag:"qa"` de Shopify también devuelve productos con `qa-test`. Una campaña
+// por «sale» rebajaba además los de «summer-sale».
+
+test("tieneEtiquetaExacta no acepta etiquetas que solo contienen la elegida", () => {
+  assert.equal(tieneEtiquetaExacta(["qa-test", "discountflow-qa"], ["qa"]), false);
+  assert.equal(tieneEtiquetaExacta(["summer-sale"], ["sale"]), false);
+  assert.equal(tieneEtiquetaExacta(["qa-test", "qa"], ["qa"]), true);
+  assert.equal(tieneEtiquetaExacta(["Verano"], ["verano "]), true);
+  assert.equal(tieneEtiquetaExacta(["a"], ["x", "a"]), true);
+  assert.equal(tieneEtiquetaExacta(undefined, ["qa"]), false);
+  assert.equal(tieneEtiquetaExacta([], ["qa"]), false);
+});
+
+test("getProductsByTags descarta lo que la búsqueda de Shopify trae de más", async () => {
+  const consultas: string[] = [];
+  const paginas = [
+    [
+      { id: "p1", tags: ["qa"], variants: { nodes: [] } },
+      { id: "p2", tags: ["qa-test"], variants: { nodes: [] } },
+    ],
+    [
+      { id: "p3", tags: ["discountflow-qa", "otra"], variants: { nodes: [] } },
+      { id: "p4", tags: ["QA", "qa-test"], variants: { nodes: [] } },
+    ],
+  ];
+  const admin = {
+    graphql: async (_q: string, o?: { variables: unknown }) => {
+      const v = o?.variables as { q: string; cursor: string | null };
+      consultas.push(v.q);
+      const i = v.cursor ? Number(v.cursor) : 0;
+      return Response.json({
+        data: {
+          products: {
+            nodes: paginas[i],
+            pageInfo: { hasNextPage: i < paginas.length - 1, endCursor: String(i + 1) },
+          },
+        },
+      });
+    },
+  };
+  const r = await getProductsByTags(admin, ["qa"]);
+  assert.deepEqual(r.map((p) => p.productId), ["p1", "p4"]);
+  assert.equal(consultas[0], 'tag:"qa"');
+  assert.equal(consultas.length, 2);
 });

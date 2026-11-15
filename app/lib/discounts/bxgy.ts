@@ -4,6 +4,7 @@
 import { prisma } from "../db";
 import {
   getProductsByFilter,
+  getProductsByTags,
   readQueryData,
 } from "../shopify/admin-api";
 import { es } from "../../i18n";
@@ -165,8 +166,7 @@ async function resolveToProductIds(
   // puerta de entrada (un POST a mano llegaría igual).
   if (mode === "all") throw new Error(es.nuevaBxgy.errModoTiendaNoDisponible);
   if (mode === "tags" && rawItems.length > 0) {
-    const q = rawItems.map((t) => `tag:"${t}"`).join(" OR ");
-    return (await getProductsByFilter(admin, q)).map((p) => p.productId);
+    return (await getProductsByTags(admin, rawItems)).map((p) => p.productId);
   }
   if (mode === "vendors" && rawItems.length > 0) {
     const q = rawItems.map((v) => `vendor:"${v}"`).join(" OR ");

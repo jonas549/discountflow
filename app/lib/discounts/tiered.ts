@@ -12,6 +12,7 @@ import {
   getCollectionProductVariants,
   getAllProductVariants,
   getProductsByFilter,
+  getProductsByTags,
 } from "../shopify/admin-api";
 import {
   type TieredCampaignConfig,
@@ -213,7 +214,10 @@ export async function resolveTieredProductIds(
   const field =
     mode === "tags" ? "tag" : mode === "vendors" ? "vendor" : "product_type";
   const query = rawItems.map((v) => `${field}:"${v}"`).join(" OR ");
-  const products = await getProductsByFilter(admin, query);
+  const products =
+    mode === "tags"
+      ? await getProductsByTags(admin, rawItems)
+      : await getProductsByFilter(admin, query);
   const resolved = [...new Set(products.map((p) => p.productId))];
 
   if (resolved.length === 0)

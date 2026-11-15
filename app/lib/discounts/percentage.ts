@@ -6,6 +6,7 @@ import {
   getCollectionProductVariants,
   getAllProductVariants,
   getProductsByFilter,
+  getProductsByTags,
   bulkUpdateVariantPrices,
   type ProductVariants,
 } from "../shopify/admin-api";
@@ -76,8 +77,7 @@ async function resolveVariants(
   }
 
   if (opts.selectionMode === "tags" && opts.selectedTags?.length) {
-    const q = opts.selectedTags.map((t) => `tag:"${t}"`).join(" OR ");
-    return getProductsByFilter(admin, q);
+    return getProductsByTags(admin, opts.selectedTags);
   }
 
   if (opts.selectionMode === "vendors" && opts.selectedVendors?.length) {
