@@ -9,6 +9,13 @@ import {
   bulkUpdateVariantPrices,
   type ProductVariants,
 } from "../shopify/admin-api";
+import {
+  buildRevertPlanFor,
+  findHolders,
+  overlapByProduct,
+  recordOverlap,
+  releaseHeldRows,
+} from "./price-claims.server";
 
 type AdminClient = {
   graphql: (q: string, o?: { variables: unknown }) => Promise<Response>;
@@ -107,13 +114,46 @@ export async function applyPercentageDiscount(
 ): Promise<{ applied: number; errors: string[] }> {
   const variantBatches = await resolveVariants(admin, opts);
 
+  // Una variante, una sola campaña de precio (ver price-claims.ts): las que ya
+  // tiene tomadas otra campaña no se tocan, y se avisa en la fila del listado.
+  const dueña = await prisma.campaign.findUnique({
+    where: { id: campaignId },
+    select: { shopId: true },
+  });
+  const tomadas = dueña
+    ? await findHolders(prisma, {
+        shopId: dueña.shopId,
+        campaignId,
+        variantIds: variantBatches.flatMap((b) =>
+          b.variants.filter((v) => !opts.excludedVariantIds?.has(v.id)).map((v) => v.id)
+        ),
+      })
+    : new Map<string, never[]>();
+  // Aplicación nueva: el reporte de la anterior deja de valer.
+  if (dueña)
+    await prisma.campaign.update({
+      where: { id: campaignId },
+      data: { skipReport: Prisma.DbNull },
+    });
+  await recordOverlap(
+    campaignId,
+    overlapByProduct(
+      variantBatches.flatMap((b) =>
+        b.variants.map((v) => ({ productId: b.productId, title: b.title ?? null, variantId: v.id }))
+      ),
+      tomadas
+    )
+  );
+
   // ENFORCEMENT DE PLAN — va aquí a propósito: después de resolver (es la
   // primera vez que se sabe cuántas variantes son) y ANTES del bucle, que es
   // donde empiezan los upsert a la BD y las escrituras de precios en Shopify.
   // Lanzar en este punto deja cero efectos secundarios.
   if (opts.maxVariants !== undefined) {
     const total = variantBatches.reduce(
-      (n, b) => n + b.variants.filter((v) => !opts.excludedVariantIds?.has(v.id)).length,
+      (n, b) =>
+        n +
+        b.variants.filter((v) => !opts.excludedVariantIds?.has(v.id) && !tomadas.has(v.id)).length,
       0
     );
     if (total > opts.maxVariants) throw new PlanLimitError(total, opts.maxVariants);
@@ -127,6 +167,7 @@ export async function applyPercentageDiscount(
 
     for (const variant of variants) {
       if (opts.excludedVariantIds?.has(variant.id)) continue;
+      if (tomadas.has(variant.id)) continue;
 
       const originalPrice = parseFloat(variant.price);
       const originalCompareAtPrice = variant.compareAtPrice
@@ -187,6 +228,14 @@ export async function reactivatePercentageDiscount(
   admin: AdminClient,
   campaignId: string
 ): Promise<{ applied: number; errors: string[] }> {
+  // Lo que otra campaña tomó mientras ésta estaba pausada se suelta antes de
+  // volver a aplicar (ver price-claims.ts).
+  const dueña = await prisma.campaign.findUniqueOrThrow({
+    where: { id: campaignId },
+    select: { shopId: true },
+  });
+  await recordOverlap(campaignId, await releaseHeldRows(dueña.shopId, campaignId));
+
   const campaign = await prisma.campaign.findUniqueOrThrow({
     where: { id: campaignId },
     include: { products: true },
@@ -255,20 +304,28 @@ export async function revertPercentageDiscount(
     byProduct.get(key)!.push(cp);
   }
 
+  // Variantes que comparte otra campaña de precio: ver price-claims.ts. Sin
+  // solapes, el plan es restaurar todo, como siempre.
+  const plan = await buildRevertPlanFor(campaignId, products);
+
   const errors: string[] = [];
   let reverted = 0;
 
   for (const [productId, variants] of byProduct) {
     const updates = variants
       .filter((v) => v.shopifyVariantId !== null)
+      .filter((v) => plan.writes(v.shopifyVariantId!))
       .map((v) => ({
         id: v.shopifyVariantId!,
         price: v.originalPrice?.toString() ?? "0",
         compareAtPrice: v.originalCompareAtPrice?.toString() ?? null,
       }));
 
+    if (updates.length === 0) continue;
+
     try {
       await bulkUpdateVariantPrices(admin, productId, updates);
+      await plan.inherit(updates.map((u) => u.id));
       reverted += updates.length;
     } catch (err) {
       errors.push(`Error revirtiendo producto ${productId}: ${String(err)}`);

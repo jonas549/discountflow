@@ -83,6 +83,7 @@ import { hasFeature, jobsEnabled } from "../lib/features.server";
 import { JOBS_FEATURE_FLAG } from "../lib/jobs/constants";
 import { scheduleLabel } from "../lib/schedule/scheduling";
 import { productNumericId, readSkipReport } from "../lib/discounts/manual-discounts";
+import { readOverlapReport } from "../lib/discounts/price-claims";
 import { formatShopDateTime } from "../lib/schedule/shop-time";
 import { shopTimezone } from "../lib/schedule/shop-timezone.server";
 import { JobProgress } from "../components/JobProgress";
@@ -652,6 +653,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       scheduleNote: c.scheduleNote,
       /** Productos que la última aplicación saltó por tener ya descuento manual. */
       skipReport: c.status === "DRAFT" ? null : readSkipReport(c.skipReport),
+      /** Productos que quedaron fuera porque ya los tiene otra campaña de precio. */
+      overlapReport: c.status === "DRAFT" ? null : readOverlapReport(c.skipReport),
       /** jobId de la operación en curso, si la hay. Ancla de la barra. */
       activeJobId: c.activeJobId,
       /** Solo para intercalar las campañas por tandas en orden de creación. */
@@ -1749,7 +1752,7 @@ export default function Campaigns() {
                     <tr
                       style={{
                         borderBottom:
-                          jobId || c.scheduleLabel || c.scheduleNote || c.skipReport
+                          jobId || c.scheduleLabel || c.scheduleNote || c.skipReport || c.overlapReport
                             ? "none"
                             : "1px solid #f1f2f3",
                       }}
@@ -1933,7 +1936,7 @@ export default function Campaigns() {
 
                     {/* Programación y productos salteados: fila propia a todo el ancho,
                         para no estrechar la columna del nombre. */}
-                    {(c.scheduleLabel || c.scheduleNote || c.skipReport) && (
+                    {(c.scheduleLabel || c.scheduleNote || c.skipReport || c.overlapReport) && (
                       <tr style={{ borderBottom: jobId ? "none" : "1px solid #f1f2f3" }}>
                         <td colSpan={8} style={{ padding: "0 12px 10px" }}>
                           {c.scheduleLabel && (
@@ -1980,6 +1983,47 @@ export default function Campaigns() {
                               {c.skipReport.truncated && (
                                 <div style={{ marginTop: 4 }}>
                                   …y {c.skipReport.total - c.skipReport.products.length} más.
+                                </div>
+                              )}
+                            </details>
+                          )}
+                          {c.overlapReport && (
+                            <details
+                              data-testid="reporte-solapes"
+                              style={{
+                                fontSize: 12,
+                                fontWeight: 400,
+                                color: "#42474c",
+                                background: "#f6f6f7",
+                                border: "1px solid #e1e3e5",
+                                borderRadius: 6,
+                                padding: "6px 10px",
+                                marginBottom: 6,
+                              }}
+                            >
+                              <summary style={{ cursor: "pointer", fontWeight: 600 }}>
+                                {c.overlapReport.total === 1
+                                  ? "1 producto quedó fuera: ya está en otra campaña de precio"
+                                  : `${c.overlapReport.total} productos quedaron fuera: ya están en otra campaña de precio`}{" "}
+                                — ver detalle
+                              </summary>
+                              <div style={{ marginTop: 6 }}>
+                                Un producto solo puede tener una campaña de Porcentaje o Rango a la vez. Estos
+                                no se tocaron: siguen con el precio de la campaña que ya los tiene. Para
+                                incluirlos aquí, pausa esa campaña y vuelve a guardar ésta.
+                              </div>
+                              <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+                                {c.overlapReport.products.map((p) => (
+                                  <li key={p.id}>
+                                    <strong>{p.title ?? `Producto ${productNumericId(p.id)}`}</strong>
+                                    {p.campaignName ? ` — en «${p.campaignName}»` : ""}
+                                    {p.variants > 1 ? ` · ${p.variants} variantes` : ""}
+                                  </li>
+                                ))}
+                              </ul>
+                              {c.overlapReport.truncated && (
+                                <div style={{ marginTop: 4 }}>
+                                  …y {c.overlapReport.total - c.overlapReport.products.length} más.
                                 </div>
                               )}
                             </details>

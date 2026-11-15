@@ -33,6 +33,14 @@ import {
   looksDiscounted,
   readSkipReport,
 } from "../../discounts/manual-discounts.ts";
+import { composeSkipReport, readOverlapReport } from "../../discounts/price-claims.ts";
+import {
+  buildRevertPlan,
+  claimRows,
+  overlapByProduct,
+  recordOverlap,
+  releaseHeldRows,
+} from "../../discounts/price-claims.server.ts";
 import prisma from "../../../db.server.ts";
 import {
   bulkUpdateVariantPrices,
@@ -260,6 +268,20 @@ async function runPriceUnits(
     byProduct.get(r.shopifyProductId)!.push(r);
   }
 
+  // Al DEVOLVER precios, las variantes que comparte otra campaña de precio se
+  // tratan aparte (ver price-claims.ts). Sin solapes, el plan es restaurar todo.
+  const plan =
+    mode === "revert"
+      ? await buildRevertPlan(
+          {
+            shopId: ctx.campaign.shopId,
+            campaignId: ctx.campaign.id,
+            active: ctx.campaign.status === "ACTIVE",
+          },
+          rows
+        )
+      : null;
+
   const failures: RunUnitsResult["failures"] = [];
   // Salteadas: ya no existen en Shopify. Van aparte de `failures` a propósito —
   // no cambian el estado final del job y SÍ se sellan, para que la campaña pueda
@@ -273,6 +295,9 @@ async function runPriceUnits(
       const productRows = byProduct.get(unit.productId) ?? [];
       const updates = productRows
         .filter((r) => r.shopifyVariantId !== null)
+        // Una variante que hoy tiene tomada otra campaña no es nuestra para
+        // restaurarla (solo pasa al eliminar una campaña ya pausada).
+        .filter((r) => !plan || plan.writes(r.shopifyVariantId!))
         .map((r) => {
           const orig = Number(r.originalPrice ?? 0);
           const origCompare =
@@ -303,6 +328,7 @@ async function runPriceUnits(
 
       try {
         await bulkUpdateVariantPrices(ctx.admin, unit.productId, updates);
+        await plan?.inherit(updates.map((u) => u.id));
         return;
       } catch (err) {
         // Cualquier fallo que NO sea "ya no existe" es un fallo de verdad y se
@@ -354,6 +380,7 @@ async function runPriceUnits(
         // este también falla es un problema real, no una variante fantasma.
         try {
           await bulkUpdateVariantPrices(ctx.admin, unit.productId, updatesVivas);
+          await plan?.inherit(updatesVivas.map((u) => u.id));
           if (ausentes > 0)
             skipped.push({
               unit: unit.productId,
@@ -525,7 +552,12 @@ export const applyHandler: JobHandler = {
         );
         await prisma.campaign.update({
           where: { id: ctx.campaign.id },
-          data: { skipReport: reporte as unknown as Prisma.InputJsonValue },
+          data: {
+            skipReport: composeSkipReport(
+              reporte as unknown as Record<string, unknown> | null,
+              readOverlapReport(actual?.skipReport)
+            ) as unknown as Prisma.InputJsonValue,
+          },
         });
       }
     }
@@ -550,8 +582,21 @@ export const applyHandler: JobHandler = {
       }
     }
 
-    if (rows.length > 0)
-      await prisma.campaignProduct.createMany({ data: rows, skipDuplicates: true });
+    // Una variante, una sola campaña de precio: las que ya tiene tomadas otra
+    // campaña NO reciben fila (ni mutación, ni cuota). Si se aplicara encima, el
+    // «original» guardado sería un precio ya rebajado, y al pausar las dos el
+    // producto quedaría rebajado sin ninguna campaña activa.
+    const tomadas = await claimRows(ctx.job.shopId, ctx.campaign.id, rows);
+    if (tomadas.size > 0)
+      await recordOverlap(
+        ctx.campaign.id,
+        overlapByProduct(
+          batch.flatMap((p) =>
+            p.variants.map((v) => ({ productId: p.productId, title: p.title ?? null, variantId: v.id }))
+          ),
+          tomadas
+        )
+      );
 
     const totals = await prisma.$queryRaw<Array<{ products: bigint; variants: bigint }>>`
       SELECT COUNT(DISTINCT "shopifyProductId") AS products, COUNT(*) AS variants
@@ -602,7 +647,16 @@ export const applyHandler: JobHandler = {
 // ─── REACTIVATE ───────────────────────────────────────────────────────────────
 
 export const reactivateHandler: JobHandler = {
-  resolveStep: (ctx) => (isPriceType(ctx.campaign.type) ? noResolveWithTotals(ctx) : singleResolve(ctx)),
+  async resolveStep(ctx) {
+    if (!isPriceType(ctx.campaign.type)) return singleResolve(ctx);
+    // Mientras esta campaña estuvo pausada, otra pudo tomar alguno de sus
+    // productos. Esos se sueltan ANTES de contar y de aplicar: reactivar encima
+    // pisaría el precio de la otra, y la próxima pausa devolvería un «original»
+    // que ya no es el de nadie.
+    const sueltos = await releaseHeldRows(ctx.job.shopId, ctx.campaign.id);
+    await recordOverlap(ctx.campaign.id, sueltos);
+    return noResolveWithTotals(ctx);
+  },
   pendingUnits: (ctx, limit) =>
     isPriceType(ctx.campaign.type) ? pendingPriceUnits(ctx, limit) : singlePending(ctx),
 

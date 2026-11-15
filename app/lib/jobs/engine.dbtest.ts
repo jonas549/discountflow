@@ -18,7 +18,7 @@
 //        shopId, y el teardown se ejecuta SIEMPRE, incluso si un test revienta.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import test, { after, before } from "node:test";
+import test, { after, before, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 
 import prisma from "../../db.server.ts";
@@ -35,6 +35,7 @@ import {
   requestCancel,
 } from "./jobs.server.ts";
 import { runJobBatch, type BatchOutcome } from "./runner.server.ts";
+import { readOverlapReport } from "../discounts/price-claims.ts";
 import { createFakeAdmin } from "../shopify/fake-admin.ts";
 
 const TEST_DOMAIN = "jobs-test.myshopify.test";
@@ -135,6 +136,18 @@ after(async () => {
     `[limpieza] ${campañas.count} campaña(s) y ${tienda.count} tienda de prueba borradas`
   );
   await prisma.$disconnect();
+});
+
+// Los tests comparten los ids del catálogo falso. Desde que una variante solo
+// puede estar en UNA campaña de precio activa (price-claims.ts), una campaña que
+// un test anterior dejó ACTIVA tendría «tomado» el catálogo del siguiente. Cada
+// test arranca con las demás pausadas: es solo el estado, no pasa por el motor.
+beforeEach(async () => {
+  if (SHOP_ID)
+    await prisma.campaign.updateMany({
+      where: { shopId: SHOP_ID, status: "ACTIVE" },
+      data: { status: "PAUSED" },
+    });
 });
 
 // ─── Utilidades ───────────────────────────────────────────────────────────────
@@ -347,7 +360,7 @@ test("diez disparos simultáneos de la misma operación crean UN solo job", asyn
   // operación pendiente—, y eso rompería la invariante final de la batería. Se
   // cierra aquí, lo que de paso comprueba que cancelar un job QUEUED que nunca
   // llegó a arrancar lo termina en el acto y suelta el cerrojo.
-  assert.equal(await requestCancel([...ids][0], SHOP_ID), true);
+  assert.equal((await requestCancel([...ids][0], SHOP_ID)).cancelled, true);
   const tras = await prisma.campaign.findUnique({ where: { id: campaign.id } });
   assert.equal(tras?.activeJobId, null, "cancelar un QUEUED suelta el cerrojo");
 });
@@ -1242,6 +1255,15 @@ test("una rebaja puesta por OTRA campaña activa de la app no cuenta como descue
   const reporte = (await prisma.campaign.findUnique({ where: { id: campaign.id } }))?.skipReport as { total: number; products: Array<{ id: string }> };
   assert.equal(reporte.total, 1, "solo el 4 es manual; el 1 lo rebajó la otra campaña");
   assert.equal(reporte.products[0].id, "gid://shopify/Product/4");
+  // La variante que tiene la otra campaña no se toca (H1): queda fuera y se avisa.
+  const fila = await prisma.campaignProduct.findFirst({
+    where: { campaignId: campaign.id, shopifyVariantId: "gid://shopify/ProductVariant/1-0" },
+  });
+  assert.equal(fila, null, "la variante de la otra campaña no recibe fila");
+  const solape = readOverlapReport(reporte);
+  assert.equal(solape?.total, 1);
+  assert.equal(solape?.products[0].id, "gid://shopify/Product/1");
+  assert.equal(solape?.products[0].variants, 1);
   await prisma.campaign.delete({ where: { id: otra.id } });
 });
 
