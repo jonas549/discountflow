@@ -4,10 +4,18 @@
 import { prisma } from "../db";
 import {
   getProductsByFilter,
+  readQueryData,
 } from "../shopify/admin-api";
 import { es } from "../../i18n";
 import type { SelectionMode } from "./percentage";
-import { bxgyDiscountTitle, type BxgyCampaignConfig } from "./bxgy-client";
+import {
+  bxgyDiscountTitle,
+  bxgyItemsInput,
+  quitarExcluidos,
+  type BxgyCampaignConfig,
+  type BxgyItemsCurrent,
+  type BxgyItemsTarget,
+} from "./bxgy-client";
 
 export type { BxgyCampaignConfig };
 export type BxgyYMode = SelectionMode | "same-as-x";
@@ -32,20 +40,118 @@ type AdminClient = {
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
-function buildDiscountItems(
+// NOTE: { all: true } is NOT supported for BXGY discounts (Shopify API limitation).
+// Por eso el modo "toda la tienda" se retiró de BxGy: obligaba a resolver el
+// catálogo a ids explícitos, y esa lista topa en MAX_PRODUCTOS_BXGY.
+// Las colecciones son la alternativa: viajan como ids de colección, sin tope.
+function targetDe(
   mode: SelectionMode,
   productIds: string[],
   collectionIds: string[]
-): Record<string, unknown> {
-  // NOTE: { all: true } is NOT supported for BXGY discounts (Shopify API limitation).
-  // Por eso el modo "toda la tienda" se retiró de BxGy: obligaba a resolver el
-  // catálogo a ids explícitos, y esa lista topa en MAX_PRODUCTOS_BXGY.
-  // Las colecciones son la alternativa: viajan como ids de colección, sin tope.
+): BxgyItemsTarget {
   if (mode === "collections" && collectionIds.length > 0)
-    return { collections: { add: collectionIds } };
-  if (productIds.length > 0)
-    return { products: { productsToAdd: productIds } };
-  return { products: { productsToAdd: [] } };
+    return { kind: "collections", collectionIds };
+  return { kind: "products", productIds };
+}
+
+/**
+ * Los productos de unas colecciones, como ids. Deja de pedir páginas en cuanto
+ * supera `tope`: a partir de ahí el resultado ya no cabe en una oferta BxGy y lo
+ * único que falta es decírselo al merchant.
+ */
+async function productosDeColecciones(
+  admin: AdminClient,
+  collectionIds: string[],
+  tope: number
+): Promise<string[]> {
+  const ids = new Set<string>();
+  for (const collectionId of collectionIds) {
+    let cursor: string | null = null;
+    do {
+      const res = await admin.graphql(
+        `#graphql
+        query DfBxgyCollectionProductIds($id: ID!, $cursor: String) {
+          collection(id: $id) {
+            products(first: 250, after: $cursor) {
+              nodes { id }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
+        }`,
+        { variables: { id: collectionId, cursor } }
+      );
+      const collection: {
+        products?: {
+          nodes?: Array<{ id: string }>;
+          pageInfo?: { hasNextPage: boolean; endCursor: string };
+        };
+      } | null = readQueryData(await res.json(), "collection", `colección ${collectionId}`);
+      // Una colección borrada NO es una colección vacía (ver admin-api.ts).
+      if (!collection)
+        throw new Error(`La colección ${collectionId} no existe o la app no tiene acceso a ella.`);
+      for (const n of collection.products?.nodes ?? []) ids.add(n.id);
+      if (ids.size > tope) return [...ids];
+      cursor = collection.products?.pageInfo?.hasNextPage
+        ? collection.products.pageInfo.endCursor
+        : null;
+    } while (cursor);
+  }
+  return [...ids];
+}
+
+type ItemsDeShopify =
+  | {
+      products?: { nodes?: Array<{ id: string }> };
+      collections?: { nodes?: Array<{ id: string }> };
+    }
+  | null
+  | undefined;
+
+/**
+ * Qué productos y colecciones lleva HOY la oferta en Shopify, en X y en Y.
+ * Hace falta para actualizar: Shopify solo suma lo que se le manda, así que lo
+ * que sobra hay que pedirle que lo quite (ver `bxgyItemsInput`).
+ *
+ * Dos consultas y no una: cada punta puede traer 250 ids y juntas pasarían el
+ * coste máximo de una sola consulta.
+ */
+async function itemsActuales(
+  admin: AdminClient,
+  shopifyDiscountId: string
+): Promise<{ x: BxgyItemsCurrent; y: BxgyItemsCurrent }> {
+  const leer = async (punta: "customerBuys" | "customerGets"): Promise<BxgyItemsCurrent> => {
+    const res = await admin.graphql(
+      `#graphql
+      query DfBxgyItemsActuales($id: ID!) {
+        automaticDiscountNode(id: $id) {
+          automaticDiscount {
+            ... on DiscountAutomaticBxgy {
+              ${punta} {
+                items {
+                  ... on DiscountProducts { products(first: 250) { nodes { id } } }
+                  ... on DiscountCollections { collections(first: 250) { nodes { id } } }
+                }
+              }
+            }
+          }
+        }
+      }`,
+      { variables: { id: shopifyDiscountId } }
+    );
+    const nodo: {
+      automaticDiscount?: Record<string, { items?: ItemsDeShopify } | undefined>;
+    } | null = readQueryData(
+      await res.json(),
+      "automaticDiscountNode",
+      `descuento ${shopifyDiscountId}`
+    );
+    const items = nodo?.automaticDiscount?.[punta]?.items;
+    return {
+      productIds: (items?.products?.nodes ?? []).map((n) => n.id),
+      collectionIds: (items?.collections?.nodes ?? []).map((n) => n.id),
+    };
+  };
+  return { x: await leer("customerBuys"), y: await leer("customerGets") };
 }
 
 async function resolveToProductIds(
@@ -88,10 +194,41 @@ async function resolveItems(admin: AdminClient, config: BxgyCampaignConfig) {
     xProductIds = await resolveToProductIds(admin, config.xMode, config.xRawItems);
   }
 
-  // Resolve Y
-  let yMode: SelectionMode = config.yMode === "same-as-x" ? config.xMode : (config.yMode as SelectionMode);
+  // ── Exclusiones de X (QA 2026-11-14, defecto H3) ──────────────────────────
+  // Shopify no tiene «todos menos éstos» en una oferta BxGy: la única forma de
+  // excluir un producto es no mandarlo. Antes la exclusión se guardaba y se
+  // mostraba al editar, pero nunca llegaba al descuento.
+  //
+  // Lo que se GUARDA en la configuración (`xProductIds`) sigue siendo la
+  // selección del merchant sin filtrar: si se guardara ya filtrada, al editar
+  // el producto excluido desaparecería también de la selección.
+  const excluidos = config.xExcludeProductIds ?? [];
+  const xPorColeccion = config.xMode === "collections" && config.xCollectionIds.length > 0;
+  let xTarget: BxgyItemsTarget;
+  if (excluidos.length === 0) {
+    xTarget = targetDe(config.xMode as SelectionMode, xProductIds, config.xCollectionIds);
+  } else {
+    // Una colección viaja como id y Shopify la resuelve en vivo, así que con
+    // exclusiones hay que abrirla aquí y mandar sus productos uno por uno.
+    const candidatos = xPorColeccion
+      ? await productosDeColecciones(
+          admin,
+          config.xCollectionIds,
+          MAX_PRODUCTOS_BXGY + excluidos.length
+        )
+      : xProductIds;
+    const efectivos = quitarExcluidos(candidatos, excluidos);
+    if (efectivos.length === 0) throw new Error(es.nuevaBxgy.errExclusionVaciaX);
+    if (xPorColeccion && efectivos.length > MAX_PRODUCTOS_BXGY)
+      throw new Error(es.nuevaBxgy.errLimiteConExclusiones);
+    xTarget = { kind: "products", productIds: efectivos };
+  }
+
+  // Resolve Y. «Los mismos que X» son los que de verdad activan la oferta: un
+  // producto excluido de X tampoco se regala.
+  const yMode: SelectionMode = config.yMode === "same-as-x" ? (config.xMode as SelectionMode) : (config.yMode as SelectionMode);
   let yProductIds = config.yMode === "same-as-x" ? xProductIds : config.yProductIds;
-  let yCollectionIds = config.yMode === "same-as-x" ? config.xCollectionIds : config.yCollectionIds;
+  const yCollectionIds = config.yMode === "same-as-x" ? config.xCollectionIds : config.yCollectionIds;
 
   if (
     config.yMode !== "same-as-x" &&
@@ -109,13 +246,14 @@ async function resolveItems(admin: AdminClient, config: BxgyCampaignConfig) {
   // Solo aplica a las listas de PRODUCTOS. Una selección por colecciones pasa por
   // aquí con la lista vacía y nunca topa, que es justo la salida que ofrece el
   // mensaje.
-  exigirDentroDelTope(xProductIds);
-  if (config.yMode !== "same-as-x") exigirDentroDelTope(yProductIds);
+  const yTarget: BxgyItemsTarget =
+    config.yMode === "same-as-x" ? xTarget : targetDe(yMode, yProductIds, yCollectionIds);
 
-  const xItems = buildDiscountItems(config.xMode, xProductIds, config.xCollectionIds);
-  const yItems = buildDiscountItems(yMode, yProductIds, yCollectionIds);
+  if (xTarget.kind === "products") exigirDentroDelTope(xTarget.productIds);
+  if (config.yMode !== "same-as-x" && yTarget.kind === "products")
+    exigirDentroDelTope(yTarget.productIds);
 
-  return { xItems, yItems, xProductIds, yProductIds };
+  return { xTarget, yTarget, xProductIds, yProductIds };
 }
 
 function exigirDentroDelTope(productIds: string[]): void {
@@ -139,7 +277,9 @@ export async function createBxgyDiscount(
   startsAt: Date | null,
   endsAt: Date | null
 ): Promise<string> {
-  const { xItems, yItems, xProductIds, yProductIds } = await resolveItems(admin, config);
+  const { xTarget, yTarget, xProductIds, yProductIds } = await resolveItems(admin, config);
+  const xItems = bxgyItemsInput(xTarget);
+  const yItems = bxgyItemsInput(yTarget);
 
   const res = await admin.graphql(
     `#graphql
@@ -215,7 +355,11 @@ export async function updateBxgyDiscount(
   startsAt: Date | null,
   endsAt: Date | null
 ): Promise<void> {
-  const { xItems, yItems, xProductIds, yProductIds } = await resolveItems(admin, config);
+  const { xTarget, yTarget, xProductIds, yProductIds } = await resolveItems(admin, config);
+  // Actualizar es incremental en Shopify: hay que decirle también qué quitar.
+  const actual = await itemsActuales(admin, shopifyDiscountId);
+  const xItems = bxgyItemsInput(xTarget, actual.x);
+  const yItems = bxgyItemsInput(yTarget, actual.y);
 
   const res = await admin.graphql(
     `#graphql

@@ -279,7 +279,12 @@ export const es = {
     avisoModoLegado:
       "Esta campaña usaba «Toda la tienda», una opción que ya no está disponible: Shopify limita a 250 los productos que puede llevar una oferta Compra X, obtén Y, y tu catálogo los supera. Elegí una colección para continuar. Mientras no la edites, la campaña sigue funcionando como hasta ahora.",
     excluirToggle: "Excluir productos de X",
-    excluirHelper: "Excluye productos específicos que NO activarán la regla",
+    excluirHelper:
+      "Excluye productos específicos que NO activarán la regla. Si X es una colección, la lista de productos se fija al guardar: cuando agregues productos a la colección, vuelve a guardar la campaña para incluirlos.",
+    errExclusionVaciaX:
+      "Las exclusiones dejan a X sin ningún producto. Quitá alguna exclusión o ampliá la selección.",
+    errLimiteConExclusiones:
+      "Para excluir productos de una colección hay que enviarle a Shopify los productos uno por uno, y admite 250 como máximo en una oferta Compra X, obtén Y. Esta selección tiene más. Quitá las exclusiones, o usá una colección que ya deje fuera esos productos.",
     btnExcluirProductos: "Seleccionar exclusiones",
     // Tooltip for BXGY campaigns in table
     tooltipGestionado: "Este descuento se gestiona desde DiscountFlow. Evita editarlo directamente desde la sección Descuentos de Shopify.",

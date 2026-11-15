@@ -52,3 +52,58 @@ export function bxgyDiscountLabel(config: BxgyCampaignConfig): string {
   if (config.discountType === "free") return `Compra ${xQty}, lleva ${yQty} GRATIS`;
   return `Compra ${xQty}, lleva ${yQty} al ${config.discountValue ?? 0}%`;
 }
+
+// ─── Qué productos lleva la oferta en Shopify ─────────────────────────────────
+
+/** Lo que una punta de la oferta (X o Y) tiene que llevar en Shopify. */
+export type BxgyItemsTarget =
+  | { kind: "collections"; collectionIds: string[] }
+  | { kind: "products"; productIds: string[] };
+
+/** Lo que esa punta lleva HOY en Shopify (solo al actualizar). */
+export type BxgyItemsCurrent = { productIds: string[]; collectionIds: string[] };
+
+/** Quita de la lista los productos excluidos, sin alterar el orden. */
+export function quitarExcluidos(productIds: string[], excluidos: readonly string[]): string[] {
+  if (excluidos.length === 0) return productIds;
+  const fuera = new Set(excluidos);
+  return productIds.filter((id) => !fuera.has(id));
+}
+
+/**
+ * El `DiscountItemsInput` que deja la punta EXACTAMENTE como dice `target`.
+ *
+ * 🔴 En Shopify, actualizar una oferta BxGy es INCREMENTAL (medido contra la API
+ * el 2026-11-15): `productsToAdd` suma a lo que ya había y no quita nada, y
+ * pasar de colección a productos sin retirar la colección se rechaza con
+ * «Cannot have collection prerequisites in combination with product
+ * prerequisites». Por eso, al actualizar, se manda también lo que hay que
+ * QUITAR: todo lo que la oferta lleva hoy y ya no está en el objetivo. Sin eso,
+ * un producto que el merchant saca (o excluye) seguía activando la oferta.
+ *
+ * Quitar algo que ya no estaba no es un error para Shopify.
+ */
+export function bxgyItemsInput(
+  target: BxgyItemsTarget,
+  current: BxgyItemsCurrent = { productIds: [], collectionIds: [] }
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+
+  if (target.kind === "collections") {
+    const quedan = new Set(target.collectionIds);
+    const sobran = current.collectionIds.filter((id) => !quedan.has(id));
+    out.collections = sobran.length > 0
+      ? { add: target.collectionIds, remove: sobran }
+      : { add: target.collectionIds };
+    if (current.productIds.length > 0) out.products = { productsToRemove: current.productIds };
+    return out;
+  }
+
+  const quedan = new Set(target.productIds);
+  const sobran = current.productIds.filter((id) => !quedan.has(id));
+  out.products = sobran.length > 0
+    ? { productsToAdd: target.productIds, productsToRemove: sobran }
+    : { productsToAdd: target.productIds };
+  if (current.collectionIds.length > 0) out.collections = { remove: current.collectionIds };
+  return out;
+}
