@@ -645,6 +645,23 @@ export const applyHandler: JobHandler = {
   },
 };
 
+/**
+ * Reescribe el metafield del widget de packs con el estado YA guardado.
+ *
+ * 🔴 Va en `finalize`, DESPUÉS de cambiar el estado de la campaña (o de borrarla),
+ * nunca en `runUnits`. El metafield se recalcula entero desde Postgres leyendo
+ * las campañas ACTIVE: si se escribe antes de que la campaña cambie de estado,
+ * describe el mundo ANTERIOR a la acción — un pack pausado se sigue ofreciendo
+ * (y el carrito cobra completo), uno reactivado no aparece, uno eliminado vuelve
+ * a verse (QA 2026-11-14, defecto H2).
+ *
+ * No lanza nunca (ver `sincronizarMetafieldDeWidget`).
+ */
+async function sincronizarWidgetDePacks(ctx: OpContext): Promise<void> {
+  if (ctx.campaign.type !== "PACK") return;
+  await (await packWidget()).sincronizarMetafieldDeWidget(ctx.admin, ctx.campaign.shopId);
+}
+
 // ─── REACTIVATE ───────────────────────────────────────────────────────────────
 
 export const reactivateHandler: JobHandler = {
@@ -698,7 +715,6 @@ export const reactivateHandler: JobHandler = {
         ctx.campaign.endsAt
       );
       await pk.activatePackDiscount(ctx.admin, id);
-      await (await packWidget()).sincronizarMetafieldDeWidget(ctx.admin, ctx.campaign.shopId);
     } else if (ctx.campaign.type === "CART_VALUE") {
       // Igual que TIERED y PACK: se reescribe el metafield antes de activar,
       // para que el descuento refleje lo ultimo que guardo el merchant.
@@ -749,6 +765,7 @@ export const reactivateHandler: JobHandler = {
       where: { id: ctx.campaign.id },
       data: { status: "ACTIVE" },
     });
+    await sincronizarWidgetDePacks(ctx);
   },
 };
 
@@ -766,10 +783,9 @@ export const revertHandler: JobHandler = {
     if (!id) throw new JobFatalError("La campaña no tiene un descuento de Shopify asociado.");
     if (ctx.campaign.type === "TIERED")
       await (await tieredOps()).deactivateTieredDiscount(ctx.admin, id);
-    else if (ctx.campaign.type === "PACK") {
+    else if (ctx.campaign.type === "PACK")
       await (await packOps()).deactivatePackDiscount(ctx.admin, id);
-      await (await packWidget()).sincronizarMetafieldDeWidget(ctx.admin, ctx.campaign.shopId);
-    } else if (ctx.campaign.type === "CART_VALUE")
+    else if (ctx.campaign.type === "CART_VALUE")
       await (await cartValueOps()).deactivateCartValueDiscount(ctx.admin, id);
     else if (ctx.campaign.type === "CODE_ORIGINAL_PRICE")
       await (await cuponOps()).deactivateOriginalPriceDiscount(
@@ -791,6 +807,7 @@ export const revertHandler: JobHandler = {
       where: { id: ctx.campaign.id },
       data: { status: "PAUSED" },
     });
+    await sincronizarWidgetDePacks(ctx);
   },
 };
 
@@ -827,10 +844,6 @@ export const deleteHandler: JobHandler = {
         // El descuento puede haber sido borrado ya desde el admin de Shopify.
       }
     }
-    // Tambien cuando el descuento ya no estaba: del metafield hay que quitar la
-    // campana, no el descuento.
-    if (ctx.campaign.type === "PACK")
-      await (await packWidget()).sincronizarMetafieldDeWidget(ctx.admin, ctx.campaign.shopId);
     await markSingleDone(ctx);
     return { succeeded: units, failures: [] };
   },
@@ -850,6 +863,9 @@ export const deleteHandler: JobHandler = {
    */
   async finalize(ctx) {
     await prisma.campaign.delete({ where: { id: ctx.campaign.id } });
+    // También cuando el descuento ya no estaba en Shopify: del metafield hay que
+    // quitar la campaña, no el descuento.
+    await sincronizarWidgetDePacks(ctx);
   },
 };
 
