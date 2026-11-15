@@ -28,6 +28,7 @@ import {
   updateBxgyDiscount,
   activateBxgyDiscount,
   deactivateBxgyDiscount,
+  validarSeleccionBxgy,
   type BxgyCampaignConfig,
   type BxgyYMode,
 } from "../lib/discounts/bxgy";
@@ -267,6 +268,20 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     discountValue: discountType === "free" ? 0 : discountValue,
     shopifyDiscountId: existingConfig.shopifyDiscountId,
   };
+
+  // QA de H3, falla F1: comprobar la selección ANTES de apagar el descuento y
+  // guardar. Si no se puede mandar a Shopify, se rechaza aquí y la campaña
+  // queda exactamente como estaba (antes terminaba en borrador y apagada).
+  if (shouldActivate) {
+    try {
+      await validarSeleccionBxgy(admin, newConfig);
+    } catch (err) {
+      return Response.json(
+        { errors: { general: err instanceof Error ? err.message : String(err) } },
+        { status: 422 }
+      );
+    }
+  }
 
   // If currently ACTIVE, deactivate before updating
   if (existing.status === "ACTIVE" && existingConfig.shopifyDiscountId) {

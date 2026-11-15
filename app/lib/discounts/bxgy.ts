@@ -256,6 +256,23 @@ async function resolveItems(admin: AdminClient, config: BxgyCampaignConfig) {
   return { xTarget, yTarget, xProductIds, yProductIds };
 }
 
+/**
+ * Comprueba que la selección se puede mandar a Shopify, sin escribir nada.
+ * Lanza con el mismo mensaje que daría crear o actualizar el descuento.
+ *
+ * Existe para la edición de una campaña ACTIVA (QA de H3, falla F1): la ruta
+ * apaga el descuento y guarda antes de actualizarlo, así que una selección
+ * inválida (exclusiones que dejan a X vacío, tope de 250) dejaba la campaña en
+ * borrador y la promoción apagada. Llamando a esto primero, el guardado se
+ * rechaza y la campaña queda como estaba.
+ */
+export async function validarSeleccionBxgy(
+  admin: AdminClient,
+  config: BxgyCampaignConfig
+): Promise<void> {
+  await resolveItems(admin, config);
+}
+
 function exigirDentroDelTope(productIds: string[]): void {
   if (productIds.length > MAX_PRODUCTOS_BXGY)
     throw new Error(es.nuevaBxgy.errLimiteProductos(productIds.length));
