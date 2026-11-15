@@ -1,7 +1,7 @@
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 
-import { bulkUpdateVariantPrices, getExistingVariantIds, isMissingInShopify } from "./admin-api.ts";
+import { bulkUpdateVariantPrices, getExistingVariantIds, getProductMetadata, isMissingInShopify } from "./admin-api.ts";
 
 // ─── isMissingInShopify ───────────────────────────────────────────────────────
 //
@@ -147,4 +147,69 @@ test("un throttling LANZADO por el cliente también se reintenta (no es incidenc
       ),
     /boom/
   );
+});
+
+// ─── getProductMetadata (QA 2026-11-14, defecto H4) ──────────────────────────
+//
+// Antes deducía tags, vendedores y tipos de los primeros 250 productos: en una
+// tienda más grande faltaban opciones en los selectores.
+
+function adminDeMetadata(
+  paginas: Record<string, string[][]>,
+  opciones: { romperListas?: boolean } = {}
+) {
+  const consultas: string[] = [];
+  const admin = {
+    graphql: async (q: string, o?: { variables: unknown }) => {
+      const campo = ["productTags", "productVendors", "productTypes"].find((c) => q.includes(`${c}(`));
+      consultas.push(campo ?? "products");
+      if (campo) {
+        if (opciones.romperListas) return Response.json({ errors: [{ message: "no existe" }] });
+        const after = (o?.variables as { after: string | null }).after;
+        const i = after ? Number(after) : 0;
+        const todas = paginas[campo] ?? [[]];
+        return Response.json({
+          data: {
+            [campo]: {
+              nodes: todas[i] ?? [],
+              pageInfo: { hasNextPage: i < todas.length - 1, endCursor: String(i + 1) },
+            },
+          },
+        });
+      }
+      return Response.json({
+        data: { products: { nodes: [{ vendor: "Viejo", productType: "Tipo", tags: ["b", "a"] }] } },
+      });
+    },
+  };
+  return { admin, consultas };
+}
+
+test("getProductMetadata lee las listas completas, sin pasar por los productos", async () => {
+  const { admin, consultas } = adminDeMetadata({
+    productTags: [["verano", "oferta", "verano"]],
+    productVendors: [["Zeta", "", "Alfa"]],
+    productTypes: [["Ropa"]],
+  });
+  const m = await getProductMetadata(admin);
+  assert.deepEqual(m, { tags: ["oferta", "verano"], vendors: ["Alfa", "Zeta"], productTypes: ["Ropa"] });
+  assert.equal(consultas.includes("products"), false);
+});
+
+test("getProductMetadata sigue paginando hasta agotar cada lista", async () => {
+  const { admin, consultas } = adminDeMetadata({
+    productTags: [["a"], ["b"], ["c"]],
+    productVendors: [["V1"], ["V2"]],
+    productTypes: [["T"]],
+  });
+  const m = await getProductMetadata(admin);
+  assert.deepEqual(m.tags, ["a", "b", "c"]);
+  assert.deepEqual(m.vendors, ["V1", "V2"]);
+  assert.equal(consultas.filter((c) => c === "productTags").length, 3);
+});
+
+test("getProductMetadata cae al método anterior si las listas fallan", async () => {
+  const { admin } = adminDeMetadata({}, { romperListas: true });
+  const m = await getProductMetadata(admin);
+  assert.deepEqual(m, { tags: ["a", "b"], vendors: ["Viejo"], productTypes: ["Tipo"] });
 });

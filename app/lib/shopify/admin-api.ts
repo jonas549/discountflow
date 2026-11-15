@@ -339,10 +339,77 @@ export async function bulkUpdateVariantPrices(
   }
 }
 
-// Get unique tags, vendors, and product types from the store (up to 250 products).
-export async function getProductMetadata(
-  admin: { graphql: (q: string, o?: { variables: unknown }) => Promise<Response> }
-): Promise<{ tags: string[]; vendors: string[]; productTypes: string[] }> {
+type ProductMetadata = { tags: string[]; vendors: string[]; productTypes: string[] };
+type MetadataAdmin = { graphql: (q: string, o?: { variables: unknown }) => Promise<Response> };
+
+// Tamaño máximo de página que admite Shopify en cada lista.
+const METADATA_LISTAS = [
+  { campo: "productTags", pagina: 5000 },
+  { campo: "productVendors", pagina: 1000 },
+  { campo: "productTypes", pagina: 1000 },
+] as const;
+// Tope de páginas por lista: evita un bucle sin fin si Shopify repitiera cursor.
+const METADATA_MAX_PAGINAS = 20;
+
+/** Sin vacíos ni repetidos, en el mismo orden que usaba el método anterior. */
+export function ordenarMetadata(valores: string[]): string[] {
+  return [...new Set(valores.filter((v) => typeof v === "string" && v !== ""))].sort();
+}
+
+async function leerListaDeMetadata(
+  admin: MetadataAdmin,
+  campo: (typeof METADATA_LISTAS)[number]["campo"],
+  pagina: number
+): Promise<string[]> {
+  const valores: string[] = [];
+  let cursor: string | null = null;
+  for (let i = 0; i < METADATA_MAX_PAGINAS; i++) {
+    const res = await admin.graphql(
+      `#graphql
+      query DfProductMetadataLista($first: Int!, $after: String) {
+        ${campo}(first: $first, after: $after) {
+          nodes
+          pageInfo { hasNextPage endCursor }
+        }
+      }`,
+      { variables: { first: pagina, after: cursor } }
+    );
+    const json = await res.json();
+    const lista = json.data?.[campo] as
+      | { nodes?: string[]; pageInfo?: { hasNextPage: boolean; endCursor: string | null } }
+      | undefined;
+    if (!lista) throw new Error(`Shopify no devolvió ${campo}`);
+    valores.push(...(lista.nodes ?? []));
+    if (!lista.pageInfo?.hasNextPage || !lista.pageInfo.endCursor) break;
+    cursor = lista.pageInfo.endCursor;
+  }
+  return valores;
+}
+
+// Tags, vendedores y tipos de producto de TODA la tienda.
+//
+// QA 2026-11-14, defecto H4: antes se deducían de los primeros 250 productos,
+// así que en una tienda más grande faltaban opciones en los selectores. Ahora se
+// piden las listas completas a Shopify. Si esa lectura falla, se cae al método
+// anterior para que el formulario siga abriendo.
+export async function getProductMetadata(admin: MetadataAdmin): Promise<ProductMetadata> {
+  try {
+    const [tags, vendors, productTypes] = await Promise.all(
+      METADATA_LISTAS.map((l) => leerListaDeMetadata(admin, l.campo, l.pagina))
+    );
+    return {
+      tags: ordenarMetadata(tags),
+      vendors: ordenarMetadata(vendors),
+      productTypes: ordenarMetadata(productTypes),
+    };
+  } catch (err) {
+    console.error("[getProductMetadata] listas completas no disponibles, uso los primeros 250 productos:", err);
+    return getProductMetadataDesdeProductos(admin);
+  }
+}
+
+// Método anterior (hasta 250 productos). Queda solo como respaldo.
+async function getProductMetadataDesdeProductos(admin: MetadataAdmin): Promise<ProductMetadata> {
   const res = await admin.graphql(`#graphql
     query GetProductMetadata {
       products(first: 250, sortKey: ID) {
