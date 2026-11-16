@@ -7,10 +7,19 @@ export type BxgyCampaignConfig = {
   xRawItems: string[];
   xMinQuantity: number;
   xExcludeProductIds: string[];
+  /**
+   * Variantes sueltas de X, por producto (defecto H7). Solo figuran los
+   * productos de los que el merchant eligió ALGUNAS variantes; el producto
+   * sigue estando en `xProductIds`. Ausente o sin la clave = producto entero,
+   * que es como se comportan todas las campañas guardadas antes.
+   */
+  xVariantIds?: Record<string, string[]>;
   yMode: string;
   yProductIds: string[];
   yCollectionIds: string[];
   yRawItems: string[];
+  /** Lo mismo que `xVariantIds`, para Y. */
+  yVariantIds?: Record<string, string[]>;
   yQuantity: number;
   discountType: "free" | "percentage";
   discountValue: number;
@@ -58,10 +67,64 @@ export function bxgyDiscountLabel(config: BxgyCampaignConfig): string {
 /** Lo que una punta de la oferta (X o Y) tiene que llevar en Shopify. */
 export type BxgyItemsTarget =
   | { kind: "collections"; collectionIds: string[] }
-  | { kind: "products"; productIds: string[] };
+  | { kind: "products"; productIds: string[]; variantIds?: string[] };
 
 /** Lo que esa punta lleva HOY en Shopify (solo al actualizar). */
-export type BxgyItemsCurrent = { productIds: string[]; collectionIds: string[] };
+export type BxgyItemsCurrent = {
+  productIds: string[];
+  collectionIds: string[];
+  variantIds?: string[];
+};
+
+// ─── Variantes sueltas (defecto H7) ───────────────────────────────────────────
+
+export type SeleccionDeProducto = { id: string; variants?: Array<{ id: string }> };
+
+/**
+ * De la selección del formulario, qué productos van con variantes SUELTAS.
+ *
+ * Un producto es parcial solo si el merchant eligió al menos una variante y
+ * menos de las que el producto tiene hoy en Shopify (`totales`). En cualquier
+ * otro caso va entero, igual que antes: sin variantes en la selección (el
+ * selector a veces las manda vacías), con todas elegidas, o si no se sabe
+ * cuántas tiene. Entero es además lo que sigue al día solo cuando el producto
+ * gana una variante nueva.
+ */
+export function variantesParciales(
+  seleccion: SeleccionDeProducto[],
+  totales: ReadonlyMap<string, number>
+): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const p of seleccion) {
+    const elegidas = [...new Set((p.variants ?? []).map((v) => v?.id).filter(Boolean))] as string[];
+    const total = totales.get(p.id);
+    if (total === undefined) continue;
+    if (elegidas.length > 0 && elegidas.length < total) out[p.id] = elegidas;
+  }
+  return out;
+}
+
+/**
+ * Reparte una lista de productos en lo que viaja a Shopify: los enteros como
+ * producto y los parciales como sus variantes. Sin parciales devuelve
+ * exactamente el objetivo de siempre (sin la clave `variantIds`).
+ */
+export function targetDeProductos(
+  productIds: string[],
+  variantesPorProducto: Record<string, string[]> | undefined
+): BxgyItemsTarget {
+  const parciales = variantesPorProducto ?? {};
+  const enteros: string[] = [];
+  const variantIds: string[] = [];
+  for (const id of productIds) {
+    const vs = parciales[id];
+    if (vs && vs.length > 0) variantIds.push(...vs);
+    else enteros.push(id);
+  }
+  return variantIds.length > 0
+    ? { kind: "products", productIds: enteros, variantIds }
+    : { kind: "products", productIds: enteros };
+}
 
 /** Quita de la lista los productos excluidos, sin alterar el orden. */
 export function quitarExcluidos(productIds: string[], excluidos: readonly string[]): string[] {
@@ -95,15 +158,29 @@ export function bxgyItemsInput(
     out.collections = sobran.length > 0
       ? { add: target.collectionIds, remove: sobran }
       : { add: target.collectionIds };
-    if (current.productIds.length > 0) out.products = { productsToRemove: current.productIds };
+    const variantesHoy = current.variantIds ?? [];
+    if (current.productIds.length > 0 || variantesHoy.length > 0) {
+      const quitar: Record<string, unknown> = {};
+      if (current.productIds.length > 0) quitar.productsToRemove = current.productIds;
+      if (variantesHoy.length > 0) quitar.productVariantsToRemove = variantesHoy;
+      out.products = quitar;
+    }
     return out;
   }
 
   const quedan = new Set(target.productIds);
   const sobran = current.productIds.filter((id) => !quedan.has(id));
-  out.products = sobran.length > 0
+  const products: Record<string, unknown> = sobran.length > 0
     ? { productsToAdd: target.productIds, productsToRemove: sobran }
     : { productsToAdd: target.productIds };
+  // Variantes sueltas (H7). Las claves solo se mandan si hay algo que poner o
+  // quitar: una oferta de productos enteros recibe el mismo input que antes.
+  const variantes = target.variantIds ?? [];
+  const quedanVariantes = new Set(variantes);
+  const sobranVariantes = (current.variantIds ?? []).filter((id) => !quedanVariantes.has(id));
+  if (variantes.length > 0) products.productVariantsToAdd = variantes;
+  if (sobranVariantes.length > 0) products.productVariantsToRemove = sobranVariantes;
+  out.products = products;
   if (current.collectionIds.length > 0) out.collections = { remove: current.collectionIds };
   return out;
 }

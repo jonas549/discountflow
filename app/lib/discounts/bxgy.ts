@@ -13,6 +13,9 @@ import {
   bxgyDiscountTitle,
   bxgyItemsInput,
   quitarExcluidos,
+  targetDeProductos,
+  variantesParciales,
+  type SeleccionDeProducto,
   type BxgyCampaignConfig,
   type BxgyItemsCurrent,
   type BxgyItemsTarget,
@@ -48,11 +51,54 @@ type AdminClient = {
 function targetDe(
   mode: SelectionMode,
   productIds: string[],
-  collectionIds: string[]
+  collectionIds: string[],
+  variantesPorProducto?: Record<string, string[]>
 ): BxgyItemsTarget {
   if (mode === "collections" && collectionIds.length > 0)
     return { kind: "collections", collectionIds };
-  return { kind: "products", productIds };
+  // Las variantes sueltas solo existen en «Productos específicos»: en los demás
+  // modos la lista sale de una búsqueda y siempre son productos enteros.
+  return targetDeProductos(productIds, mode === "products" ? variantesPorProducto : undefined);
+}
+
+/**
+ * Qué productos de la selección van con variantes SUELTAS (defecto H7).
+ *
+ * El selector de Shopify devuelve, por producto, las variantes marcadas. Antes
+ * se guardaba solo el id del producto, así que elegir una variante mandaba el
+ * producto entero y la oferta regalaba de más. Para saber si la selección es
+ * parcial hace falta cuántas variantes tiene el producto HOY, y eso se le
+ * pregunta a Shopify: el formulario no es fuente fiable de ese número.
+ *
+ * Lanza si la lectura falla: guardar «producto entero» por una lectura caída
+ * sería justo el defecto que esto arregla.
+ */
+export async function variantesSueltas(
+  admin: AdminClient,
+  seleccion: SeleccionDeProducto[]
+): Promise<Record<string, string[]>> {
+  const conVariantes = seleccion.filter((p) => (p.variants ?? []).length > 0);
+  if (conVariantes.length === 0) return {};
+  const totales = new Map<string, number>();
+  for (let i = 0; i < conVariantes.length; i += 250) {
+    const ids = conVariantes.slice(i, i + 250).map((p) => p.id);
+    const res = await admin.graphql(
+      `#graphql
+      query DfBxgyTotalDeVariantes($ids: [ID!]!) {
+        nodes(ids: $ids) {
+          ... on Product { id variantsCount { count } }
+        }
+      }`,
+      { variables: { ids } }
+    );
+    const nodes: Array<{ id?: string; variantsCount?: { count?: number } } | null> | null =
+      readQueryData(await res.json(), "nodes", "variantes de los productos elegidos");
+    for (const n of nodes ?? []) {
+      if (n?.id && typeof n.variantsCount?.count === "number")
+        totales.set(n.id, n.variantsCount.count);
+    }
+  }
+  return variantesParciales(conVariantes, totales);
 }
 
 /**
@@ -103,6 +149,7 @@ async function productosDeColecciones(
 type ItemsDeShopify =
   | {
       products?: { nodes?: Array<{ id: string }> };
+      productVariants?: { nodes?: Array<{ id: string }> };
       collections?: { nodes?: Array<{ id: string }> };
     }
   | null
@@ -129,7 +176,10 @@ async function itemsActuales(
             ... on DiscountAutomaticBxgy {
               ${punta} {
                 items {
-                  ... on DiscountProducts { products(first: 250) { nodes { id } } }
+                  ... on DiscountProducts {
+                    products(first: 250) { nodes { id } }
+                    productVariants(first: 250) { nodes { id } }
+                  }
                   ... on DiscountCollections { collections(first: 250) { nodes { id } } }
                 }
               }
@@ -150,6 +200,7 @@ async function itemsActuales(
     return {
       productIds: (items?.products?.nodes ?? []).map((n) => n.id),
       collectionIds: (items?.collections?.nodes ?? []).map((n) => n.id),
+      variantIds: (items?.productVariants?.nodes ?? []).map((n) => n.id),
     };
   };
   return { x: await leer("customerBuys"), y: await leer("customerGets") };
@@ -186,12 +237,15 @@ async function resolveItems(admin: AdminClient, config: BxgyCampaignConfig) {
   // `resolveToProductIds` lanza con un mensaje claro en vez de rehacer el
   // catálogo entero. Si la campaña legada ya trae sus ids resueltos y son 250 o
   // menos, sigue funcionando: solo la corta el guard del tope.
+  //
+  // 🔴 H8: en tags, vendors y productTypes se resuelve SIEMPRE desde lo que el
+  // merchant eligió (`xRawItems`), aunque la configuración traiga una lista de
+  // ids. Antes una lista guardada mandaba: al pasar de «Productos específicos»
+  // a «Etiquetas», los productos viejos seguían en la lista y la etiqueta no
+  // llegaba nunca a Shopify. "all" conserva la condición de siempre.
   let xProductIds = config.xProductIds;
-  if (
-    (config.xMode === "all" || config.xMode === "tags" || config.xMode === "vendors" || config.xMode === "productTypes") &&
-    xProductIds.length === 0
-  ) {
-    xProductIds = await resolveToProductIds(admin, config.xMode, config.xRawItems);
+  if (seResuelvePorBusqueda(config.xMode) || (config.xMode === "all" && xProductIds.length === 0)) {
+    xProductIds = await resolveToProductIds(admin, config.xMode as SelectionMode, config.xRawItems);
   }
 
   // ── Exclusiones de X (QA 2026-11-14, defecto H3) ──────────────────────────
@@ -206,7 +260,7 @@ async function resolveItems(admin: AdminClient, config: BxgyCampaignConfig) {
   const xPorColeccion = config.xMode === "collections" && config.xCollectionIds.length > 0;
   let xTarget: BxgyItemsTarget;
   if (excluidos.length === 0) {
-    xTarget = targetDe(config.xMode as SelectionMode, xProductIds, config.xCollectionIds);
+    xTarget = targetDe(config.xMode as SelectionMode, xProductIds, config.xCollectionIds, config.xVariantIds);
   } else {
     // Una colección viaja como id y Shopify la resuelve en vivo, así que con
     // exclusiones hay que abrirla aquí y mandar sus productos uno por uno.
@@ -221,7 +275,12 @@ async function resolveItems(admin: AdminClient, config: BxgyCampaignConfig) {
     if (efectivos.length === 0) throw new Error(es.nuevaBxgy.errExclusionVaciaX);
     if (xPorColeccion && efectivos.length > MAX_PRODUCTOS_BXGY)
       throw new Error(es.nuevaBxgy.errLimiteConExclusiones);
-    xTarget = { kind: "products", productIds: efectivos };
+    // Un producto excluido sale con todas sus variantes: las sueltas cuelgan
+    // de su producto, así que basta con repartir los que quedaron.
+    xTarget = targetDeProductos(
+      efectivos,
+      config.xMode === "products" ? config.xVariantIds : undefined
+    );
   }
 
   // Resolve Y. «Los mismos que X» son los que de verdad activan la oferta: un
@@ -232,8 +291,7 @@ async function resolveItems(admin: AdminClient, config: BxgyCampaignConfig) {
 
   if (
     config.yMode !== "same-as-x" &&
-    (yMode === "all" || yMode === "tags" || yMode === "vendors" || yMode === "productTypes") &&
-    yProductIds.length === 0
+    (seResuelvePorBusqueda(yMode) || (yMode === "all" && yProductIds.length === 0))
   ) {
     yProductIds = await resolveToProductIds(admin, yMode, config.yRawItems);
   }
@@ -247,11 +305,17 @@ async function resolveItems(admin: AdminClient, config: BxgyCampaignConfig) {
   // aquí con la lista vacía y nunca topa, que es justo la salida que ofrece el
   // mensaje.
   const yTarget: BxgyItemsTarget =
-    config.yMode === "same-as-x" ? xTarget : targetDe(yMode, yProductIds, yCollectionIds);
+    config.yMode === "same-as-x"
+      ? xTarget
+      : targetDe(yMode, yProductIds, yCollectionIds, config.yVariantIds);
 
-  if (xTarget.kind === "products") exigirDentroDelTope(xTarget.productIds);
-  if (config.yMode !== "same-as-x" && yTarget.kind === "products")
-    exigirDentroDelTope(yTarget.productIds);
+  // El tope es por lista: los productos enteros por un lado y las variantes
+  // sueltas por otro.
+  for (const t of config.yMode === "same-as-x" ? [xTarget] : [xTarget, yTarget]) {
+    if (t.kind !== "products") continue;
+    exigirDentroDelTope(t.productIds);
+    exigirDentroDelTope(t.variantIds ?? []);
+  }
 
   return { xTarget, yTarget, xProductIds, yProductIds };
 }
@@ -271,6 +335,10 @@ export async function validarSeleccionBxgy(
   config: BxgyCampaignConfig
 ): Promise<void> {
   await resolveItems(admin, config);
+}
+
+function seResuelvePorBusqueda(mode: string): boolean {
+  return mode === "tags" || mode === "vendors" || mode === "productTypes";
 }
 
 function exigirDentroDelTope(productIds: string[]): void {

@@ -27,6 +27,7 @@ import { getOrCreateShop } from "../lib/shopify/shop.server";
 import { getCollections, getProductMetadata } from "../lib/shopify/admin-api";
 import {
   createBxgyDiscount,
+  variantesSueltas,
   type BxgyCampaignConfig,
   type BxgyYMode,
 } from "../lib/discounts/bxgy";
@@ -214,15 +215,33 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     ? xExcluded.map((p) => p.id)
     : [];
 
+  // La lista de productos solo vale en «Productos específicos» (ver H8 en la
+  // ruta de edición), y de ella se separan las variantes sueltas (H7).
+  const xElegidos = xMode === "products" ? xProducts : [];
+  const yElegidos = yMode === "products" ? yProducts : [];
+  let xVariantIds: Record<string, string[]>;
+  let yVariantIds: Record<string, string[]>;
+  try {
+    xVariantIds = await variantesSueltas(admin, xElegidos);
+    yVariantIds = await variantesSueltas(admin, yElegidos);
+  } catch (err) {
+    return Response.json(
+      { errors: { general: err instanceof Error ? err.message : String(err) } },
+      { status: 422 }
+    );
+  }
+
   const config: BxgyCampaignConfig = {
     xMode: xMode as SelectionMode,
-    xProductIds: xProducts.map((p) => p.id),
+    xProductIds: xElegidos.map((p) => p.id),
+    xVariantIds,
     xCollectionIds,
     xRawItems: xMode === "tags" ? xTags : xMode === "vendors" ? xVendors : xMode === "productTypes" ? xTypes : [],
     xMinQuantity,
     xExcludeProductIds,
     yMode: yMode as BxgyYMode,
-    yProductIds: yProducts.map((p) => p.id),
+    yProductIds: yElegidos.map((p) => p.id),
+    yVariantIds,
     yCollectionIds,
     yRawItems: yMode === "tags" ? yTags : yMode === "vendors" ? yVendors : yMode === "productTypes" ? yTypes : [],
     yQuantity,
@@ -262,7 +281,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
 // ─── Local UI helpers ─────────────────────────────────────────────────────────
 
-type ProductItem = { id: string; title: string; variants: Array<{ id: string }> };
+type ProductItem = { id: string; title: string; variants: Array<{ id: string }>; parcial?: boolean };
 type CollectionItem = { id: string; title: string };
 
 // 🔴 «Toda la tienda» NO está aquí, a diferencia de Porcentaje, Rango y
@@ -803,15 +822,30 @@ export default function NewBxgyCampaign() {
     const selected = await shopify.resourcePicker({
       type: "product",
       multiple: true,
-      selectionIds: current.map((p) => ({ id: p.id })),
+      // H7: un producto con variantes sueltas se reabre con ESAS variantes
+      // marcadas. Uno entero se manda solo con su id, como siempre.
+      selectionIds: current.map((p) =>
+        p.parcial ? { id: p.id, variants: p.variants.map((v) => ({ id: v.id })) } : { id: p.id }
+      ),
     });
     if (selected)
       onSet(
-        selected.map((p: { id: string; title: string; variants: Array<{ id: string }> }) => ({
-          id: p.id,
-          title: p.title,
-          variants: p.variants ?? [],
-        }))
+        selected.map(
+          (p: { id: string; title: string; variants: Array<{ id: string }>; totalVariants?: number }) => {
+            const variants = (p.variants ?? []).filter((v) => v?.id).map((v) => ({ id: v.id }));
+            return {
+              id: p.id,
+              title: p.title,
+              variants,
+              // Solo orienta a la pantalla; si la selección es parcial lo decide
+              // el servidor al guardar, preguntándole a Shopify.
+              parcial:
+                typeof p.totalVariants === "number" &&
+                variants.length > 0 &&
+                variants.length < p.totalVariants,
+            };
+          }
+        )
       );
   };
 
