@@ -110,3 +110,17 @@ test("N1: el tamaño se mide en bytes reales (una ñ en el mensaje pesa 2)", () 
   assert.equal(tieredConfigBytes({ ...base, message: "ññññ" }) - tieredConfigBytes(base), 4);
   assert.ok(TIERED_METAFIELD_MAX_BYTES < 10_000);
 });
+
+test("N1: con ids de distinto largo el máximo no castiga a todos por los largos", () => {
+  // 14 ids largos (como los productos nuevos) + 300 cortos.
+  const largos = Array.from({ length: 14 }, (_, i) => `gid://shopify/Product/${15000000000000 + i}`);
+  const todos = [...largos, ...ids(300)];
+  const maximo = maximoDe(mensajeTieredDemasiadoGrande(campana({ productIds: todos }))!);
+  // El peor subconjunto de ese tamaño (todos los largos adentro) entra…
+  assert.equal(
+    mensajeTieredDemasiadoGrande(campana({ productIds: [...largos, ...ids(maximo - 14)] })),
+    null
+  );
+  // …y con uno más ya no.
+  assert.ok(mensajeTieredDemasiadoGrande(campana({ productIds: [...largos, ...ids(maximo - 13)] })));
+});

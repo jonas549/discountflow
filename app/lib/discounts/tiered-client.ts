@@ -196,7 +196,10 @@ export function tieredConfigBytes(config: TieredCampaignConfig): number {
 }
 
 /** La selección no entra en lo que la Function puede leer. */
-export class TieredDemasiadoGrandeError extends Error {}
+export class TieredDemasiadoGrandeError extends Error {
+  // Se reconoce por `name`, no con `instanceof` (ver `jobs/errors.ts`).
+  readonly name = "TieredDemasiadoGrandeError";
+}
 
 /**
  * `null` si la campaña entra; si no, el texto para el comerciante, con cuántos
@@ -213,13 +216,18 @@ export function mensajeTieredDemasiadoGrande(config: TieredCampaignConfig): stri
   const sinLista = tieredConfigBytes(
     todaLaTienda ? { ...config, excludeProductIds: [] } : { ...config, productIds: [] }
   );
-  // Cada producto ocupa su id, las comillas y la coma. Se cuenta con el id más
-  // largo para no prometer un lugar que después no esté.
-  const porProducto = lista.reduce((m, id) => Math.max(m, bytesDe(id)), 0) + 3;
-  const maximo = Math.max(
-    0,
-    Math.min(lista.length - 1, Math.floor((TIERED_METAFIELD_MAX_BYTES - sinLista + 1) / porProducto))
-  );
+  // Cada producto ocupa su id, las comillas y la coma (el primero, sin coma).
+  // Se cuentan primero los ids MÁS LARGOS: así el número que se promete entra
+  // sea cual sea el producto que el comerciante decida quitar.
+  const pesos = lista.map((id) => bytesDe(id) + 3).sort((a, b) => b - a);
+  let libre = TIERED_METAFIELD_MAX_BYTES - sinLista + 1;
+  let maximo = 0;
+  for (const peso of pesos) {
+    if (peso > libre) break;
+    libre -= peso;
+    maximo++;
+  }
+  maximo = Math.min(maximo, lista.length - 1);
 
   const cuantos = normalizeTiers(config.tiers, config.valueType ?? "PERCENT").length;
   const niveles = cuantos === 1 ? "el nivel que elegiste" : `los ${cuantos} niveles que elegiste`;
@@ -227,18 +235,18 @@ export function mensajeTieredDemasiadoGrande(config: TieredCampaignConfig): stri
   if (todaLaTienda)
     return (
       `Esta campaña supera el límite: excluye ${lista.length} productos y, con ${niveles}, ` +
-      `admite hasta ${maximo} productos excluidos. Quita exclusiones o usa menos niveles.`
+      `admite hasta ${maximo} productos excluidos. Quitá exclusiones o usá menos niveles.`
     );
 
   if (maximo === 0)
     return (
       `Esta campaña supera el límite: tiene ${excluidos.length} productos excluidos y ya no ` +
-      `queda lugar para los productos con descuento. Quita exclusiones.`
+      `queda lugar para los productos con descuento. Quitá exclusiones.`
     );
 
   return (
     `Esta campaña supera el límite: abarca ${lista.length} productos y, con ${niveles}, ` +
-    `admite hasta ${maximo}. Reduce la selección o usa menos niveles.` +
+    `admite hasta ${maximo}. Reducí la selección o usá menos niveles.` +
     (excluidos.length > 0
       ? ` Los ${excluidos.length} productos excluidos también ocupan lugar: con menos exclusiones entran más productos.`
       : "")

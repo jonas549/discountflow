@@ -690,15 +690,23 @@ export const reactivateHandler: JobHandler = {
       // esto, la puerta de seguridad de la Function dejaría la campaña activa y
       // sin descontar, en silencio. Misma lógica que el listado ya hacía.
       const t = await tieredOps();
-      await t.updateTieredDiscount(
-        ctx.admin,
-        id,
-        ctx.campaign.id,
-        ctx.campaign.name,
-        ctx.campaign.config as TieredCampaignConfig,
-        ctx.campaign.startsAt,
-        ctx.campaign.endsAt
-      );
+      try {
+        await t.updateTieredDiscount(
+          ctx.admin,
+          id,
+          ctx.campaign.id,
+          ctx.campaign.name,
+          ctx.campaign.config as TieredCampaignConfig,
+          ctx.campaign.startsAt,
+          ctx.campaign.endsAt
+        );
+      } catch (err) {
+        // N1: la selección creció y ya no entra. Reintentar no lo arregla: se
+        // corta ya, con el motivo que entiende el comerciante.
+        if (err instanceof Error && err.name === "TieredDemasiadoGrandeError")
+          throw new JobFatalError(err.message);
+        throw err;
+      }
       await t.activateTieredDiscount(ctx.admin, id);
     } else if (ctx.campaign.type === "PACK") {
       // Igual que TIERED: se reescribe el metafield antes de activar, para que

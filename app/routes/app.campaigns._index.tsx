@@ -51,6 +51,7 @@ import {
 } from "../lib/discounts/bxgy-client";
 import {
   createTieredDiscount,
+  tieredDemasiadoGrande,
   deactivateTieredDiscount,
   activateTieredDiscount,
   deleteTieredDiscount,
@@ -269,6 +270,16 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       if (operacion === "REACTIVATE") {
         const limite = await comprobarLimitesAlReactivar(shop, campaign);
         if (limite) return limite;
+        // N1: un Escalonado cuya selección creció mientras estaba pausado y ya
+        // no entra. Mismo criterio que el límite de plan: se avisa ANTES de
+        // encolar, porque un job fallido cierra la barra sin dejar el motivo.
+        if (campaign.type === "TIERED") {
+          const exceso = await tieredDemasiadoGrande(
+            admin,
+            campaign.config as TieredCampaignConfig
+          );
+          if (exceso) return Response.json({ error: exceso }, { status: 422 });
+        }
         // Reactivar a mano una campaña cuyo fin programado ya pasó: esa fecha ya
         // no manda, o el cron la volvería a pausar a los cinco minutos.
         if (campaign.autoEnd && campaign.endsAt && campaign.endsAt <= new Date())
