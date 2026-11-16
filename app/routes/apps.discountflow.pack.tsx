@@ -20,8 +20,8 @@
 // pregunta acá y se corrige solo si algo difiere. Sin estado de carga en ningún
 // camino.
 //
-// ⚠️ Cada llamada es una invocación de Vercel. En Hobby eso cuenta. Por eso la
-// respuesta se cachea y NO llama a la Admin API: todo sale de la foto que
+// ⚠️ Cada llamada es una invocación de Vercel: la respuesta NO se cachea (ver
+// O1 más abajo). Por eso NO llama a la Admin API: todo sale de la foto que
 // guardó el admin al guardar la campaña.
 
 import type { LoaderFunctionArgs } from "react-router";
@@ -37,10 +37,11 @@ function json(data: unknown, status = 200) {
     status,
     headers: {
       "Content-Type": "application/json; charset=utf-8",
-      // 60 s de caché: suficiente para que una ráfaga de visitas no se convierta
-      // en una ráfaga de invocaciones, y poco para que un cambio del merchant se
-      // vea casi al instante. `stale-while-revalidate` evita el pico al expirar.
-      "Cache-Control": "public, max-age=60, stale-while-revalidate=300",
+      // O1 (2026-11-16): SIN caché. Con 60 s + `stale-while-revalidate` el aviso
+      // del carrito seguía prometiendo el descuento un rato después de pausar o
+      // eliminar el pack. Prometer un descuento que no existe es peor que una
+      // invocación más por visita (decisión de Jonas).
+      "Cache-Control": "no-store",
     },
   });
 }

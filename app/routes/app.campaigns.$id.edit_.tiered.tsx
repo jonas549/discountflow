@@ -14,7 +14,11 @@ import {
   getProductsByIds,
   getCollectionsByIds,
 } from "../lib/shopify/admin-api";
-import { createTieredDiscount, updateTieredDiscount } from "../lib/discounts/tiered";
+import {
+  createTieredDiscount,
+  tieredDemasiadoGrande,
+  updateTieredDiscount,
+} from "../lib/discounts/tiered";
 import {
   DEFAULT_TIERS,
   type TieredCampaignConfig,
@@ -117,6 +121,11 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     shopifyDiscountId: previous.shopifyDiscountId,
     functionId: previous.functionId,
   };
+
+  // N1: una selección que no entra en lo que la Function puede leer quedaría
+  // «Activa» sin descontar. Se rechaza acá, antes de guardar nada.
+  const exceso = await tieredDemasiadoGrande(admin, config);
+  if (exceso) return Response.json({ errors: { general: exceso } }, { status: 422 });
 
   await prisma.campaign.update({
     where: { id: campaignId },

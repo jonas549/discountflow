@@ -1,7 +1,7 @@
 // Helpers client-safe para campañas TIERED (sin imports de servidor).
 
-import type { Tier, TierMode, TierValueType } from "./tiered-calc";
-import { normalizeTiers } from "./tiered-calc";
+import type { Tier, TierMode, TierValueType } from "./tiered-calc.ts";
+import { normalizeTiers } from "./tiered-calc.ts";
 
 export type { Tier, TierMode, TierValueType };
 
@@ -177,4 +177,70 @@ export function toFunctionConfig(config: TieredCampaignConfig) {
     excludeProductIds: config.excludeProductIds ?? [],
     message: config.message || "Descuento por cantidad",
   };
+}
+
+// ─── N1: tope de tamaño ───────────────────────────────────────────────────────
+//
+// Shopify le entrega `null` a la Function cuando el valor del metafield pasa de
+// 10.000 bytes: la campaña queda «Activa» y no descuenta nada, en silencio.
+// Medido el 2026-11-16 en dev: 9.986 bytes descuenta, 10.012 ya no. Lo que
+// manda es el TAMAÑO (productos + niveles + exclusiones + mensaje), no una
+// cantidad fija de productos. Se deja un margen por debajo de lo medido.
+export const TIERED_METAFIELD_MAX_BYTES = 9_900;
+
+const bytesDe = (texto: string) => new TextEncoder().encode(texto).length;
+
+/** Tamaño real, en bytes, de lo que se le escribe a la Function. */
+export function tieredConfigBytes(config: TieredCampaignConfig): number {
+  return bytesDe(JSON.stringify(toFunctionConfig(config)));
+}
+
+/** La selección no entra en lo que la Function puede leer. */
+export class TieredDemasiadoGrandeError extends Error {}
+
+/**
+ * `null` si la campaña entra; si no, el texto para el comerciante, con cuántos
+ * productos admite con los niveles que eligió. `config.productIds` tiene que
+ * venir ya RESUELTO (los productos reales de la colección, etiqueta, etc.).
+ */
+export function mensajeTieredDemasiadoGrande(config: TieredCampaignConfig): string | null {
+  if (tieredConfigBytes(config) <= TIERED_METAFIELD_MAX_BYTES) return null;
+
+  const todaLaTienda = config.selectionMode === "all";
+  const excluidos = config.excludeProductIds ?? [];
+  // En «toda la tienda» lo único que crece es la lista de exclusiones.
+  const lista = todaLaTienda ? excluidos : config.productIds ?? [];
+  const sinLista = tieredConfigBytes(
+    todaLaTienda ? { ...config, excludeProductIds: [] } : { ...config, productIds: [] }
+  );
+  // Cada producto ocupa su id, las comillas y la coma. Se cuenta con el id más
+  // largo para no prometer un lugar que después no esté.
+  const porProducto = lista.reduce((m, id) => Math.max(m, bytesDe(id)), 0) + 3;
+  const maximo = Math.max(
+    0,
+    Math.min(lista.length - 1, Math.floor((TIERED_METAFIELD_MAX_BYTES - sinLista + 1) / porProducto))
+  );
+
+  const cuantos = normalizeTiers(config.tiers, config.valueType ?? "PERCENT").length;
+  const niveles = cuantos === 1 ? "el nivel que elegiste" : `los ${cuantos} niveles que elegiste`;
+
+  if (todaLaTienda)
+    return (
+      `Esta campaña supera el límite: excluye ${lista.length} productos y, con ${niveles}, ` +
+      `admite hasta ${maximo} productos excluidos. Quita exclusiones o usa menos niveles.`
+    );
+
+  if (maximo === 0)
+    return (
+      `Esta campaña supera el límite: tiene ${excluidos.length} productos excluidos y ya no ` +
+      `queda lugar para los productos con descuento. Quita exclusiones.`
+    );
+
+  return (
+    `Esta campaña supera el límite: abarca ${lista.length} productos y, con ${niveles}, ` +
+    `admite hasta ${maximo}. Reduce la selección o usa menos niveles.` +
+    (excluidos.length > 0
+      ? ` Los ${excluidos.length} productos excluidos también ocupan lugar: con menos exclusiones entran más productos.`
+      : "")
+  );
 }

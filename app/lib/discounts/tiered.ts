@@ -17,6 +17,8 @@ import {
 import {
   type TieredCampaignConfig,
   toFunctionConfig,
+  mensajeTieredDemasiadoGrande,
+  TieredDemasiadoGrandeError,
   tieredDiscountTitle,
   TIERED_METAFIELD_KEY,
 } from "./tiered-client";
@@ -248,6 +250,35 @@ export async function countTieredProducts(
   }
 }
 
+// ─── N1: tope de tamaño ───────────────────────────────────────────────────────
+
+/**
+ * Para rechazar AL GUARDAR, antes de escribir nada: resuelve la selección y
+ * devuelve el texto para el comerciante si no entra, o `null` si entra.
+ *
+ * Si la selección no se puede resolver (un borrador con la colección vacía,
+ * por ejemplo) devuelve `null`: ese caso ya tiene su propio mensaje al activar
+ * y un borrador así hoy se puede guardar.
+ */
+export async function tieredDemasiadoGrande(
+  admin: AdminClient,
+  config: TieredCampaignConfig
+): Promise<string | null> {
+  let productIds: string[];
+  try {
+    productIds = await resolveTieredProductIds(admin, config);
+  } catch {
+    return null;
+  }
+  return mensajeTieredDemasiadoGrande({ ...config, productIds });
+}
+
+/** Última barrera: nunca se le escribe a Shopify una campaña que no descontaría. */
+function exigirQueEntre(resolved: TieredCampaignConfig): void {
+  const exceso = mensajeTieredDemasiadoGrande(resolved);
+  if (exceso) throw new TieredDemasiadoGrandeError(exceso);
+}
+
 // ─── Crear ────────────────────────────────────────────────────────────────────
 
 export async function createTieredDiscount(
@@ -262,6 +293,7 @@ export async function createTieredDiscount(
   const productIds = await resolveTieredProductIds(admin, config);
 
   const resolved: TieredCampaignConfig = { ...config, productIds, functionId };
+  exigirQueEntre(resolved);
   const functionConfig = toFunctionConfig(resolved);
 
   // TEMPORAL [tiered-debug] — instrumentación para diagnosticar SkinUp.
@@ -372,6 +404,7 @@ export async function updateTieredDiscount(
 ): Promise<void> {
   const productIds = await resolveTieredProductIds(admin, config);
   const resolved: TieredCampaignConfig = { ...config, productIds, shopifyDiscountId };
+  exigirQueEntre(resolved);
 
   // TEMPORAL [tiered-debug]
   console.log(
